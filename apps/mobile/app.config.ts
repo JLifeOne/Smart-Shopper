@@ -1,0 +1,56 @@
+import 'dotenv/config';
+import type { ConfigContext, ExpoConfig } from 'expo/config';
+
+const APP_NAME = 'Smart Shopper';
+const APP_SLUG = 'smart-shopper';
+const VERSION = '0.1.0';
+
+export default ({ config }: ConfigContext): ExpoConfig => ({
+  ...config,
+  name: APP_NAME,
+  slug: APP_SLUG,
+  version: VERSION,
+  orientation: 'portrait',
+  scheme: 'smartshopper',
+  userInterfaceStyle: 'automatic',
+  icon: './assets/icon.png',
+  updates: {
+    url: 'https://u.expo.dev/placeholder',
+    fallbackToCacheTimeout: 0
+  },
+  splash: {
+    image: './assets/splash.png',
+    resizeMode: 'contain',
+    backgroundColor: '#0C1D37'
+  },
+  assetBundlePatterns: ['**/*'],
+  ios: {
+    supportsTablet: true,
+    bundleIdentifier: 'com.smartshopper.app',
+    runtimeVersion: {
+      policy: 'sdkVersion'
+    }
+  },
+  android: {
+    package: 'com.smartshopper.app',
+    adaptiveIcon: {
+      foregroundImage: './assets/adaptive-icon.png',
+      backgroundColor: '#FFFFFF'
+    },
+    permissions: []
+  },
+  web: {
+    bundler: 'metro',
+    output: 'static',
+    favicon: './assets/favicon.png'
+  },
+  plugins: ['expo-router', 'expo-secure-store'],
+  experiments: {
+    typedRoutes: true
+  },
+  extra: {
+    supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL ?? '',
+    supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '',
+    enableMockAuth: process.env.EXPO_PUBLIC_ENABLE_MOCK_AUTH === 'true'
+  }
+});

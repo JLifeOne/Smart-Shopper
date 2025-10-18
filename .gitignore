@@ -33,6 +33,7 @@ pnpm-debug.log*
 .env.*
 apps/mobile/.env
 apps/mobile/.env.*
+apps/mobile/expo-env.d.ts
 
 # Coverage
 coverage/

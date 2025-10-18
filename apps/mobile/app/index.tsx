@@ -1,13 +1,22 @@
-import { Link } from 'expo-router';
-import { useMemo } from 'react';
+import { Link, useRouter } from 'expo-router';
+import { useEffect, useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { useAuth } from '@/src/context/auth-context';
 
 export default function HomeScreen() {
+  const router = useRouter();
+  const { session, initializing } = useAuth();
   const heroText = useMemo(
     () => 'Track prices, build smarter lists, and know the cheapest store before you shop.',
     []
   );
+
+  useEffect(() => {
+    if (!initializing && session) {
+      router.replace('/(app)/home');
+    }
+  }, [initializing, router, session]);
 
   return (
     <View style={styles.container}>

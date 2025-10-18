@@ -10,15 +10,16 @@ import {
   View
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
+import { useAuth } from '@/src/context/auth-context';
 
 export default function SignUpScreen() {
   const router = useRouter();
+  const { signUpWithPassword, isAuthenticating, lastError } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [isSubmitting, setSubmitting] = useState(false);
 
-  const handleSignUp = useCallback(() => {
+  const handleSignUp = useCallback(async () => {
     if (!email || !password || !confirmPassword) {
       Alert.alert('Missing info', 'Fill in all fields to continue.');
       return;
@@ -27,13 +28,22 @@ export default function SignUpScreen() {
       Alert.alert('Password mismatch', 'Make sure both passwords match.');
       return;
     }
-    setSubmitting(true);
-    // TODO: Swap with Supabase sign-up + magic link flow.
-    setTimeout(() => {
-      setSubmitting(false);
-      router.replace('/auth/sign-in');
-    }, 600);
-  }, [confirmPassword, email, password, router]);
+    const result = await signUpWithPassword({ email, password });
+    if (!result.success) {
+      Alert.alert('Sign-up failed', result.errorMessage ?? 'Please try again.');
+      return;
+    }
+    Alert.alert(
+      'Check your email',
+      'Confirm your email address to finish creating your Smart Shopper account.',
+      [
+        {
+          text: 'Done',
+          onPress: () => router.replace('/auth/sign-in')
+        }
+      ]
+    );
+  }, [confirmPassword, email, password, router, signUpWithPassword]);
 
   return (
     <KeyboardAvoidingView
@@ -75,14 +85,15 @@ export default function SignUpScreen() {
           onPress={handleSignUp}
           style={({ pressed }) => [
             styles.primaryButton,
-            pressed && !isSubmitting ? styles.primaryButtonPressed : undefined,
-            isSubmitting ? styles.disabledButton : undefined
+            pressed && !isAuthenticating ? styles.primaryButtonPressed : undefined,
+            isAuthenticating ? styles.disabledButton : undefined
           ]}
           accessibilityRole="button"
-          disabled={isSubmitting}
+          disabled={isAuthenticating}
         >
-          <Text style={styles.primaryButtonLabel}>{isSubmitting ? 'Creating…' : 'Sign up'}</Text>
+          <Text style={styles.primaryButtonLabel}>{isAuthenticating ? 'Creating…' : 'Sign up'}</Text>
         </Pressable>
+        {lastError ? <Text style={styles.errorText}>{lastError}</Text> : null}
         <View style={styles.footerRow}>
           <Text style={styles.footerText}>Already have an account?</Text>
           <Link href="/auth/sign-in" style={styles.link}>
@@ -147,6 +158,12 @@ const styles = StyleSheet.create({
   },
   footerText: {
     color: '#9CA8BC',
+    fontSize: 14
+  },
+  errorText: {
+    marginTop: 12,
+    textAlign: 'center',
+    color: '#F56565',
     fontSize: 14
   },
   link: {

@@ -4,15 +4,21 @@
     "baseUrl": ".",
     "jsx": "react-jsx",
     "strict": true,
-    "types": ["jest"],
+    "types": [
+      "jest"
+    ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": [
+        "./*"
+      ]
     }
   },
   "include": [
     "./**/*.ts",
     "./**/*.tsx",
-    "./types/**/*.d.ts"
+    "./types/**/*.d.ts",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
   ],
   "exclude": [
     "node_modules",

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -10,25 +10,32 @@ import {
   View
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
+import { useAuth } from '@/src/context/auth-context';
 
 export default function SignInScreen() {
   const router = useRouter();
+  const { signInWithPassword, isAuthenticating, lastError, session, initializing } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isSubmitting, setSubmitting] = useState(false);
 
-  const handleSignIn = useCallback(() => {
+  useEffect(() => {
+    if (session && !initializing) {
+      router.replace('/(app)/home');
+    }
+  }, [initializing, router, session]);
+
+  const handleSignIn = useCallback(async () => {
     if (!email || !password) {
       Alert.alert('Missing info', 'Enter your email and password to continue.');
       return;
     }
-    setSubmitting(true);
-    // TODO: Wire up Supabase auth. Placeholder ensures UI feedback.
-    setTimeout(() => {
-      setSubmitting(false);
-      router.replace('/(app)/home');
-    }, 500);
-  }, [email, password, router]);
+    const result = await signInWithPassword({ email, password });
+    if (!result.success) {
+      Alert.alert('Sign-in failed', result.errorMessage ?? 'Check your credentials and try again.');
+      return;
+    }
+    router.replace('/(app)/home');
+  }, [email, password, router, signInWithPassword]);
 
   return (
     <KeyboardAvoidingView
@@ -61,14 +68,15 @@ export default function SignInScreen() {
           onPress={handleSignIn}
           style={({ pressed }) => [
             styles.primaryButton,
-            pressed && !isSubmitting ? styles.primaryButtonPressed : undefined,
-            isSubmitting ? styles.disabledButton : undefined
+            pressed && !isAuthenticating ? styles.primaryButtonPressed : undefined,
+            isAuthenticating ? styles.disabledButton : undefined
           ]}
           accessibilityRole="button"
-          disabled={isSubmitting}
+          disabled={isAuthenticating || initializing}
         >
-          <Text style={styles.primaryButtonLabel}>{isSubmitting ? 'Signing in…' : 'Sign in'}</Text>
+          <Text style={styles.primaryButtonLabel}>{isAuthenticating ? 'Signing in…' : 'Sign in'}</Text>
         </Pressable>
+        {lastError ? <Text style={styles.errorText}>{lastError}</Text> : null}
         <View style={styles.footerRow}>
           <Text style={styles.footerText}>Need an account?</Text>
           <Link href="/auth/sign-up" style={styles.link}>
@@ -133,6 +141,12 @@ const styles = StyleSheet.create({
   },
   footerText: {
     color: '#9CA8BC',
+    fontSize: 14
+  },
+  errorText: {
+    marginTop: 12,
+    textAlign: 'center',
+    color: '#F56565',
     fontSize: 14
   },
   link: {
