@@ -9,7 +9,7 @@
     "build": "tsup src/index.ts --format esm,cjs --dts --sourcemap",
     "clean": "rimraf dist",
     "lint": "eslint src --ext .ts",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

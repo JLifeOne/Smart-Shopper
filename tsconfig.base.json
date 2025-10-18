@@ -12,6 +12,15 @@
     "resolveJsonModule": true,
     "noEmit": true,
     "strict": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@smart-shopper/core": ["packages/core/src/index.ts"],
+      "@smart-shopper/core/*": ["packages/core/src/*"],
+      "@smart-shopper/theming": ["packages/theme/src/index.ts"],
+      "@smart-shopper/theming/*": ["packages/theme/src/*"],
+      "@smart-shopper/ui": ["packages/ui/src/index.tsx"],
+      "@smart-shopper/ui/*": ["packages/ui/src/*"]
+    }
   }
 }

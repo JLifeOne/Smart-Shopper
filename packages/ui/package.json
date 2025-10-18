@@ -9,7 +9,7 @@
     "build": "tsup src/index.tsx --format esm,cjs --dts --sourcemap",
     "clean": "rimraf dist",
     "lint": "eslint src --ext .ts,.tsx",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {

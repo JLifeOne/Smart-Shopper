@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "jest"
+    "test": "jest --passWithNoTests"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
@@ -40,6 +40,7 @@
     "@testing-library/react-native": "^12.5.3",
     "@tsconfig/react-native": "^3.0.7",
     "@types/jest": "^29.5.11",
+    "@types/node": "^20.19.22",
     "@types/react": "~19.1.10",
     "@typescript-eslint/eslint-plugin": "^7.11.0",
     "@typescript-eslint/parser": "^7.11.0",

@@ -13,7 +13,10 @@ export const UserSchema = z.object({
       includeTaxInComparisons: z.boolean().default(true),
       defaultStoreId: z.string().nullable()
     })
-    .default({})
+    .default(() => ({
+      includeTaxInComparisons: true,
+      defaultStoreId: null
+    }))
 });
 
 export type User = z.infer<typeof UserSchema>;

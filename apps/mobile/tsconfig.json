@@ -6,7 +6,8 @@
     "strict": true,
     "experimentalDecorators": true,
     "types": [
-      "jest"
+      "jest",
+      "node"
     ],
     "paths": {
       "@/*": [
