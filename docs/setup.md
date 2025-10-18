@@ -10,8 +10,8 @@ pm install -g eas-cli, optional for builds)
 
 ## Repository Bootstrapping
 `ash
-pnpm install                          # install workspace dependencies
-pnpm --filter @smart-shopper/mobile start -- --tunnel  # start Expo dev server with a tunnel
+pnpm install
+pnpm --filter @smart-shopper/mobile start -- --tunnel
 `
 
 If pnpm is unavailable, run 
@@ -19,10 +19,12 @@ px pnpm install to use the bundled version.
 
 ## Mobile App Scripts
 - pnpm --filter @smart-shopper/mobile start — start Metro bundler
-- pnpm --filter @smart-shopper/mobile android — launch Android build
-- pnpm --filter @smart-shopper/mobile ios — launch iOS build
+- pnpm --filter @smart-shopper/mobile android — launch Android build (requires dev client)
+- pnpm --filter @smart-shopper/mobile ios — launch iOS build (requires dev client)
 - pnpm --filter @smart-shopper/mobile test — run Jest tests
 - pnpm --filter @smart-shopper/mobile lint — run ESLint
+
+> **Note:** WatermelonDB relies on JSI. Use a custom development client (expo run:android / expo run:ios) rather than Expo Go when testing database features.
 
 ## Packages
 - packages/core — domain models, validation, pricing helpers
@@ -42,7 +44,7 @@ Create pps/mobile/.env with the following placeholders:
 `ash
 EXPO_PUBLIC_SUPABASE_URL=
 EXPO_PUBLIC_SUPABASE_ANON_KEY=
-EXPO_PUBLIC_ENABLE_MOCK_AUTH=false   # optional, enables fake auth for UI dev
+EXPO_PUBLIC_ENABLE_MOCK_AUTH=false
 `
 
 pp.config.ts reads these values at build time. Never expose the Supabase service role key in the mobile app.

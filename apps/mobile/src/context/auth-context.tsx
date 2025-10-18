@@ -1,6 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+﻿import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { getSupabaseClient } from '@/src/lib/supabase';
+import { supabaseEnv } from '@/src/lib/env';
+import { syncService } from '@/src/database/sync-service';
 
 export interface AuthActionResult {
   success: boolean;
@@ -25,6 +27,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabase = getSupabaseClient();
+  const isMockMode = !supabase && supabaseEnv.enableMockAuth;
   const [session, setSession] = useState<Session | null>(null);
   const [initializing, setInitializing] = useState(true);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
@@ -68,6 +71,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [supabase]);
 
+  useEffect(() => {
+    syncService.setSession(session);
+  }, [session]);
+
   const buildErrorResult = useCallback((message: string): AuthActionResult => {
     setLastError(message);
     return { success: false, errorMessage: message };
@@ -76,9 +83,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithPassword = useCallback<AuthContextValue['signInWithPassword']>(
     async ({ email, password }) => {
       if (!supabase) {
-        const message =
-          'Supabase is not configured yet. Update EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.';
-        return buildErrorResult(message);
+        if (isMockMode) {
+          const mockSession = createMockSession(email);
+          setSession(mockSession);
+          setLastError(null);
+          return { success: true };
+        }
+        return buildErrorResult(
+          'Supabase is not configured yet. Update EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.'
+        );
       }
       setIsAuthenticating(true);
       setLastError(null);
@@ -91,17 +104,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return buildErrorResult(error.message);
       }
       setSession(data.session ?? null);
+      syncService.flushPending().catch((flushError) => {
+        console.warn('Sync flush failed', flushError);
+      });
       return { success: true };
     },
-    [buildErrorResult, supabase]
+    [buildErrorResult, isMockMode, supabase]
   );
 
   const signUpWithPassword = useCallback<AuthContextValue['signUpWithPassword']>(
     async ({ email, password }) => {
       if (!supabase) {
-        const message =
-          'Supabase is not configured yet. Update EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.';
-        return buildErrorResult(message);
+        if (isMockMode) {
+          setLastError(null);
+          return { success: true };
+        }
+        return buildErrorResult(
+          'Supabase is not configured yet. Update EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.'
+        );
       }
       setIsAuthenticating(true);
       setLastError(null);
@@ -114,17 +134,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return buildErrorResult(error.message);
       }
       setSession(data.session ?? null);
+      syncService.flushPending().catch((flushError) => {
+        console.warn('Sync flush failed', flushError);
+      });
       return { success: true };
     },
-    [buildErrorResult, supabase]
+    [buildErrorResult, isMockMode, supabase]
   );
 
   const requestPasswordReset = useCallback<AuthContextValue['requestPasswordReset']>(
     async (email) => {
       if (!supabase) {
-        const message =
-          'Supabase is not configured yet. Update EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.';
-        return buildErrorResult(message);
+        if (isMockMode) {
+          setLastError(null);
+          return { success: true };
+        }
+        return buildErrorResult(
+          'Supabase is not configured yet. Update EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.'
+        );
       }
       setLastError(null);
       const { error } = await supabase.auth.resetPasswordForEmail(email);
@@ -133,12 +160,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       return { success: true };
     },
-    [buildErrorResult, supabase]
+    [buildErrorResult, isMockMode, supabase]
   );
 
   const signOut = useCallback(async () => {
     if (!supabase) {
       setSession(null);
+      await syncService.reset();
       return;
     }
     const { error } = await supabase.auth.signOut();
@@ -146,6 +174,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLastError(error.message);
     } else {
       setSession(null);
+      await syncService.reset();
     }
   }, [supabase]);
 
@@ -198,4 +227,35 @@ export function useAuth() {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
+}
+
+function createMockSession(email: string): Session {
+  const timestamp = new Date().toISOString();
+  const expiresIn = 60 * 60 * 24;
+  const user = {
+    id: `mock-${email}`,
+    aud: 'authenticated',
+    role: 'authenticated',
+    email,
+    email_confirmed_at: timestamp,
+    phone: '',
+    confirmed_at: timestamp,
+    last_sign_in_at: timestamp,
+    app_metadata: { provider: 'mock', providers: ['mock'] },
+    user_metadata: { mock: true },
+    identities: [],
+    created_at: timestamp,
+    updated_at: timestamp
+  } as unknown as User;
+
+  return {
+    access_token: 'mock-access-token',
+    token_type: 'bearer',
+    expires_in: expiresIn,
+    expires_at: Math.floor(Date.now() / 1000) + expiresIn,
+    refresh_token: 'mock-refresh-token',
+    provider_token: null,
+    provider_refresh_token: null,
+    user
+  } as Session;
 }

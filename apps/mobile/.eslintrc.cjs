@@ -1,7 +1,7 @@
-module.exports = {
+﻿module.exports = {
   root: true,
   extends: ['@react-native-community'],
-  ignorePatterns: ['expo-env.d.ts'],
+  ignorePatterns: ['expo-env.d.ts', 'babel.config.js', 'metro.config.js', 'jest.config.js', 'index.js'],
   parserOptions: {
     requireConfigFile: false
   },

@@ -1,5 +1,6 @@
-import { useCallback, useState } from 'react';
+﻿import { useCallback, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -15,9 +16,13 @@ import { useAuth } from '@/src/context/auth-context';
 export default function SignUpScreen() {
   const router = useRouter();
   const { signUpWithPassword, isAuthenticating, lastError } = useAuth();
+  const passwordRef = useRef<TextInput | null>(null);
+  const confirmRef = useRef<TextInput | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleSignUp = useCallback(async () => {
     if (!email || !password || !confirmPassword) {
@@ -62,25 +67,59 @@ export default function SignUpScreen() {
           placeholderTextColor="#9CA8BC"
           style={styles.input}
           textContentType="emailAddress"
+          returnKeyType="next"
+          blurOnSubmit={false}
+          onSubmitEditing={() => passwordRef.current?.focus()}
         />
-        <TextInput
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-          placeholder="Password"
-          placeholderTextColor="#9CA8BC"
-          style={styles.input}
-          textContentType="newPassword"
-        />
-        <TextInput
-          secureTextEntry
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          placeholder="Confirm password"
-          placeholderTextColor="#9CA8BC"
-          style={styles.input}
-          textContentType="newPassword"
-        />
+        <View style={styles.passwordRow}>
+          <TextInput
+            ref={passwordRef}
+            secureTextEntry={!showPassword}
+            value={password}
+            onChangeText={setPassword}
+            placeholder="Password"
+            placeholderTextColor="#9CA8BC"
+            style={[styles.input, styles.passwordInput]}
+            textContentType="newPassword"
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="next"
+            blurOnSubmit={false}
+            onSubmitEditing={() => confirmRef.current?.focus()}
+          />
+          <Pressable
+            onPress={() => setShowPassword((current) => !current)}
+            style={({ pressed }) => [styles.togglePasswordButton, pressed && styles.togglePasswordButtonPressed]}
+            accessibilityRole="button"
+            accessibilityLabel={showPassword ? 'Hide password' : 'View password'}
+          >
+            <Text style={styles.togglePasswordLabel}>{showPassword ? 'Hide' : 'View'}</Text>
+          </Pressable>
+        </View>
+        <View style={styles.passwordRow}>
+          <TextInput
+            ref={confirmRef}
+            secureTextEntry={!showConfirmPassword}
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            placeholder="Confirm password"
+            placeholderTextColor="#9CA8BC"
+            style={[styles.input, styles.passwordInput]}
+            textContentType="newPassword"
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="done"
+            onSubmitEditing={handleSignUp}
+          />
+          <Pressable
+            onPress={() => setShowConfirmPassword((current) => !current)}
+            style={({ pressed }) => [styles.togglePasswordButton, pressed && styles.togglePasswordButtonPressed]}
+            accessibilityRole="button"
+            accessibilityLabel={showConfirmPassword ? 'Hide password' : 'View password'}
+          >
+            <Text style={styles.togglePasswordLabel}>{showConfirmPassword ? 'Hide' : 'View'}</Text>
+          </Pressable>
+        </View>
         <Pressable
           onPress={handleSignUp}
           style={({ pressed }) => [
@@ -91,7 +130,11 @@ export default function SignUpScreen() {
           accessibilityRole="button"
           disabled={isAuthenticating}
         >
-          <Text style={styles.primaryButtonLabel}>{isAuthenticating ? 'Creating…' : 'Sign up'}</Text>
+          {isAuthenticating ? (
+            <ActivityIndicator color="#0C1D37" />
+          ) : (
+            <Text style={styles.primaryButtonLabel}>Sign up</Text>
+          )}
         </Pressable>
         {lastError ? <Text style={styles.errorText}>{lastError}</Text> : null}
         <View style={styles.footerRow}>
@@ -130,6 +173,29 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16
   },
+  passwordRow: {
+    position: 'relative'
+  },
+  passwordInput: {
+    paddingRight: 72
+  },
+  togglePasswordButton: {
+    position: 'absolute',
+    right: 12,
+    top: '50%',
+    marginTop: -18,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: 'rgba(79, 209, 197, 0.15)'
+  },
+  togglePasswordButtonPressed: {
+    opacity: 0.8
+  },
+  togglePasswordLabel: {
+    color: '#4FD1C5',
+    fontWeight: '600'
+  },
   primaryButton: {
     backgroundColor: '#4FD1C5',
     paddingVertical: 14,
@@ -141,7 +207,7 @@ const styles = StyleSheet.create({
     opacity: 0.85
   },
   disabledButton: {
-    opacity: 0.65
+    opacity: 0.5
   },
   primaryButtonLabel: {
     color: '#0C1D37',
