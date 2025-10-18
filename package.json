@@ -1,0 +1,23 @@
+{
+  "name": "smart-shopper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Smart Shopper monorepo",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "echo \"Run workspace apps with pnpm --filter apps/mobile dev\"",
+    "build": "echo \"Define build pipeline in individual packages\"",
+    "lint": "echo \"Linting configured per package\"",
+    "test": "echo \"Add test runner once packages are initialized\"",
+    "typecheck": "echo \"Add TypeScript project references before running typecheck\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JLifeOne/Smart-Shopper.git"
+  },
+  "license": "MIT"
+}

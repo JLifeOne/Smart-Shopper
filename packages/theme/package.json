@@ -1,0 +1,25 @@
+{
+  "name": "@smart-shopper/theming",
+  "version": "0.1.0",
+  "private": false,
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --sourcemap",
+    "clean": "rimraf dist",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "@typescript-eslint/eslint-plugin": "^7.11.0",
+    "@typescript-eslint/parser": "^7.11.0",
+    "eslint": "^8.57.0",
+    "rimraf": "^6.1.3",
+    "tsup": "^8.0.1",
+    "typescript": "^5.4.5",
+    "vitest": "^1.5.2"
+  }
+}
