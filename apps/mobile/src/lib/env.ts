@@ -4,6 +4,8 @@ type Extra = {
   supabaseUrl?: string;
   supabaseAnonKey?: string;
   enableMockAuth?: boolean;
+  featureNewNav?: boolean;
+  featureCreateWorkflow?: boolean;
 };
 
 const extra = (Constants.expoConfig?.extra ?? {}) as Extra;
@@ -12,6 +14,11 @@ const env = {
   supabaseUrl: extra.supabaseUrl ?? '',
   supabaseAnonKey: extra.supabaseAnonKey ?? '',
   enableMockAuth: extra.enableMockAuth ?? false
+};
+
+const flags = {
+  newNav: extra.featureNewNav ?? false,
+  createWorkflow: extra.featureCreateWorkflow ?? false
 };
 
 if (__DEV__) {
@@ -23,5 +30,7 @@ if (__DEV__) {
 }
 
 export const supabaseEnv = env;
+export const featureFlags = flags;
 
 export type SupabaseEnvironment = typeof env;
+export type FeatureFlags = typeof flags;

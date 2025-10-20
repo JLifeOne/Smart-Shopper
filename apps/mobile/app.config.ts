@@ -51,6 +51,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   extra: {
     supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL ?? '',
     supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '',
-    enableMockAuth: process.env.EXPO_PUBLIC_ENABLE_MOCK_AUTH === 'true'
+    enableMockAuth: process.env.EXPO_PUBLIC_ENABLE_MOCK_AUTH === 'true',
+    featureNewNav: process.env.EXPO_PUBLIC_FEATURE_NEW_NAV === 'true',
+    featureCreateWorkflow: process.env.EXPO_PUBLIC_FEATURE_CREATE_WORKFLOW === 'true'
   }
 });
