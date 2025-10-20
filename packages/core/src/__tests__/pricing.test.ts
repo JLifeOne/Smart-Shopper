@@ -21,4 +21,10 @@ describe('pricing utilities', () => {
 
     expect(unitPrice).toBeCloseTo(0.01);
   });
+
+  it('throws when conversion is unsupported', () => {
+    expect(() =>
+      convertToBaseUnit({ size: { unit: 'ct', value: 2 }, category: 'pantry', baseUnitOverride: 'ml' })
+    ).toThrowError('Cannot convert ct to ml');
+  });
 });
