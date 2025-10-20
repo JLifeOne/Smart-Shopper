@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/src/context/auth-context';
@@ -7,6 +7,7 @@ import { featureFlags } from '@/src/lib/env';
 import { trackEvent } from '@/src/lib/analytics';
 import { useDashboardMetrics } from '@/src/lib/dashboard-data';
 import type { HeatmapData } from '@/src/lib/dashboard-data';
+import { useRecommendations } from '@/src/features/recommendations/use-recommendations';
 
 const NEXT_ACTIONS = [
   'Create a list via text, voice, or photo capture.',
@@ -14,7 +15,7 @@ const NEXT_ACTIONS = [
   'Review the calendar heatmap once you have transaction data.'
 ] as const;
 
-const SUGGESTED_ITEMS = ['Milk', 'Butter', 'Bananas', 'Yogurt', 'Olive oil'] as const;
+const FALLBACK_SUGGESTED_ITEMS = ['Milk', 'Butter', 'Bananas', 'Yogurt', 'Olive oil'] as const;
 
 type AuthContextValue = ReturnType<typeof useAuth>;
 type TabKey = 'home' | 'search' | 'promos' | 'receipts';
@@ -96,6 +97,18 @@ function DashboardView({
     user?.id ?? undefined,
     featureFlags.heatmapV2
   );
+  const { data: recommendations, loading: recommendationsLoading, error: recommendationsError } = useRecommendations(
+    featureFlags.aiSuggestions
+      ? {
+          query: 'pantry staples',
+          locale: user?.user_metadata?.locale ?? undefined
+        }
+      : null,
+    { enabled: Boolean(user) }
+  );
+  const suggestedItems = recommendations.length
+    ? recommendations.map((suggestion) => suggestion.label)
+    : Array.from(FALLBACK_SUGGESTED_ITEMS);
   const welcomeMessage = useMemo(
     () =>
       user?.email
@@ -121,6 +134,7 @@ function DashboardView({
   }, [user?.email]);
 
   const [menuStage, setMenuStage] = useState<MenuStage>('closed');
+  const [profileVisible, setProfileVisible] = useState(false);
 
   const openMenu = useCallback(() => {
     setMenuStage('root');
@@ -128,6 +142,14 @@ function DashboardView({
 
   const closeMenu = useCallback(() => {
     setMenuStage('closed');
+  }, []);
+
+  const openProfile = useCallback(() => {
+    setProfileVisible(true);
+  }, []);
+
+  const closeProfile = useCallback(() => {
+    setProfileVisible(false);
   }, []);
 
   const handleNavigateToReceipts = useCallback(() => {
@@ -143,25 +165,18 @@ function DashboardView({
   }, [closeMenu, handleSignOut, isAuthenticating]);
 
   return (
-    <>
-      <ScrollView contentContainerStyle={newStyles.dashboardScroll} showsVerticalScrollIndicator={false}>
-        <View style={newStyles.headerRow}>
-          <View style={newStyles.avatar}>
-            <Text style={newStyles.avatarText}>{initials}</Text>
-          </View>
-          <View style={newStyles.headerCopy}>
-            <Text style={newStyles.heading}>Hello{user?.email ? ',' : ''}</Text>
-            <Text style={newStyles.subtitle}>{user?.email ?? 'Guest Shopper'}</Text>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            onPress={openMenu}
-            style={({ pressed }) => [newStyles.menuButton, pressed && newStyles.menuButtonPressed]}
-          >
-            <Ionicons name="ellipsis-horizontal" size={20} color="#0C1D37" />
-          </Pressable>
+    <View style={newStyles.dashboardContainer}>
+      <TopBar initials={initials} onProfilePress={openProfile} onMenuPress={openMenu} />
+      <Animated.ScrollView
+        contentContainerStyle={newStyles.dashboardScroll}
+        showsVerticalScrollIndicator={false}
+        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+      >
+        <View style={newStyles.greetingCard}>
+          <Text style={newStyles.heading}>Hello{user?.email ? ',' : ''}</Text>
+          <Text style={newStyles.subtitle}>{user?.email ?? 'Guest Shopper'}</Text>
+          <Text style={newStyles.welcome}>{welcomeMessage}</Text>
         </View>
-        <Text style={newStyles.welcome}>{welcomeMessage}</Text>
 
         <View style={newStyles.analyticsGrid}>
           <View style={[newStyles.analyticsCard, newStyles.performanceCard]}>
@@ -204,12 +219,19 @@ function DashboardView({
 
         <View style={newStyles.card}>
           <Text style={newStyles.cardTitle}>Suggested additions</Text>
+          {recommendationsError ? (
+            <Text style={newStyles.suggestionStatus}>Suggestions paused: {recommendationsError}</Text>
+          ) : null}
           <View style={newStyles.suggestionsRow}>
-            {SUGGESTED_ITEMS.map((item) => (
-              <Pressable key={item} style={({ pressed }) => [newStyles.suggestionChip, pressed && newStyles.suggestionChipPressed]}>
-                <Text style={newStyles.suggestionChipLabel}>{item}</Text>
-              </Pressable>
-            ))}
+            {recommendationsLoading ? (
+              <Text style={newStyles.suggestionStatus}>Loading ideas…</Text>
+            ) : (
+              suggestedItems.map((item) => (
+                <Pressable key={item} style={({ pressed }) => [newStyles.suggestionChip, pressed && newStyles.suggestionChipPressed]}>
+                  <Text style={newStyles.suggestionChipLabel}>{item}</Text>
+                </Pressable>
+              ))
+            )}
           </View>
         </View>
 
@@ -221,7 +243,8 @@ function DashboardView({
             </Text>
           ))}
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
+      <ProfilePeekSheet visible={profileVisible} onClose={closeProfile} user={user} onSignOut={handleRequestSignOut} />
       <MenuModal
         stage={menuStage}
         onStageChange={setMenuStage}
@@ -231,7 +254,90 @@ function DashboardView({
         isAuthenticating={isAuthenticating}
         flags={featureFlags}
       />
-    </>
+    </View>
+  );
+}
+
+function TopBar({
+  initials,
+  onProfilePress,
+  onMenuPress
+}: {
+  initials: string;
+  onProfilePress: () => void;
+  onMenuPress: () => void;
+}) {
+  return (
+    <View style={newStyles.topBar}>
+      <View style={newStyles.logoBadge}>
+        <Text style={newStyles.logoLetter}>SS</Text>
+      </View>
+      <Text style={newStyles.logoWordmark}>Smart Shopper</Text>
+      <View style={newStyles.topBarSpacer} />
+      <Pressable
+        accessibilityRole="button"
+        onPress={onProfilePress}
+        style={({ pressed }) => [newStyles.topBarAvatar, pressed && newStyles.topBarAvatarPressed]}
+      >
+        <Text style={newStyles.topBarAvatarLabel}>{initials}</Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onMenuPress}
+        style={({ pressed }) => [newStyles.menuButton, pressed && newStyles.menuButtonPressed]}
+      >
+        <Ionicons name="ellipsis-horizontal" size={22} color="#0C1D37" />
+      </Pressable>
+    </View>
+  );
+}
+
+function ProfilePeekSheet({
+  visible,
+  onClose,
+  user,
+  onSignOut
+}: {
+  visible: boolean;
+  onClose: () => void;
+  user: AuthContextValue['user'];
+  onSignOut: () => void;
+}) {
+  if (!visible) {
+    return null;
+  }
+  return (
+    <Modal transparent animationType="fade" visible onRequestClose={onClose}>
+      <View style={newStyles.profileOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View style={newStyles.profileSheet}>
+          <View style={newStyles.profileAvatar}>
+            <Text style={newStyles.profileAvatarLabel}>
+              {user?.email
+                ? user.email
+                    .split('@')[0]
+                    .split('.')
+                    .map((part) => part.charAt(0).toUpperCase())
+                    .join('')
+                    .slice(0, 2)
+                : 'SS'}
+            </Text>
+          </View>
+          <Text style={newStyles.profileName}>{user?.email?.split('@')[0] ?? 'Guest Shopper'}</Text>
+          <Text style={newStyles.profileEmail}>{user?.email ?? 'No email linked yet'}</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              onClose();
+              onSignOut();
+            }}
+            style={({ pressed }) => [newStyles.profileSignOutButton, pressed && newStyles.profileSignOutButtonPressed]}
+          >
+            <Text style={newStyles.profileSignOutLabel}>Sign out</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -387,9 +493,9 @@ function SettingsMenuContent({ flags }: { flags: typeof featureFlags }) {
       )}
       <MenuSectionTitle>Account</MenuSectionTitle>
       <MenuInfoCard
-        icon="person-circle-outline"
-        title="Profile & household"
-        body="Manage profile, household sharing, and notifications on smartshopper.app once available."
+        icon="person-outline"
+        title="Profile settings"
+        body="Tap your avatar in the top bar to review contact details or update your household preferences."
       />
       <MenuInfoCard
         icon="shield-checkmark-outline"
@@ -981,20 +1087,60 @@ const newStyles = StyleSheet.create({
     flex: 1,
     paddingBottom: 110
   },
+  dashboardContainer: {
+    flex: 1
+  },
   dashboardScroll: {
     paddingHorizontal: 24,
     paddingTop: 32,
     paddingBottom: 24,
     gap: 24
   },
-  headerRow: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between'
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 8,
+    gap: 12
   },
-  headerCopy: {
-    flex: 1,
-    marginHorizontal: 16
+  logoBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#0C1D37',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  logoLetter: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 14
+  },
+  logoWordmark: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  topBarSpacer: {
+    flex: 1
+  },
+  topBarAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#4FD1C5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8
+  },
+  topBarAvatarPressed: {
+    opacity: 0.85
+  },
+  topBarAvatarLabel: {
+    color: '#0C1D37',
+    fontWeight: '700',
+    fontSize: 16
   },
   heading: {
     fontSize: 20,
@@ -1011,18 +1157,15 @@ const newStyles = StyleSheet.create({
     lineHeight: 24,
     color: '#0C1D37'
   },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#4FD1C5',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  avatarText: {
-    color: '#0C1D37',
-    fontWeight: '700',
-    fontSize: 16
+  greetingCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    gap: 8,
+    shadowColor: '#101828',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2
   },
   menuButton: {
     width: 40,
@@ -1104,6 +1247,10 @@ const newStyles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 12
   },
+  suggestionStatus: {
+    color: '#6C7A91',
+    fontSize: 13
+  },
   suggestionChip: {
     backgroundColor: '#4FD1C51A',
     paddingHorizontal: 14,
@@ -1182,6 +1329,64 @@ const newStyles = StyleSheet.create({
   heatmapError: {
     fontSize: 12,
     color: '#DC2626'
+  },
+  profileOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(12,29,55,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24
+  },
+  profileSheet: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    paddingVertical: 28,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    gap: 12,
+    shadowColor: '#101828',
+    shadowOpacity: 0.14,
+    shadowRadius: 24,
+    elevation: 8
+  },
+  profileAvatar: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#4FD1C5',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  profileAvatarLabel: {
+    color: '#0C1D37',
+    fontWeight: '700',
+    fontSize: 24
+  },
+  profileName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#0C1D37'
+  },
+  profileEmail: {
+    fontSize: 14,
+    color: '#4A576D'
+  },
+  profileSignOutButton: {
+    marginTop: 8,
+    backgroundColor: '#E53E3E',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 20
+  },
+  profileSignOutButtonPressed: {
+    opacity: 0.85
+  },
+  profileSignOutLabel: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    letterSpacing: 0.4
   },
   placeholderContainer: {
     flex: 1,

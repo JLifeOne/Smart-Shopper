@@ -10,6 +10,9 @@ type Extra = {
   featureInventoryView?: boolean;
   featureThemeSelection?: boolean;
   featureListParserV2?: boolean;
+  featureListSharing?: boolean;
+  featureAiSuggestions?: boolean;
+  recoServiceUrl?: string;
 };
 
 const extra = (Constants.expoConfig?.extra ?? {}) as Extra;
@@ -17,7 +20,8 @@ const extra = (Constants.expoConfig?.extra ?? {}) as Extra;
 const env = {
   supabaseUrl: extra.supabaseUrl ?? '',
   supabaseAnonKey: extra.supabaseAnonKey ?? '',
-  enableMockAuth: extra.enableMockAuth ?? false
+  enableMockAuth: extra.enableMockAuth ?? false,
+  recoServiceUrl: extra.recoServiceUrl ?? ''
 };
 
 const flags = {
@@ -26,7 +30,9 @@ const flags = {
   heatmapV2: extra.featureHeatmapV2 ?? false,
   inventoryView: extra.featureInventoryView ?? false,
   themeSelection: extra.featureThemeSelection ?? false,
-  listParserV2: extra.featureListParserV2 ?? false
+  listParserV2: extra.featureListParserV2 ?? false,
+  listSharing: extra.featureListSharing ?? false,
+  aiSuggestions: extra.featureAiSuggestions ?? false
 };
 
 if (__DEV__) {

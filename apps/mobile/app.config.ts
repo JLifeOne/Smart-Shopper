@@ -57,6 +57,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     featureHeatmapV2: process.env.EXPO_PUBLIC_FEATURE_HEATMAP_V2 === 'true',
     featureInventoryView: process.env.EXPO_PUBLIC_FEATURE_INVENTORY_VIEW === 'true',
     featureThemeSelection: process.env.EXPO_PUBLIC_FEATURE_THEME_SELECTION === 'true',
-    featureListParserV2: process.env.EXPO_PUBLIC_FEATURE_LIST_PARSER_V2 === 'true'
+    featureListParserV2: process.env.EXPO_PUBLIC_FEATURE_LIST_PARSER_V2 === 'true',
+    featureListSharing: process.env.EXPO_PUBLIC_FEATURE_LIST_SHARING === 'true',
+    featureAiSuggestions: process.env.EXPO_PUBLIC_FEATURE_AI_SUGGESTIONS === 'true',
+    recoServiceUrl: process.env.EXPO_PUBLIC_RECO_SERVICE_URL ?? ''
   }
 });

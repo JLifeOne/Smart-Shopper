@@ -19,6 +19,9 @@ interface AuthContextValue {
   signInWithPassword: (params: { email: string; password: string }) => Promise<AuthActionResult>;
   signUpWithPassword: (params: { email: string; password: string }) => Promise<AuthActionResult>;
   requestPasswordReset: (email: string) => Promise<AuthActionResult>;
+  requestPhoneOtp: (params: { phone: string }) => Promise<AuthActionResult>;
+  verifyPhoneOtp: (params: { phone: string; token: string }) => Promise<AuthActionResult>;
+  updateProfile: (params: { displayName?: string; locale?: string; avatarUrl?: string }) => Promise<AuthActionResult>;
   signOut: () => Promise<void>;
   refreshSession: () => Promise<void>;
 }
@@ -163,6 +166,76 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [buildErrorResult, isMockMode, supabase]
   );
 
+  const requestPhoneOtp = useCallback<AuthContextValue['requestPhoneOtp']>(
+    async ({ phone }) => {
+      if (!supabase) {
+        return buildErrorResult('Supabase phone auth is not configured. Check environment variables.');
+      }
+      setIsAuthenticating(true);
+      setLastError(null);
+      const { error } = await supabase.auth.signInWithOtp({
+        phone,
+        options: {
+          channel: 'sms'
+        }
+      });
+      setIsAuthenticating(false);
+      if (error) {
+        return buildErrorResult(error.message);
+      }
+      return { success: true };
+    },
+    [buildErrorResult, supabase]
+  );
+
+  const verifyPhoneOtp = useCallback<AuthContextValue['verifyPhoneOtp']>(
+    async ({ phone, token }) => {
+      if (!supabase) {
+        return buildErrorResult('Supabase phone auth is not configured. Check environment variables.');
+      }
+      setIsAuthenticating(true);
+      setLastError(null);
+      const { data, error } = await supabase.auth.verifyOtp({
+        phone,
+        token,
+        type: 'sms'
+      });
+      setIsAuthenticating(false);
+      if (error) {
+        return buildErrorResult(error.message);
+      }
+      setSession(data.session ?? null);
+      syncService.flushPending().catch((flushError) => {
+        console.warn('Sync flush failed', flushError);
+      });
+      return { success: true };
+    },
+    [buildErrorResult, supabase]
+  );
+
+  const updateProfile = useCallback<AuthContextValue['updateProfile']>(
+    async ({ displayName, locale }) => {
+      if (!supabase || !session?.user?.id) {
+        return buildErrorResult('User session not ready.');
+      }
+      const payload: Record<string, unknown> = {
+        id: session.user.id
+      };
+      if (displayName !== undefined) {
+        payload.display_name = displayName;
+      }
+      if (locale !== undefined) {
+        payload.locale = locale;
+      }
+      const { error } = await supabase.from('profiles').upsert(payload as never).select('id').single();
+      if (error) {
+        return buildErrorResult(error.message);
+      }
+      return { success: true };
+    },
+    [buildErrorResult, session?.user?.id, supabase]
+  );
+
   const signOut = useCallback(async () => {
     if (!supabase) {
       setSession(null);
@@ -201,6 +274,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signInWithPassword,
       signUpWithPassword,
       requestPasswordReset,
+      requestPhoneOtp,
+      verifyPhoneOtp,
+      updateProfile,
       signOut,
       refreshSession
     }),
@@ -213,6 +289,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signInWithPassword,
       signUpWithPassword,
       requestPasswordReset,
+      requestPhoneOtp,
+      verifyPhoneOtp,
+      updateProfile,
       signOut,
       refreshSession
     ]
