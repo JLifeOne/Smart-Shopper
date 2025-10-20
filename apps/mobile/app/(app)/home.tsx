@@ -1,24 +1,12 @@
-import { useCallback, useMemo, useState } from 'react';
-import {
-  Alert,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View
-} from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/src/context/auth-context';
 import { featureFlags } from '@/src/lib/env';
-
-const QUICK_STATS = [
-  { label: 'Lists', value: '0' },
-  { label: 'Tracked items', value: '0' },
-  { label: 'Receipts scanned', value: '0' }
-] as const;
+import { trackEvent } from '@/src/lib/analytics';
+import { useDashboardMetrics } from '@/src/lib/dashboard-data';
+import type { HeatmapData } from '@/src/lib/dashboard-data';
 
 const NEXT_ACTIONS = [
   'Create a list via text, voice, or photo capture.',
@@ -30,6 +18,7 @@ const SUGGESTED_ITEMS = ['Milk', 'Butter', 'Bananas', 'Yogurt', 'Olive oil'] as 
 
 type AuthContextValue = ReturnType<typeof useAuth>;
 type TabKey = 'home' | 'search' | 'promos' | 'receipts';
+type MenuStage = 'closed' | 'root' | 'settings' | 'receipts' | 'help';
 
 export default function HomeScreen() {
   const auth = useAuth();
@@ -103,6 +92,10 @@ function DashboardView({
   onNavigate: (tab: TabKey) => void;
 }) {
   const { user, signOut, isAuthenticating } = auth;
+  const { quickStats, heatmap, loading: metricsLoading, error: metricsError } = useDashboardMetrics(
+    user?.id ?? undefined,
+    featureFlags.heatmapV2
+  );
   const welcomeMessage = useMemo(
     () =>
       user?.email
@@ -127,23 +120,27 @@ function DashboardView({
       .slice(0, 2);
   }, [user?.email]);
 
-  const [menuVisible, setMenuVisible] = useState(false);
+  const [menuStage, setMenuStage] = useState<MenuStage>('closed');
 
-  const handleMenuOption = useCallback(
-    (option: 'settings' | 'receipts' | 'help' | 'signout') => {
-      setMenuVisible(false);
-      if (option === 'receipts') {
-        onNavigate('receipts');
-      } else if (option === 'signout') {
-        if (!isAuthenticating) {
-          handleSignOut();
-        }
-      } else {
-        Alert.alert('Coming soon', `The ${option} experience is on the roadmap.`);
-      }
-    },
-    [handleSignOut, isAuthenticating, onNavigate]
-  );
+  const openMenu = useCallback(() => {
+    setMenuStage('root');
+  }, []);
+
+  const closeMenu = useCallback(() => {
+    setMenuStage('closed');
+  }, []);
+
+  const handleNavigateToReceipts = useCallback(() => {
+    setMenuStage('closed');
+    onNavigate('receipts');
+  }, [onNavigate]);
+
+  const handleRequestSignOut = useCallback(() => {
+    if (!isAuthenticating) {
+      closeMenu();
+      void handleSignOut();
+    }
+  }, [closeMenu, handleSignOut, isAuthenticating]);
 
   return (
     <>
@@ -158,7 +155,7 @@ function DashboardView({
           </View>
           <Pressable
             accessibilityRole="button"
-            onPress={() => setMenuVisible(true)}
+            onPress={openMenu}
             style={({ pressed }) => [newStyles.menuButton, pressed && newStyles.menuButtonPressed]}
           >
             <Ionicons name="ellipsis-horizontal" size={20} color="#0C1D37" />
@@ -170,9 +167,9 @@ function DashboardView({
           <View style={[newStyles.analyticsCard, newStyles.performanceCard]}>
             <Text style={newStyles.cardTitle}>At a glance</Text>
             <View style={newStyles.quickStatRow}>
-              {QUICK_STATS.map((stat) => (
+              {quickStats.map((stat) => (
                 <View key={stat.label} style={newStyles.quickStat}>
-                  <Text style={newStyles.quickStatValue}>{stat.value}</Text>
+                  <Text style={newStyles.quickStatValue}>{metricsLoading ? '…' : stat.value}</Text>
                   <Text style={newStyles.quickStatLabel}>{stat.label}</Text>
                 </View>
               ))}
@@ -181,7 +178,12 @@ function DashboardView({
 
           <View style={newStyles.analyticsCard}>
             <Text style={newStyles.cardTitle}>Spend heatmap</Text>
-            <HeatmapPreview />
+            <HeatmapCalendar
+              data={heatmap}
+              loading={metricsLoading}
+              enabled={featureFlags.heatmapV2}
+              error={metricsError}
+            />
           </View>
 
           <View style={newStyles.analyticsCard}>
@@ -220,36 +222,250 @@ function DashboardView({
           ))}
         </View>
       </ScrollView>
-
-      <Modal visible={menuVisible} transparent animationType="fade">
-        <Pressable style={newStyles.menuBackdrop} onPress={() => setMenuVisible(false)}>
-          <View style={newStyles.menuSheet}>
-            <Text style={newStyles.menuHeading}>Menu</Text>
-            <MenuItem label="Receipts" icon="document-text-outline" onPress={() => handleMenuOption('receipts')} />
-            <MenuItem label="Settings" icon="settings-outline" onPress={() => handleMenuOption('settings')} />
-            <MenuItem label="Help & support" icon="help-circle-outline" onPress={() => handleMenuOption('help')} />
-            <MenuItem
-              label="Sign out"
-              icon="log-out-outline"
-              destructive
-              disabled={isAuthenticating}
-              onPress={() => handleMenuOption('signout')}
-            />
-          </View>
-        </Pressable>
-      </Modal>
+      <MenuModal
+        stage={menuStage}
+        onStageChange={setMenuStage}
+        onClose={closeMenu}
+        onNavigateReceipts={handleNavigateToReceipts}
+        onSignOut={handleRequestSignOut}
+        isAuthenticating={isAuthenticating}
+        flags={featureFlags}
+      />
     </>
   );
 }
 
-function MenuItem({
+function MenuModal({
+  stage,
+  onStageChange,
+  onClose,
+  onNavigateReceipts,
+  onSignOut,
+  isAuthenticating,
+  flags
+}: {
+  stage: MenuStage;
+  onStageChange: (stage: MenuStage) => void;
+  onClose: () => void;
+  onNavigateReceipts: () => void;
+  onSignOut: () => void;
+  isAuthenticating: boolean;
+  flags: typeof featureFlags;
+}) {
+  if (stage === 'closed') {
+    return null;
+  }
+
+  const handleShowStage = (nextStage: Exclude<MenuStage, 'closed'>) => {
+    onStageChange(nextStage);
+  };
+
+  const handleBack = () => {
+    onStageChange('root');
+  };
+
+  const activeStage = stage;
+
+  const headerTitle = (() => {
+    switch (activeStage) {
+      case 'settings':
+        return 'Settings';
+      case 'receipts':
+        return 'Receipts';
+      case 'help':
+        return 'Help & support';
+      default:
+        return 'Quick menu';
+    }
+  })();
+
+  const content = (() => {
+    switch (activeStage) {
+      case 'settings':
+        return <SettingsMenuContent flags={flags} />;
+      case 'receipts':
+        return <ReceiptsMenuContent onNavigateReceipts={onNavigateReceipts} />;
+      case 'help':
+        return <HelpMenuContent />;
+      default:
+        return (
+          <MenuRoot
+            onShowStage={handleShowStage}
+            onSignOut={onSignOut}
+            isAuthenticating={isAuthenticating}
+          />
+        );
+    }
+  })();
+
+  return (
+    <Modal transparent animationType="fade" visible onRequestClose={onClose}>
+      <View style={newStyles.menuOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View style={newStyles.menuContainer}>
+          <View style={newStyles.menuHeader}>
+            {activeStage !== 'root' ? (
+              <Pressable accessibilityRole="button" onPress={handleBack} style={newStyles.menuHeaderButton}>
+                <Ionicons name="chevron-back" size={20} color="#0C1D37" />
+              </Pressable>
+            ) : (
+              <View style={newStyles.menuHeaderSpacer} />
+            )}
+            <Text style={newStyles.menuHeaderTitle}>{headerTitle}</Text>
+            <Pressable accessibilityRole="button" onPress={onClose} style={newStyles.menuHeaderButton}>
+              <Ionicons name="close" size={20} color="#0C1D37" />
+            </Pressable>
+          </View>
+          <ScrollView style={newStyles.menuScroll} contentContainerStyle={newStyles.menuScrollContent}>
+            {content}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function MenuRoot({
+  onShowStage,
+  onSignOut,
+  isAuthenticating
+}: {
+  onShowStage: (stage: Exclude<MenuStage, 'closed' | 'root'>) => void;
+  onSignOut: () => void;
+  isAuthenticating: boolean;
+}) {
+  return (
+    <View style={newStyles.menuSection}>
+      <MenuActionItem
+        label="Receipts dashboard"
+        description="Review scans, exports, and reimbursement insights."
+        icon="document-text-outline"
+        onPress={() => onShowStage('receipts')}
+      />
+      <MenuActionItem
+        label="Settings"
+        description="Update preferences, theme, and notification plan."
+        icon="settings-outline"
+        onPress={() => onShowStage('settings')}
+      />
+      <MenuActionItem
+        label="Help & support"
+        description="Browse FAQs or contact the smart shopper team."
+        icon="help-circle-outline"
+        onPress={() => onShowStage('help')}
+      />
+      <MenuDivider />
+      <MenuActionItem
+        label="Sign out"
+        description="Sign out of Smart Shopper on this device."
+        icon="log-out-outline"
+        destructive
+        disabled={isAuthenticating}
+        onPress={onSignOut}
+      />
+    </View>
+  );
+}
+
+function SettingsMenuContent({ flags }: { flags: typeof featureFlags }) {
+  return (
+    <View style={newStyles.menuSection}>
+      <MenuSectionTitle>Personalization</MenuSectionTitle>
+      {flags.themeSelection ? (
+        <MenuActionItem
+          label="App theme"
+          description="Choose a color palette for navigation and analytics cards."
+          icon="color-palette-outline"
+          onPress={() => Alert.alert('Theme selection', 'Theme selection controls will land in Sprint 1.')}
+        />
+      ) : (
+        <MenuInfoCard
+          icon="color-palette-outline"
+          title="Dynamic themes coming soon"
+          body="Theme selection ships in Sprint 1. Keep this page handy to try the new palettes once the feature flag is on."
+        />
+      )}
+      <MenuSectionTitle>Account</MenuSectionTitle>
+      <MenuInfoCard
+        icon="person-circle-outline"
+        title="Profile & household"
+        body="Manage profile, household sharing, and notifications on smartshopper.app once available."
+      />
+      <MenuInfoCard
+        icon="shield-checkmark-outline"
+        title="Privacy"
+        body="Receipt data is stored securely with Supabase policies. Delete requests can be sent through Help & support."
+      />
+    </View>
+  );
+}
+
+function ReceiptsMenuContent({ onNavigateReceipts }: { onNavigateReceipts: () => void }) {
+  return (
+    <View style={newStyles.menuSection}>
+      <MenuSectionTitle>Capture options</MenuSectionTitle>
+      <MenuInfoCard
+        icon="scan-outline"
+        title="Scan a receipt"
+        body="Use the Receipts tab to scan receipts and sync price points to your heatmap automatically."
+      />
+      <MenuSectionTitle>Quick actions</MenuSectionTitle>
+      <MenuActionItem
+        label="Open receipts tab"
+        description="Jump into the receipts workspace to view upload history."
+        icon="open-outline"
+        onPress={onNavigateReceipts}
+      />
+      <MenuInfoCard
+        icon="trending-up-outline"
+        title="Analytics tie-ins"
+        body="Receipts populate inventory counts, price history, and daily heatmap totals. Connect more stores to enrich insights."
+      />
+    </View>
+  );
+}
+
+function HelpMenuContent() {
+  return (
+    <View style={newStyles.menuSection}>
+      <MenuSectionTitle>Need assistance?</MenuSectionTitle>
+      <MenuInfoCard
+        icon="chatbubbles-outline"
+        title="Knowledge base"
+        body="Browse quick tips for list building, receipt scanning, and analytics. Articles roll out alongside each sprint."
+      />
+      <MenuInfoCard
+        icon="mail-outline"
+        title="Contact support"
+        body="Email support@smartshopper.app for help with account access, data corrections, or feature requests."
+      />
+      <MenuInfoCard
+        icon="bulb-outline"
+        title="Roadmap feedback"
+        body="Share suggestions directly inside the beta community so we can prioritize the features that matter most."
+      />
+    </View>
+  );
+}
+
+function MenuSectionTitle({ children }: { children: string }) {
+  return <Text style={newStyles.menuSectionTitle}>{children}</Text>;
+}
+
+function MenuDivider() {
+  return <View style={newStyles.menuDivider} />;
+}
+
+function MenuActionItem({
   label,
+  description,
   icon,
   destructive,
-  onPress,
-  disabled
+  disabled,
+  onPress
 }: {
   label: string;
+  description?: string;
   icon: React.ComponentProps<typeof Ionicons>['name'];
   destructive?: boolean;
   disabled?: boolean;
@@ -259,54 +475,119 @@ function MenuItem({
     <Pressable
       style={({ pressed }) => [
         newStyles.menuItem,
-        pressed && newStyles.menuItemPressed,
-        destructive && newStyles.menuItemDestructive
+        pressed && !disabled && newStyles.menuItemPressed,
+        destructive && newStyles.menuItemDestructive,
+        disabled && newStyles.menuItemDisabled
       ]}
       accessibilityRole="button"
       onPress={onPress}
       disabled={disabled}
     >
-      <Ionicons name={icon} size={18} color={destructive ? '#E53E3E' : '#0C1D37'} />
-      <Text style={[newStyles.menuItemLabel, destructive && newStyles.menuItemLabelDestructive]}>{label}</Text>
+      <View style={newStyles.menuItemIcon}>
+        <Ionicons name={icon} size={20} color={destructive ? '#E53E3E' : '#0C1D37'} />
+      </View>
+      <View style={newStyles.menuItemText}>
+        <Text style={[newStyles.menuItemLabel, destructive && newStyles.menuItemLabelDestructive]}>{label}</Text>
+        {description ? <Text style={newStyles.menuItemDescription}>{description}</Text> : null}
+      </View>
     </Pressable>
   );
 }
 
-function HeatmapPreview() {
-  const grid = [
-    [1, 0, 2, 1, 3, 2, 1],
-    [0, 1, 2, 0, 2, 3, 2],
-    [0, 0, 1, 1, 2, 2, 3],
-    [1, 1, 0, 2, 3, 2, 1],
-    [2, 1, 1, 0, 1, 2, 2],
-    [3, 2, 1, 1, 0, 1, 2],
-    [2, 3, 2, 1, 1, 0, 1]
-  ];
-
+function MenuInfoCard({
+  icon,
+  title,
+  body
+}: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  title: string;
+  body: string;
+}) {
   return (
-    <View style={newStyles.heatmap}>
-      {grid.map((row, rowIndex) => (
-        <View key={rowIndex} style={newStyles.heatmapRow}>
-          {row.map((value, index) => (
-            <View key={`${rowIndex}-${index}`} style={[newStyles.heatmapCell, heatmapIntensity(value)]} />
-          ))}
-        </View>
-      ))}
-      <Text style={newStyles.heatmapLegend}>Weekly spend intensity (demo)</Text>
+    <View style={newStyles.menuInfoCard}>
+      <View style={newStyles.menuInfoIcon}>
+        <Ionicons name={icon} size={20} color="#4FD1C5" />
+      </View>
+      <View style={newStyles.menuInfoText}>
+        <Text style={newStyles.menuInfoTitle}>{title}</Text>
+        <Text style={newStyles.menuInfoBody}>{body}</Text>
+      </View>
     </View>
   );
 }
 
-function heatmapIntensity(value: number) {
+function HeatmapCalendar({
+  data,
+  loading,
+  enabled,
+  error
+}: {
+  data: HeatmapData;
+  loading: boolean;
+  enabled: boolean;
+  error?: string;
+}) {
+  return (
+    <View style={newStyles.heatmap}>
+      <View style={newStyles.heatmapHeader}>
+        <Pressable accessibilityRole="button" style={newStyles.heatmapNavButton} disabled>
+          <Ionicons name="chevron-back" size={16} color="#94A3B8" />
+        </Pressable>
+        <Text style={newStyles.heatmapTitle}>{data.monthLabel}</Text>
+        <Pressable accessibilityRole="button" style={newStyles.heatmapNavButton} disabled>
+          <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+        </Pressable>
+      </View>
+      <View style={newStyles.heatmapGrid}>
+        {data.weeks.map((week, rowIndex) => (
+          <View key={`${data.monthLabel}-week-${rowIndex}`} style={newStyles.heatmapRow}>
+            {week.map((cell) => (
+              <View
+                key={cell.isoDay}
+                style={[newStyles.heatmapCell, heatmapIntensity(cell.intensity, cell.isCurrentMonth)]}
+              >
+                <Text
+                  style={[
+                    newStyles.heatmapCellLabel,
+                    !cell.isCurrentMonth && newStyles.heatmapCellLabelMuted,
+                    cell.intensity >= 3 && newStyles.heatmapCellLabelOnDark
+                  ]}
+                >
+                  {cell.date.getUTCDate()}
+                </Text>
+                {cell.total > 0 ? (
+                  <View
+                    style={[
+                      newStyles.heatmapDot,
+                      cell.intensity >= 3 && newStyles.heatmapDotOnDark
+                    ]}
+                  />
+                ) : null}
+              </View>
+            ))}
+          </View>
+        ))}
+      </View>
+      {loading ? <Text style={newStyles.heatmapHint}>Refreshing spend heatmap…</Text> : null}
+      {!enabled ? <Text style={newStyles.heatmapHint}>Enable feature_heatmap_v2 to test live data.</Text> : null}
+      {error ? <Text style={newStyles.heatmapError}>{error}</Text> : null}
+    </View>
+  );
+}
+
+function heatmapIntensity(value: number, isCurrentMonth: boolean) {
+  if (!isCurrentMonth) {
+    return { backgroundColor: '#E2E8F0' };
+  }
   switch (value) {
     case 0:
-      return { backgroundColor: '#E2E8F0' };
+      return { backgroundColor: '#EFF6FF' };
     case 1:
-      return { backgroundColor: '#CBD5F5' };
+      return { backgroundColor: '#BFDBFE' };
     case 2:
-      return { backgroundColor: '#A5B9F0' };
+      return { backgroundColor: '#93C5FD' };
     default:
-      return { backgroundColor: '#7B98F0' };
+      return { backgroundColor: '#3B82F6' };
   }
 }
 
@@ -393,12 +674,52 @@ function NavTabButton({
 function CreateSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<'type' | 'voice' | 'camera'>('type');
   const [textValue, setTextValue] = useState('');
+  const parsedItems = useMemo(
+    () =>
+      textValue
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0),
+    [textValue]
+  );
+  const itemCount = parsedItems.length;
+  const listParserReady = featureFlags.listParserV2;
+
+  useEffect(() => {
+    if (visible) {
+      trackEvent('create_sheet_opened');
+      return;
+    }
+    setActiveTab('type');
+    setTextValue('');
+  }, [visible]);
+
+  const handleDismiss = useCallback(() => {
+    trackEvent('create_sheet_closed', { fromTab: activeTab, typedItems: itemCount });
+    onClose();
+  }, [activeTab, itemCount, onClose]);
+
+  const handleTabChange = useCallback(
+    (tab: 'type' | 'voice' | 'camera') => {
+      setActiveTab(tab);
+      trackEvent('create_sheet_tab_selected', { tab });
+    },
+    []
+  );
 
   const handleAddItems = useCallback(() => {
-    Alert.alert('Processing items', 'Categorization logic will be wired into this workflow soon.');
+    if (!itemCount) {
+      Alert.alert('Add your items', 'Enter at least one item to continue.');
+      return;
+    }
+    trackEvent('create_sheet_items_submitted', { tab: 'type', itemCount });
+    Alert.alert(
+      'Items captured',
+      `We will categorize ${itemCount} item${itemCount === 1 ? '' : 's'} as list parsing matures.`
+    );
     setTextValue('');
-    onClose();
-  }, [onClose]);
+    handleDismiss();
+  }, [handleDismiss, itemCount]);
 
   const renderBody = () => {
     if (activeTab === 'type') {
@@ -411,10 +732,20 @@ function CreateSheet({ visible, onClose }: { visible: boolean; onClose: () => vo
             value={textValue}
             onChangeText={setTextValue}
           />
+          <Text style={newStyles.createHelperText}>
+            {itemCount
+              ? `${itemCount} item${itemCount === 1 ? '' : 's'} ready to add`
+              : 'Type or paste one item per line to build your list.'}
+          </Text>
           <Pressable
             accessibilityRole="button"
             onPress={handleAddItems}
-            style={({ pressed }) => [newStyles.createSubmitButton, pressed && newStyles.createSubmitButtonPressed]}
+            disabled={!itemCount}
+            style={({ pressed }) => [
+              newStyles.createSubmitButton,
+              pressed && itemCount > 0 && newStyles.createSubmitButtonPressed,
+              !itemCount && newStyles.createSubmitButtonDisabled
+            ]}
           >
             <Text style={newStyles.createSubmitButtonLabel}>Add items</Text>
           </Pressable>
@@ -423,21 +754,25 @@ function CreateSheet({ visible, onClose }: { visible: boolean; onClose: () => vo
     }
 
     const label = activeTab === 'voice' ? 'Voice capture' : 'Camera capture';
+    const bodyCopy = listParserReady
+      ? `${label} is rolling out with List Parser v2. We will enable beta access for your account soon.`
+      : `${label} will launch alongside List Parser v2. Keep typing lists for now so analytics can stay accurate.`;
     return (
       <View style={newStyles.createPlaceholder}>
         <Ionicons name="construct-outline" size={36} color="#4FD1C5" />
         <Text style={newStyles.createPlaceholderTitle}>{label} coming soon</Text>
-        <Text style={newStyles.createPlaceholderBody}>
-          You’ll soon be able to dictate or scan receipts here. For now, type items manually.
+        <Text style={newStyles.createPlaceholderBody}>{bodyCopy}</Text>
+        <Text style={newStyles.createPlaceholderFootnote}>
+          Beta access will unlock this workflow once QA flips the new parser flag.
         </Text>
       </View>
     );
   };
 
   return (
-    <Modal transparent animationType="slide" visible={visible} onRequestClose={onClose}>
+    <Modal transparent animationType="slide" visible={visible} onRequestClose={handleDismiss}>
       <View style={newStyles.createOverlay}>
-        <Pressable style={newStyles.createDismissZone} onPress={onClose} />
+        <Pressable style={newStyles.createDismissZone} onPress={handleDismiss} />
         <View style={newStyles.createSheet}>
           <View style={newStyles.createHandle} />
           <Text style={newStyles.createTitle}>Add items</Text>
@@ -445,18 +780,10 @@ function CreateSheet({ visible, onClose }: { visible: boolean; onClose: () => vo
             {(['type', 'voice', 'camera'] as const).map((tab) => (
               <Pressable
                 key={tab}
-                style={[
-                  newStyles.createTab,
-                  activeTab === tab && newStyles.createTabActive
-                ]}
-                onPress={() => setActiveTab(tab)}
+                style={[newStyles.createTab, activeTab === tab && newStyles.createTabActive]}
+                onPress={() => handleTabChange(tab)}
               >
-                <Text
-                  style={[
-                    newStyles.createTabLabel,
-                    activeTab === tab && newStyles.createTabLabelActive
-                  ]}
-                >
+                <Text style={[newStyles.createTabLabel, activeTab === tab && newStyles.createTabLabelActive]}>
                   {tab === 'type' ? 'Type' : tab === 'voice' ? 'Voice' : 'Camera'}
                 </Text>
               </Pressable>
@@ -468,9 +795,12 @@ function CreateSheet({ visible, onClose }: { visible: boolean; onClose: () => vo
     </Modal>
   );
 }
-
 function LegacyHomeScreen({ auth }: { auth: AuthContextValue }) {
   const { user, signOut, isAuthenticating } = auth;
+  const { quickStats: legacyQuickStats, loading: legacyMetricsLoading } = useDashboardMetrics(
+    user?.id ?? undefined,
+    featureFlags.heatmapV2
+  );
   const welcomeMessage = useMemo(
     () =>
       user?.email
@@ -520,9 +850,9 @@ function LegacyHomeScreen({ auth }: { auth: AuthContextValue }) {
       <View style={legacyStyles.card}>
         <Text style={legacyStyles.cardHeading}>Quick stats</Text>
         <View style={legacyStyles.statRow}>
-          {QUICK_STATS.map((stat) => (
+          {legacyQuickStats.map((stat) => (
             <View key={stat.label} style={legacyStyles.stat}>
-              <Text style={legacyStyles.statValue}>{stat.value}</Text>
+              <Text style={legacyStyles.statValue}>{legacyMetricsLoading ? '…' : stat.value}</Text>
               <Text style={legacyStyles.statLabel}>{stat.label}</Text>
             </View>
           ))}
@@ -788,21 +1118,70 @@ const newStyles = StyleSheet.create({
     fontWeight: '600'
   },
   heatmap: {
-    gap: 8
+    gap: 12
+  },
+  heatmapHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  heatmapTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0C1D37'
+  },
+  heatmapNavButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F1F5F9'
+  },
+  heatmapGrid: {
+    gap: 6
   },
   heatmapRow: {
     flexDirection: 'row',
-    gap: 8
+    gap: 6
   },
   heatmapCell: {
-    width: 20,
-    height: 20,
-    borderRadius: 6
+    flex: 1,
+    aspectRatio: 1,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative'
   },
-  heatmapLegend: {
-    marginTop: 8,
+  heatmapCellLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#0C1D37'
+  },
+  heatmapCellLabelMuted: {
+    color: '#64748B'
+  },
+  heatmapCellLabelOnDark: {
+    color: '#FFFFFF'
+  },
+  heatmapDot: {
+    position: 'absolute',
+    bottom: 6,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#0C1D37'
+  },
+  heatmapDotOnDark: {
+    backgroundColor: '#FFFFFF'
+  },
+  heatmapHint: {
     fontSize: 12,
-    color: '#6C7A91'
+    color: '#64748B'
+  },
+  heatmapError: {
+    fontSize: 12,
+    color: '#DC2626'
   },
   placeholderContainer: {
     flex: 1,
@@ -898,46 +1277,88 @@ const newStyles = StyleSheet.create({
   fabButtonPressed: {
     transform: [{ scale: 0.96 }]
   },
-  menuBackdrop: {
+  menuOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(12,29,55,0.35)',
+    backgroundColor: 'rgba(12,29,55,0.45)',
     justifyContent: 'flex-start',
     alignItems: 'flex-end',
-    paddingTop: 70,
-    paddingRight: 20
+    padding: 20
   },
-  menuSheet: {
-    width: 220,
+  menuContainer: {
+    width: 320,
+    maxHeight: '90%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    gap: 4,
+    borderRadius: 28,
+    overflow: 'hidden',
     shadowColor: '#101828',
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    elevation: 6
+    shadowOpacity: 0.14,
+    shadowRadius: 24,
+    elevation: 8
   },
-  menuHeading: {
-    fontSize: 14,
+  menuHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E2E8F0'
+  },
+  menuHeaderButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  menuHeaderSpacer: {
+    width: 36,
+    height: 36
+  },
+  menuHeaderTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  menuScroll: {
+    flexGrow: 0
+  },
+  menuScrollContent: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    gap: 16
+  },
+  menuSection: {
+    gap: 12
+  },
+  menuSectionTitle: {
+    fontSize: 13,
     fontWeight: '600',
-    color: '#6C7A91',
-    paddingHorizontal: 16,
-    paddingBottom: 6
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    color: '#4A576D'
+  },
+  menuDivider: {
+    height: 1,
+    backgroundColor: '#E2E8F0',
+    marginVertical: 4
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12
+    gap: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    backgroundColor: '#F8FAFC'
   },
   menuItemPressed: {
-    backgroundColor: '#F1F5F9'
+    opacity: 0.8
   },
   menuItemLabel: {
     fontSize: 15,
+    fontWeight: '600',
     color: '#0C1D37'
   },
   menuItemDestructive: {
@@ -945,6 +1366,57 @@ const newStyles = StyleSheet.create({
   },
   menuItemLabelDestructive: {
     color: '#E53E3E'
+  },
+  menuItemDisabled: {
+    opacity: 0.6
+  },
+  menuItemIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  menuItemText: {
+    flex: 1,
+    gap: 4
+  },
+  menuItemDescription: {
+    fontSize: 12,
+    color: '#4A576D',
+    lineHeight: 18
+  },
+  menuInfoCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 16,
+    flexDirection: 'row',
+    gap: 12,
+    backgroundColor: '#FFFFFF'
+  },
+  menuInfoIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EBFBF8'
+  },
+  menuInfoText: {
+    flex: 1,
+    gap: 4
+  },
+  menuInfoTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0C1D37'
+  },
+  menuInfoBody: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#4A576D'
   },
   createOverlay: {
     flex: 1,
@@ -1011,6 +1483,12 @@ const newStyles = StyleSheet.create({
     textAlignVertical: 'top',
     color: '#0C1D37'
   },
+  createHelperText: {
+    fontSize: 12,
+    color: '#4A576D',
+    marginTop: 8,
+    marginBottom: 4
+  },
   createSubmitButton: {
     borderRadius: 16,
     backgroundColor: '#4FD1C5',
@@ -1019,6 +1497,9 @@ const newStyles = StyleSheet.create({
   },
   createSubmitButtonPressed: {
     opacity: 0.8
+  },
+  createSubmitButtonDisabled: {
+    backgroundColor: '#94A3B8'
   },
   createSubmitButtonLabel: {
     fontSize: 16,
@@ -1043,5 +1524,11 @@ const newStyles = StyleSheet.create({
     color: '#4A576D',
     textAlign: 'center',
     lineHeight: 20
+  },
+  createPlaceholderFootnote: {
+    fontSize: 12,
+    color: '#6C7A91',
+    textAlign: 'center',
+    lineHeight: 18
   }
 });

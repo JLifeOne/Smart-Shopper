@@ -6,6 +6,10 @@ type Extra = {
   enableMockAuth?: boolean;
   featureNewNav?: boolean;
   featureCreateWorkflow?: boolean;
+  featureHeatmapV2?: boolean;
+  featureInventoryView?: boolean;
+  featureThemeSelection?: boolean;
+  featureListParserV2?: boolean;
 };
 
 const extra = (Constants.expoConfig?.extra ?? {}) as Extra;
@@ -18,7 +22,11 @@ const env = {
 
 const flags = {
   newNav: extra.featureNewNav ?? false,
-  createWorkflow: extra.featureCreateWorkflow ?? false
+  createWorkflow: extra.featureCreateWorkflow ?? false,
+  heatmapV2: extra.featureHeatmapV2 ?? false,
+  inventoryView: extra.featureInventoryView ?? false,
+  themeSelection: extra.featureThemeSelection ?? false,
+  listParserV2: extra.featureListParserV2 ?? false
 };
 
 if (__DEV__) {

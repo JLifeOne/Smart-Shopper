@@ -53,6 +53,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '',
     enableMockAuth: process.env.EXPO_PUBLIC_ENABLE_MOCK_AUTH === 'true',
     featureNewNav: process.env.EXPO_PUBLIC_FEATURE_NEW_NAV === 'true',
-    featureCreateWorkflow: process.env.EXPO_PUBLIC_FEATURE_CREATE_WORKFLOW === 'true'
+    featureCreateWorkflow: process.env.EXPO_PUBLIC_FEATURE_CREATE_WORKFLOW === 'true',
+    featureHeatmapV2: process.env.EXPO_PUBLIC_FEATURE_HEATMAP_V2 === 'true',
+    featureInventoryView: process.env.EXPO_PUBLIC_FEATURE_INVENTORY_VIEW === 'true',
+    featureThemeSelection: process.env.EXPO_PUBLIC_FEATURE_THEME_SELECTION === 'true',
+    featureListParserV2: process.env.EXPO_PUBLIC_FEATURE_LIST_PARSER_V2 === 'true'
   }
 });
