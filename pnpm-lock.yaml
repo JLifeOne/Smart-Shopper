@@ -4,9 +4,16 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@babel/runtime': ^7.28.4
+
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      '@babel/runtime':
+        specifier: ^7.28.4
+        version: 7.28.4
 
   apps/mobile:
     dependencies:
@@ -125,6 +132,9 @@ importers:
       typescript:
         specifier: ^5.4.5
         version: 5.9.3
+      vitest:
+        specifier: ^1.6.1
+        version: 1.6.1(@types/node@20.19.22)(jsdom@20.0.3)(lightningcss@1.30.2)(terser@5.44.0)
 
   packages/core:
     dependencies:
@@ -733,10 +743,6 @@ packages:
     engines: {node: '>=6.9.0'}
     peerDependencies:
       '@babel/core': ^7.0.0-0
-
-  '@babel/runtime@7.21.0':
-    resolution: {integrity: sha512-xwII0//EObnq89Ji5AKYQaRYiW/nZ3llSv29d49IuxPhKbtJoLP+9QUUZ4nVragQVtaVGeZrpB+ZtG/Pdy/POw==}
-    engines: {node: '>=6.9.0'}
 
   '@babel/runtime@7.28.4':
     resolution: {integrity: sha512-Q/N6JNWvIvPnLDvjlE1OUBLPQHH6l3CltCEsHIujp45zQUSSh8K+gHnaEX45yAT1nyngnINhvWtzN+Nb9D8RAQ==}
@@ -2440,7 +2446,7 @@ packages:
   babel-preset-expo@54.0.4:
     resolution: {integrity: sha512-0/1/xh2m/G4FSvIbJYcu5TGPfDrHRqmIDoAFm6zWSEuWyCDagZ8gjjTTJqxdNJHvsKQl65PzeXd6Q5k6tF57wA==}
     peerDependencies:
-      '@babel/runtime': ^7.20.0
+      '@babel/runtime': ^7.28.4
       expo: '*'
       react-refresh: '>=0.14.0 <1.0.0'
     peerDependenciesMeta:
@@ -6781,10 +6787,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@babel/runtime@7.21.0':
-    dependencies:
-      regenerator-runtime: 0.13.11
-
   '@babel/runtime@7.28.4': {}
 
   '@babel/template@7.27.2':
@@ -7571,7 +7573,7 @@ snapshots:
 
   '@nozbe/watermelondb@0.27.1':
     dependencies:
-      '@babel/runtime': 7.21.0
+      '@babel/runtime': 7.28.4
       '@nozbe/simdjson': 3.1.0-wmelon1
       '@nozbe/sqlite': 3.40.1
       hoist-non-react-statics: 3.3.2

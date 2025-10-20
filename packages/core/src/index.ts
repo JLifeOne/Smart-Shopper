@@ -126,12 +126,12 @@ export const AlertSchema = z.object({
 export type Alert = z.infer<typeof AlertSchema>;
 
 const UNIT_CONVERSION_TABLE: Record<Unit, Partial<Record<BaseUnit | Unit, number>>> = {
-  g: { g: 1, kg: 1000 },
-  kg: { g: 0.001, kg: 1 },
-  ml: { ml: 1, l: 1000 },
-  l: { ml: 0.001, l: 1 },
-  oz: { oz: 1, lb: 16 },
-  lb: { oz: 0.0625, lb: 1 },
+  g: { g: 1, kg: 0.001 },
+  kg: { g: 1000, kg: 1 },
+  ml: { ml: 1, l: 0.001 },
+  l: { ml: 1000, l: 1 },
+  oz: { oz: 1, lb: 0.0625 },
+  lb: { oz: 16, lb: 1 },
   fl_oz: { ml: 29.5735, l: 0.0295735, fl_oz: 1 },
   ct: { ct: 1 }
 };

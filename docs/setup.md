@@ -2,27 +2,36 @@
 
 ## Prerequisites
 - Node.js 18.x (includes npm + corepack)
-- PNPM (corepack enable pnpm) or install globally with 
-pm install -g pnpm
-- Expo CLI (
-pm install -g eas-cli, optional for builds)
+- pnpm (run `corepack enable pnpm` or install globally with `npm install -g pnpm`)
+- Expo CLI (`npm install -g eas-cli`, optional for native builds)
 - Supabase CLI (optional for local backend emulation)
 
 ## Repository Bootstrapping
-`ash
+```bash
 pnpm install
 pnpm --filter @smart-shopper/mobile start -- --tunnel
-`
+```
 
-If pnpm is unavailable, run 
-px pnpm install to use the bundled version.
+If pnpm is unavailable, run `npx pnpm install` to use the bundled version.
+
+## Windows Path Gotchas
+
+Native Android builds fail if the project lives deep in your home directory (long path issue).
+
+1. Clone or move the repo to a short path such as `C:\ss`.
+2. Keep `.npmrc` at the repo root with `virtual-store-dir=C:/p`. Metro resolves modules from this path.
+3. From that directory, use:
+   - `pnpm --filter @smart-shopper/mobile start -- --dev-client --port 8081`
+   - `pnpm --filter @smart-shopper/mobile android`
+
+The dev client will connect to `http://10.0.2.2:<port>` inside the Android emulator.
 
 ## Mobile App Scripts
-- pnpm --filter @smart-shopper/mobile start — start Metro bundler
-- pnpm --filter @smart-shopper/mobile android — launch Android build (requires dev client)
-- pnpm --filter @smart-shopper/mobile ios — launch iOS build (requires dev client)
-- pnpm --filter @smart-shopper/mobile test — run Jest tests
-- pnpm --filter @smart-shopper/mobile lint — run ESLint
+- pnpm --filter @smart-shopper/mobile start - start Metro bundler
+- pnpm --filter @smart-shopper/mobile android - launch Android build (requires dev client)
+- pnpm --filter @smart-shopper/mobile ios - launch iOS build (requires dev client)
+- pnpm --filter @smart-shopper/mobile test - run vitest suite
+- pnpm --filter @smart-shopper/mobile lint - run ESLint
 
 > **Note:** WatermelonDB relies on JSI. Use a custom development client (expo run:android / expo run:ios) rather than Expo Go when testing database features.
 
@@ -40,14 +49,14 @@ Build any package via pnpm --filter <package> build.
 4. When ready, create Edge Functions via supabase functions new <name>.
 
 ## Environment Variables
-Create pps/mobile/.env with the following placeholders:
-`ash
+Create `apps/mobile/.env` with the following placeholders:
+```bash
 EXPO_PUBLIC_SUPABASE_URL=
 EXPO_PUBLIC_SUPABASE_ANON_KEY=
 EXPO_PUBLIC_ENABLE_MOCK_AUTH=false
-`
+```
 
-pp.config.ts reads these values at build time. Never expose the Supabase service role key in the mobile app.
+`app.config.ts` reads these values at build time. Never expose the Supabase service role key in the mobile app.
 
 ## Next Engineering Tasks
 1. Install dependencies (pnpm install).

@@ -19,5 +19,13 @@
     "type": "git",
     "url": "git+https://github.com/JLifeOne/Smart-Shopper.git"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@babel/runtime": "^7.28.4"
+  },
+  "pnpm": {
+    "overrides": {
+      "@babel/runtime": "^7.28.4"
+    }
+  }
 }
