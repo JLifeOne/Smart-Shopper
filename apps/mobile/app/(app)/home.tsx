@@ -97,13 +97,19 @@ function DashboardView({
     user?.id ?? undefined,
     featureFlags.heatmapV2
   );
+  const recommendationRequest = useMemo(() => {
+    if (!featureFlags.aiSuggestions) {
+      return null;
+    }
+
+    return {
+      query: 'pantry staples',
+      locale: user?.user_metadata?.locale ?? undefined
+    };
+  }, [featureFlags.aiSuggestions, user?.user_metadata?.locale]);
+
   const { data: recommendations, loading: recommendationsLoading, error: recommendationsError } = useRecommendations(
-    featureFlags.aiSuggestions
-      ? {
-          query: 'pantry staples',
-          locale: user?.user_metadata?.locale ?? undefined
-        }
-      : null,
+    recommendationRequest,
     { enabled: Boolean(user) }
   );
   const suggestedItems = recommendations.length
