@@ -27,6 +27,9 @@ export default function HomeScreen() {
         <Link href="/onboarding" style={styles.cta}>
           Get Started
         </Link>
+        <Link href="/auth/sign-in" style={styles.secondaryCta}>
+          Already have an account?
+        </Link>
       </ScrollView>
     </View>
   );
@@ -65,5 +68,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.8
+  },
+  secondaryCta: {
+    marginTop: 16,
+    color: '#4FD1C5',
+    fontWeight: '600'
   }
 });

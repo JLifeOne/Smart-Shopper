@@ -28,7 +28,8 @@ const COUNTRIES = [
 
 type CountryOption = (typeof COUNTRIES)[number];
 
-type StepKey = 1 | 2 | 3 | 4;
+type StepKey = 'phone' | 'otp' | 'profile';
+const STEP_SEQUENCE: StepKey[] = ['phone', 'otp', 'profile'];
 
 export default function SignUpScreen() {
   const router = useRouter();
@@ -40,7 +41,7 @@ export default function SignUpScreen() {
     lastError
   } = useAuth();
 
-  const [step, setStep] = useState<StepKey>(1);
+  const [step, setStep] = useState<StepKey>('phone');
   const [country, setCountry] = useState<CountryOption>(COUNTRIES[0]);
   const [countryPickerVisible, setCountryPickerVisible] = useState(false);
   const [phoneInput, setPhoneInput] = useState('');
@@ -50,8 +51,14 @@ export default function SignUpScreen() {
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [otp, setOtp] = useState('');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [isCompletingProfile, setIsCompletingProfile] = useState(false);
 
-  const progress = useMemo(() => step / 4, [step]);
+  const stepIndex = useMemo(() => {
+    const index = STEP_SEQUENCE.indexOf(step);
+    return index === -1 ? 0 : index;
+  }, [step]);
+
+  const progress = useMemo(() => (stepIndex + 1) / STEP_SEQUENCE.length, [stepIndex]);
 
   const handleFormatPhone = useCallback((value: string) => {
     const sanitized = value.replace(/[^\d+()\-\s]/g, '');
@@ -72,20 +79,13 @@ export default function SignUpScreen() {
         return;
       }
       setNormalizedPhone(e164);
+      setOtp('');
       setStatusMessage('Code sent! It may take a few seconds to arrive.');
-      setStep(2);
+      setStep('otp');
     } catch (error) {
       Alert.alert('Phone number error', (error as Error).message);
     }
   }, [country.code, phoneInput, requestPhoneOtp]);
-
-  const handleContinueRegion = useCallback(() => {
-    if (!region.trim()) {
-      Alert.alert('Add your location', 'We use your region to tailor store suggestions.');
-      return;
-    }
-    setStep(3);
-  }, [region]);
 
   const handlePickAvatar = useCallback(async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -104,13 +104,30 @@ export default function SignUpScreen() {
     }
   }, []);
 
-  const handleContinueProfile = useCallback(() => {
+  const handleCompleteProfile = useCallback(async () => {
     if (!displayName.trim()) {
       Alert.alert('Add your name', 'Let friends recognise you when you share lists.');
       return;
     }
-    setStep(4);
-  }, [displayName]);
+    if (!region.trim()) {
+      Alert.alert('Add your location', 'We use your region to tailor store suggestions.');
+      return;
+    }
+    setIsCompletingProfile(true);
+    try {
+      const profileResult = await updateProfile({
+        displayName: displayName.trim(),
+        locale: region.trim()
+      });
+      if (!profileResult.success) {
+        Alert.alert('Profile update warning', profileResult.errorMessage ?? 'Profile details were not saved.');
+        return;
+      }
+      router.replace('/(app)/home');
+    } finally {
+      setIsCompletingProfile(false);
+    }
+  }, [displayName, region, router, updateProfile]);
 
   const handleVerifyOtp = useCallback(async () => {
     if (!normalizedPhone) {
@@ -127,17 +144,9 @@ export default function SignUpScreen() {
       Alert.alert('Verification failed', result.errorMessage ?? 'Check the code and try again.');
       return;
     }
-    const profileResult = await updateProfile({ displayName: displayName.trim(), locale: region.trim() });
-    if (!profileResult.success) {
-      Alert.alert('Profile update warning', profileResult.errorMessage ?? 'Profile details were not saved.');
-    }
-    Alert.alert('Welcome to Smart Shopper!', 'You are all set to build smarter lists.', [
-      {
-        text: 'Continue',
-        onPress: () => router.replace('/(app)/home')
-      }
-    ]);
-  }, [displayName, normalizedPhone, otp, region, router, updateProfile, verifyPhoneOtp]);
+    setStatusMessage('Number verified! Finish setting up your profile.');
+    setStep('profile');
+  }, [normalizedPhone, otp, verifyPhoneOtp]);
 
   const handleResend = useCallback(async () => {
     if (!normalizedPhone) {
@@ -158,13 +167,15 @@ export default function SignUpScreen() {
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <View style={styles.topBar}>
-          <Text style={styles.progressLabel}>Step {step} of 4</Text>
+          <Text style={styles.progressLabel}>
+            Step {stepIndex + 1} of {STEP_SEQUENCE.length}
+          </Text>
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${Math.max(5, progress * 100)}%` }]} />
           </View>
         </View>
 
-        {step === 1 ? (
+        {step === 'phone' ? (
           <View style={styles.section}>
             <Text style={styles.heading}>Enter your phone number</Text>
             <Text style={styles.subheading}>We will text a confirmation code to this number.</Text>
@@ -193,27 +204,40 @@ export default function SignUpScreen() {
           </View>
         ) : null}
 
-        {step === 2 ? (
+        {step === 'otp' ? (
           <View style={styles.section}>
-            <Text style={styles.heading}>Where do you shop?</Text>
-            <Text style={styles.subheading}>Add your city or parish to get relevant stores and flyers.</Text>
+            <Text style={styles.heading}>Enter your verification code</Text>
+            <Text style={styles.subheading}>The SMS code is usually 4-6 digits.</Text>
             <TextInput
-              value={region}
-              onChangeText={setRegion}
-              placeholder="e.g. Kingston, Jamaica"
+              value={otp}
+              onChangeText={setOtp}
+              keyboardType="number-pad"
+              placeholder="123456"
               placeholderTextColor="#9CA8BC"
               style={styles.input}
+              maxLength={6}
             />
             <Pressable
-              onPress={handleContinueRegion}
+              onPress={handleVerifyOtp}
               style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed]}
+              disabled={isAuthenticating}
             >
-              <Text style={styles.primaryButtonLabel}>Continue</Text>
+              {isAuthenticating ? (
+                <ActivityIndicator color="#0C1D37" />
+              ) : (
+                <Text style={styles.primaryButtonLabel}>Verify code</Text>
+              )}
+            </Pressable>
+            <Pressable
+              onPress={handleResend}
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.secondaryButtonPressed]}
+            >
+              <Text style={styles.secondaryButtonLabel}>Resend code</Text>
             </Pressable>
           </View>
         ) : null}
 
-        {step === 3 ? (
+        {step === 'profile' ? (
           <View style={styles.section}>
             <Text style={styles.heading}>Set up your profile</Text>
             <Text style={styles.subheading}>Friends will see this when you share lists.</Text>
@@ -231,37 +255,27 @@ export default function SignUpScreen() {
               placeholderTextColor="#9CA8BC"
               style={styles.input}
             />
-            <Pressable
-              onPress={handleContinueProfile}
-              style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed]}
-            >
-              <Text style={styles.primaryButtonLabel}>Review code</Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {step === 4 ? (
-          <View style={styles.section}>
-            <Text style={styles.heading}>Enter your verification code</Text>
-            <Text style={styles.subheading}>The SMS code is usually 4–6 digits.</Text>
             <TextInput
-              value={otp}
-              onChangeText={setOtp}
-              keyboardType="number-pad"
-              placeholder="123456"
+              value={region}
+              onChangeText={setRegion}
+              placeholder="City or parish"
               placeholderTextColor="#9CA8BC"
               style={styles.input}
-              maxLength={6}
             />
             <Pressable
-              onPress={handleVerifyOtp}
-              style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed]}
-              disabled={isAuthenticating}
+              onPress={handleCompleteProfile}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                pressed && styles.primaryButtonPressed,
+                isCompletingProfile && styles.primaryButtonDisabled
+              ]}
+              disabled={isCompletingProfile}
             >
-              {isAuthenticating ? <ActivityIndicator color="#0C1D37" /> : <Text style={styles.primaryButtonLabel}>Confirm</Text>}
-            </Pressable>
-            <Pressable onPress={handleResend} style={({ pressed }) => [styles.secondaryButton, pressed && styles.secondaryButtonPressed]}>
-              <Text style={styles.secondaryButtonLabel}>Resend code</Text>
+              {isCompletingProfile ? (
+                <ActivityIndicator color="#0C1D37" />
+              ) : (
+                <Text style={styles.primaryButtonLabel}>Finish</Text>
+              )}
             </Pressable>
           </View>
         ) : null}
@@ -270,9 +284,9 @@ export default function SignUpScreen() {
         {lastError ? <Text style={styles.statusMessageError}>{lastError}</Text> : null}
 
         <View style={styles.footerRow}>
-          <Text style={styles.footerText}>Prefer email?</Text>
+          <Text style={styles.footerText}>Already have an account?</Text>
           <Link href="/auth/sign-in" style={styles.link}>
-            Sign in instead
+            Sign in
           </Link>
         </View>
       </ScrollView>
@@ -379,6 +393,9 @@ const styles = StyleSheet.create({
   },
   primaryButtonPressed: {
     opacity: 0.85
+  },
+  primaryButtonDisabled: {
+    opacity: 0.6
   },
   primaryButtonLabel: {
     color: '#0C1D37',

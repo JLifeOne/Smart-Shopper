@@ -14,7 +14,7 @@ export default function OnboardingScreen() {
   const router = useRouter();
 
   const handleContinue = useCallback(() => {
-    router.replace('/auth/sign-in');
+    router.replace('/auth/sign-up');
   }, [router]);
 
   return (
