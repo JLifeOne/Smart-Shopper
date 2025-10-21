@@ -1,13 +1,26 @@
 import { Stack } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'react-native';
 
 export default function AppLayout() {
+  const insets = useSafeAreaInsets();
+
   return (
-    <Stack
-      screenOptions={{
-        headerTintColor: '#0C1D37',
-        headerStyle: { backgroundColor: '#FFFFFF' },
-        contentStyle: { backgroundColor: '#F5F7FA' }
-      }}
-    />
+    <>
+      <StatusBar
+        translucent
+        barStyle="dark-content"
+        backgroundColor="transparent"
+      />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: {
+            backgroundColor: '#F5F7FA',
+            paddingTop: insets.top
+          }
+        }}
+      />
+    </>
   );
 }
