@@ -7,6 +7,11 @@ settings:
 overrides:
   '@babel/runtime': ^7.28.4
 
+patchedDependencies:
+  expo-image-picker@15.0.7:
+    hash: dac757bf302008b73a81510d3f669cd0788f92c7058c77d03a6c09acda6f1b1a
+    path: patches/expo-image-picker@15.0.7.patch
+
 importers:
 
   .:
@@ -37,7 +42,7 @@ importers:
         version: 6.0.15(expo@54.0.13)
       expo-image-picker:
         specifier: ~15.0.6
-        version: 15.0.7(expo@54.0.13)
+        version: 15.0.7(patch_hash=dac757bf302008b73a81510d3f669cd0788f92c7058c77d03a6c09acda6f1b1a)(expo@54.0.13)
       expo-linking:
         specifier: ~8.0.8
         version: 8.0.8(expo@54.0.13)(react-native@0.81.4(@babel/core@7.28.4)(@react-native-community/cli@13.6.9)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
@@ -10288,7 +10293,7 @@ snapshots:
     dependencies:
       expo: 54.0.13(@babel/core@7.28.4)(@expo/metro-runtime@6.1.2)(expo-router@6.0.12)(graphql@15.8.0)(react-native@0.81.4(@babel/core@7.28.4)(@react-native-community/cli@13.6.9)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
 
-  expo-image-picker@15.0.7(expo@54.0.13):
+  expo-image-picker@15.0.7(patch_hash=dac757bf302008b73a81510d3f669cd0788f92c7058c77d03a6c09acda6f1b1a)(expo@54.0.13):
     dependencies:
       expo: 54.0.13(@babel/core@7.28.4)(@expo/metro-runtime@6.1.2)(expo-router@6.0.12)(graphql@15.8.0)(react-native@0.81.4(@babel/core@7.28.4)(@react-native-community/cli@13.6.9)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
       expo-image-loader: 4.7.0(expo@54.0.13)

@@ -28,7 +28,7 @@
       "@babel/runtime": "^7.28.4"
     },
     "patchedDependencies": {
-      "expo-image-picker@15.0.7": "apps/mobile/patches/expo-image-picker+15.0.7.patch"
+      "expo-image-picker@15.0.7": "patches/expo-image-picker@15.0.7.patch"
     }
   }
 }
