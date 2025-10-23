@@ -101,6 +101,7 @@ function DashboardView({
   onNavigate: (tab: TabKey) => void;
 }) {
   const { user, signOut, isAuthenticating } = auth;
+  const router = useRouter();
   const { quickStats, heatmap, loading: metricsLoading, error: metricsError } = useDashboardMetrics(
     user?.id ?? undefined,
     featureFlags.heatmapV2
@@ -132,8 +133,13 @@ function DashboardView({
   );
 
   const handleSignOut = useCallback(async () => {
-    await signOut();
-  }, [signOut]);
+    const errorMessage = await signOut();
+    if (errorMessage) {
+      Alert.alert('Sign out failed', errorMessage);
+      return;
+    }
+    router.replace('/auth/sign-in');
+  }, [router, signOut]);
 
   const initials = useMemo(() => {
     if (!user?.email) {

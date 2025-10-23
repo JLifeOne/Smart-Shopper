@@ -22,7 +22,7 @@ interface AuthContextValue {
   requestPhoneOtp: (params: { phone: string }) => Promise<AuthActionResult>;
   verifyPhoneOtp: (params: { phone: string; token: string }) => Promise<AuthActionResult>;
   updateProfile: (params: { displayName?: string; locale?: string; avatarUrl?: string }) => Promise<AuthActionResult>;
-  signOut: () => Promise<void>;
+  signOut: () => Promise<string | null>;
   refreshSession: () => Promise<void>;
 }
 
@@ -240,15 +240,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!supabase) {
       setSession(null);
       await syncService.reset();
-      return;
+      return null;
     }
     const { error } = await supabase.auth.signOut();
     if (error) {
       setLastError(error.message);
-    } else {
-      setSession(null);
-      await syncService.reset();
+      return error.message;
     }
+    setSession(null);
+    await syncService.reset();
+    return null;
   }, [supabase]);
 
   const refreshSession = useCallback(async () => {
