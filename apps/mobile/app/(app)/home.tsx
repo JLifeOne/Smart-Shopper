@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useAuth } from '@/src/context/auth-context';
 import { featureFlags } from '@/src/lib/env';
 import { trackEvent } from '@/src/lib/analytics';
@@ -23,6 +24,18 @@ type MenuStage = 'closed' | 'root' | 'settings' | 'receipts' | 'help';
 
 export default function HomeScreen() {
   const auth = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!auth.initializing && !auth.session) {
+      router.replace('/auth/sign-in');
+    }
+  }, [auth.initializing, auth.session, router]);
+
+  if (!auth.session) {
+    return null;
+  }
+
   return <HomeWithNewNavigation auth={auth} />;
 }
 
