@@ -353,7 +353,7 @@ function ProfilePeekSheet({
             }}
             style={({ pressed }) => [newStyles.profileSignOutButton, pressed && newStyles.profileSignOutButtonPressed]}
           >
-            <Text style={newStyles.profileSignOutLabel}>Sign out</Text>
+          <Text style={newStyles.profileSignOutLabel}>Switch phone number</Text>
           </Pressable>
         </View>
       </View>
@@ -482,8 +482,8 @@ function MenuRoot({
       />
       <MenuDivider />
       <MenuActionItem
-        label="Sign out"
-        description="Sign out of Smart Shopper on this device."
+        label="Switch phone number"
+        description="Use a different phone number on this device."
         icon="log-out-outline"
         destructive
         disabled={isAuthenticating}

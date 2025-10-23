@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,7 +12,7 @@ import {
   TextInput,
   View
 } from 'react-native';
-import { Link, useRouter } from 'expo-router';
+import { Link, useNavigation, useRouter } from 'expo-router';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { useAuth } from '@/src/context/auth-context';
 
@@ -29,6 +29,7 @@ type StepKey = 'phone' | 'otp';
 
 export default function SignInScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const { requestPhoneOtp, verifyPhoneOtp, isAuthenticating, lastError, session, initializing } = useAuth();
 
   const [step, setStep] = useState<StepKey>('phone');
@@ -47,6 +48,10 @@ export default function SignInScreen() {
       router.replace('/(app)/home');
     }
   }, [initializing, router, session]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({ title: 'Verify phone' });
+  }, [navigation]);
 
   const handleFormatPhone = useCallback((value: string) => {
     const sanitized = value.replace(/[^\d+()\-\s]/g, '');
@@ -127,7 +132,7 @@ export default function SignInScreen() {
 
         {step === 'phone' ? (
           <View style={styles.section}>
-            <Text style={styles.heading}>Verify your phone number</Text>
+          <Text style={styles.heading}>Verify your phone number</Text>
             <Text style={styles.subheading}>Enter your mobile number to receive a verification code.</Text>
             <Pressable
               style={({ pressed }) => [styles.countryPickerTrigger, pressed && styles.countryPickerTriggerPressed]}
@@ -197,9 +202,9 @@ export default function SignInScreen() {
         {lastError ? <Text style={styles.statusMessageError}>{lastError}</Text> : null}
 
         <View style={styles.footerRow}>
-          <Text style={styles.footerText}>New to Smart Shopper?</Text>
+          <Text style={styles.footerText}>Need to register a different number?</Text>
           <Link href="/auth/sign-up" style={styles.link}>
-            Create account
+            Create a new account
           </Link>
         </View>
       </ScrollView>
