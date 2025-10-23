@@ -132,7 +132,7 @@ export default function SignUpScreen() {
   const handleVerifyOtp = useCallback(async () => {
     if (!normalizedPhone) {
       Alert.alert('Start from the beginning', 'Enter your phone number to receive a code.');
-      setStep(1);
+      setStep('phone');
       return;
     }
     if (otp.length < 4) {

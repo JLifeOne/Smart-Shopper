@@ -294,4 +294,4 @@ Groceries and household items fluctuate in price across stores and time. Shopper
 
 ---
 
-*End of Unified PRD v0.2*
+## End of Unified PRD v0.2

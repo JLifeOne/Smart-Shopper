@@ -9,11 +9,13 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "echo \"Run workspace apps with pnpm --filter apps/mobile dev\"",
+    "dev": "echo \"Run workspace apps with pnpm --filter @smart-shopper/mobile start\"",
     "build": "echo \"Define build pipeline in individual packages\"",
     "lint": "echo \"Linting configured per package\"",
     "test": "echo \"Add test runner once packages are initialized\"",
-    "typecheck": "echo \"Add TypeScript project references before running typecheck\""
+    "typecheck": "pnpm --filter @smart-shopper/mobile typecheck",
+    "sanity": "python scripts/jsx_sanity_check.py",
+    "verify": "pnpm -r typecheck && python scripts/jsx_sanity_check.py"
   },
   "repository": {
     "type": "git",

@@ -3,14 +3,17 @@
           "version": "0.1.0",
           "private": true,
           "main": "index.js",
-          "scripts": {
+  "scripts": {
                     "start": "expo start --dev-client",
+                    "start:clear": "expo start --dev-client -c",
                     "android": "expo run:android",
                     "ios": "expo run:ios",
                     "web": "expo start --web",
                     "lint": "eslint .",
                     "typecheck": "tsc --noEmit",
-                    "test": "vitest run"
+                    "test": "vitest run",
+                    "sanity": "python ../../scripts/jsx_sanity_check.py",
+                    "verify": "pnpm typecheck && pnpm sanity"
           },
           "dependencies": {
                     "@expo/metro-runtime": "~6.1.2",

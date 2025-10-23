@@ -6,8 +6,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/src/context/auth-context';
 import { featureFlags } from '@/src/lib/env';
 import { trackEvent } from '@/src/lib/analytics';
-import { useDashboardMetrics } from '@/src/lib/dashboard-data';
-import type { HeatmapData } from '@/src/lib/dashboard-data';
+import { useDashboardMetrics, type HeatmapData } from '@/src/lib/dashboard-data';
 import { useRecommendations } from '@/src/features/recommendations/use-recommendations';
 
 const NEXT_ACTIONS = [
@@ -19,7 +18,7 @@ const NEXT_ACTIONS = [
 const FALLBACK_SUGGESTED_ITEMS = ['Milk', 'Butter', 'Bananas', 'Yogurt', 'Olive oil'] as const;
 
 type AuthContextValue = ReturnType<typeof useAuth>;
-type TabKey = 'home' | 'search' | 'promos' | 'receipts';
+type TabKey = 'home' | 'insights' | 'promos' | 'lists' | 'receipts';
 type MenuStage = 'closed' | 'root' | 'settings' | 'receipts' | 'help';
 
 export default function HomeScreen() {
@@ -64,12 +63,14 @@ function HomeWithNewNavigation({ auth }: { auth: AuthContextValue }) {
     switch (activeTab) {
       case 'home':
         return <DashboardView auth={auth} onNavigate={setActiveTab} />;
-      case 'search':
-        return <PlaceholderScreen title="Search" message="Search will let you find lists, stores, and items quickly." />;
+      case 'insights':
+        return <PlaceholderScreen title="Insights" message="Insights coming soon." />;
       case 'promos':
         return (
           <PromosScreen />
         );
+      case 'lists':
+        return <PlaceholderScreen title="Lists" message="Lists hub coming soon." />;
       case 'receipts':
         return <PlaceholderScreen title="Receipts" message="Your scanned receipts will appear here for quick reference." />;
       default:
@@ -754,9 +755,9 @@ function BottomNavigation({
 }) {
   const tabs: Array<{ key: TabKey; label: string; icon: React.ComponentProps<typeof Ionicons>['name'] }> = [
     { key: 'home', label: 'Home', icon: activeTab === 'home' ? 'home' : 'home-outline' },
-    { key: 'search', label: 'Search', icon: activeTab === 'search' ? 'search' : 'search-outline' },
+    { key: 'insights', label: 'Insights', icon: activeTab === 'insights' ? 'stats-chart' : 'stats-chart-outline' },
     { key: 'promos', label: 'Promos', icon: activeTab === 'promos' ? 'pricetags' : 'pricetags-outline' },
-    { key: 'receipts', label: 'Receipts', icon: activeTab === 'receipts' ? 'document-text' : 'document-text-outline' }
+    { key: 'lists', label: 'Lists', icon: activeTab === 'lists' ? 'checkmark-done' : 'checkmark-done-outline' }
   ];
 
   return (
