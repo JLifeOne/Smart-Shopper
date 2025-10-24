@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -20,7 +20,7 @@ type PromptState =
   | { mode: 'create' }
   | { mode: 'rename'; listId: string; currentName: string };
 
-export function ListsScreen() {
+export function ListsScreen({ searchQuery }: { searchQuery?: string }) {
   const { user } = useAuth();
   const router = useRouter();
   const { lists, loading, error } = useLists({ ownerId: user?.id });
@@ -101,6 +101,14 @@ export function ListsScreen() {
     );
   }, []);
 
+  const filteredLists = useMemo(() => {
+    const term = (searchQuery ?? "").trim().toLowerCase();
+    if (!term) {
+      return lists;
+    }
+    return lists.filter((list) => list.name.toLowerCase().includes(term));
+  }, [lists, searchQuery]);
+
   const renderItem = useCallback(
     ({ item }: { item: ListSummary }) => (
       <ListCard
@@ -130,7 +138,7 @@ export function ListsScreen() {
       );
     }
 
-    if (lists.length === 0) {
+    if (!lists.length) {
       return (
         <View style={styles.emptyState}>
           <Ionicons name="cart-outline" size={36} color={palette.accent} />
@@ -144,9 +152,19 @@ export function ListsScreen() {
       );
     }
 
+    if (!filteredLists.length) {
+      return (
+        <View style={styles.emptyState}>
+          <Ionicons name="sparkles-outline" size={32} color={palette.accent} />
+          <Text style={styles.emptyTitle}>No matches yet</Text>
+          <Text style={styles.emptyBody}>Try a different search term or adjust the filter above.</Text>
+        </View>
+      );
+    }
+
     return (
       <FlatList
-        data={lists}
+        data={filteredLists}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         renderItem={renderItem}
@@ -196,7 +214,7 @@ export function ListsScreen() {
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerCopy}>
           <Text style={styles.title}>Your lists</Text>
           <Text style={styles.subtitle}>Create shopping plans and share them across devices.</Text>
         </View>
@@ -281,7 +299,14 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center'
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    rowGap: 12,
+    columnGap: 12
+  },
+  headerCopy: {
+    flexShrink: 1,
+    minWidth: 0
   },
   title: {
     fontSize: 22,
@@ -297,7 +322,8 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8
+    gap: 8,
+    flexWrap: 'wrap'
   },
   centerContent: {
     flex: 1,
@@ -458,5 +484,6 @@ const styles = StyleSheet.create({
     color: palette.accentDark
   }
 });
+
 
 

@@ -43,11 +43,13 @@ def scan_duplicate_imports(text: str) -> int:
 
 
 def main() -> int:
-    target = Path("apps/mobile/app/(app)/home.tsx")
+    script_dir = Path(__file__).resolve().parent
+    repo_root = script_dir.parent
+    target = repo_root / 'apps/mobile/app/(app)/home.tsx'
     if not target.exists():
-        print("Target file not found:", target, file=sys.stderr)
+        print('Target file not found:', target, file=sys.stderr)
         return 2
-    text = target.read_text(encoding="utf-8", errors="ignore")
+    text = target.read_text(encoding='utf-8', errors='ignore')
 
     issues = 0
     issues += scan_duplicate_imports(text)

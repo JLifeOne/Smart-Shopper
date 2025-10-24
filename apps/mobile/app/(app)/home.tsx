@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,6 +8,7 @@ import { featureFlags } from '@/src/lib/env';
 import { trackEvent } from '@/src/lib/analytics';
 import { useDashboardMetrics, type HeatmapData } from '@/src/lib/dashboard-data';
 import { useRecommendations } from '@/src/features/recommendations/use-recommendations';
+import { ListsScreen } from '@/src/features/lists/ListsScreen';
 
 const NEXT_ACTIONS = [
   'Create a list via text, voice, or photo capture.',
@@ -20,6 +21,7 @@ const FALLBACK_SUGGESTED_ITEMS = ['Milk', 'Butter', 'Bananas', 'Yogurt', 'Olive 
 type AuthContextValue = ReturnType<typeof useAuth>;
 type TabKey = 'home' | 'insights' | 'promos' | 'lists' | 'receipts';
 type MenuStage = 'closed' | 'root' | 'settings' | 'receipts' | 'help';
+type SearchScope = 'all' | 'lists' | 'library' | 'items' | 'receipts';
 
 export default function HomeScreen() {
   const auth = useAuth();
@@ -39,8 +41,10 @@ export default function HomeScreen() {
 }
 
 function HomeWithNewNavigation({ auth }: { auth: AuthContextValue }) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabKey>('home');
   const [isCreateSheetVisible, setCreateSheetVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const insets = useSafeAreaInsets();
 
   const handleSelectTab = useCallback((tab: TabKey) => {
@@ -59,6 +63,28 @@ function HomeWithNewNavigation({ auth }: { auth: AuthContextValue }) {
     setCreateSheetVisible(false);
   }, []);
 
+  const handleSearchSubmit = useCallback(
+    (query: string, scope: SearchScope) => {
+      const trimmed = query.trim();
+      setSearchQuery(trimmed);
+      switch (scope) {
+        case 'library':
+          router.push('/library' as never);
+          break;
+        case 'receipts':
+          setActiveTab('receipts');
+          break;
+        case 'lists':
+        case 'items':
+        case 'all':
+        default:
+          setActiveTab('lists');
+          break;
+      }
+    },
+    [router]
+  );
+
   const renderContent = useMemo(() => {
     switch (activeTab) {
       case 'home':
@@ -66,20 +92,19 @@ function HomeWithNewNavigation({ auth }: { auth: AuthContextValue }) {
       case 'insights':
         return <PlaceholderScreen title="Insights" message="Insights coming soon." />;
       case 'promos':
-        return (
-          <PromosScreen />
-        );
+        return <PromosScreen />;
       case 'lists':
-        return <PlaceholderScreen title="Lists" message="Lists hub coming soon." />;
+        return <ListsScreen searchQuery={searchQuery} />;
       case 'receipts':
         return <PlaceholderScreen title="Receipts" message="Your scanned receipts will appear here for quick reference." />;
       default:
         return null;
     }
-  }, [activeTab, auth]);
+  }, [activeTab, auth, searchQuery]);
 
   return (
     <SafeAreaView style={newStyles.safeArea} edges={['top', 'bottom']}>
+      <GlobalSearchBar value={searchQuery} onChange={setSearchQuery} onSubmit={handleSearchSubmit} />
       <View style={newStyles.body}>{renderContent}</View>
       <BottomNavigation
         activeTab={activeTab}
@@ -91,6 +116,176 @@ function HomeWithNewNavigation({ auth }: { auth: AuthContextValue }) {
         <CreateSheet visible={isCreateSheetVisible} onClose={handleCloseCreateSheet} />
       )}
     </SafeAreaView>
+  );
+}
+
+
+const SEARCH_FILTERS: Array<{ id: SearchScope; label: string; icon: string }> = [
+  { id: 'all', label: 'All', icon: 'sparkles-outline' },
+  { id: 'lists', label: 'Lists', icon: 'list-outline' },
+  { id: 'library', label: 'Library', icon: 'book-outline' },
+  { id: 'items', label: 'Items', icon: 'pricetag-outline' },
+  { id: 'receipts', label: 'Receipts', icon: 'receipt-outline' }
+];
+
+const SEARCH_SUGGESTIONS = [
+  'Share my weekly basket',
+  'Pinned staples',
+  'Track price drops',
+  'Scan receipt',
+  'Budget for Saturday dinner'
+];
+
+function GlobalSearchBar({
+  value,
+  onChange,
+  onSubmit
+}: {
+  value: string;
+  onChange: (text: string) => void;
+  onSubmit: (query: string, scope: SearchScope) => void;
+}) {
+  const inputRef = useRef<TextInput>(null);
+  const [filter, setFilter] = useState<SearchScope>('all');
+  const [isFocused, setFocused] = useState(false);
+  const [history, setHistory] = useState<string[]>([]);
+  const highlight = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(highlight, {
+      toValue: isFocused || value ? 1 : 0,
+      duration: 220,
+      useNativeDriver: false
+    }).start();
+  }, [highlight, isFocused, value]);
+
+  const handleSubmit = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) {
+        return;
+      }
+      setHistory((prev) => {
+        const next = [trimmed, ...prev.filter((entry) => entry !== trimmed)];
+        return next.slice(0, 6);
+      });
+      onSubmit(trimmed, filter);
+    },
+    [filter, onSubmit]
+  );
+
+  const handleSuggestion = useCallback(
+    (suggestion: string) => {
+      onChange(suggestion);
+      handleSubmit(suggestion);
+    },
+    [handleSubmit, onChange]
+  );
+
+  const handleFilterChange = useCallback(
+    (next: SearchScope) => {
+      setFilter(next);
+      if (next === 'library' && !value.trim()) {
+        onSubmit('', next);
+      }
+    },
+    [onSubmit, value]
+  );
+
+  const suggestions = useMemo(() => {
+    const base = [...history, ...SEARCH_SUGGESTIONS];
+    const lower = value.trim().toLowerCase();
+    return base
+      .filter((item, index) => base.indexOf(item) === index)
+      .filter((item) => (lower ? item.toLowerCase().includes(lower) : true))
+      .slice(0, 6);
+  }, [history, value]);
+
+  const animatedBorder = highlight.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#E2E8F0', '#4FD1C5']
+  });
+  const animatedShadow = highlight.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.05, 0.22]
+  });
+
+  return (
+    <View style={newStyles.searchContainer}>
+      <Animated.View
+        style={[
+          newStyles.searchWrapper,
+          { borderColor: animatedBorder, shadowOpacity: animatedShadow }
+        ]}
+      >
+        <View style={newStyles.searchRow}>
+          <Ionicons name="search" size={18} color={isFocused ? '#0C1D37' : '#94A3B8'} />
+          <TextInput
+            ref={inputRef}
+            value={value}
+            onChangeText={onChange}
+            placeholder="Search lists, items, receipts..."
+            placeholderTextColor="#94A3B8"
+            style={newStyles.searchInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            returnKeyType="search"
+            onSubmitEditing={() => handleSubmit(value)}
+          />
+          {value ? (
+            <Pressable
+              style={newStyles.searchIconButton}
+              onPress={() => {
+                onChange('');
+                setTimeout(() => inputRef.current?.focus(), 16);
+              }}
+            >
+              <Ionicons name="close-circle" size={18} color="#94A3B8" />
+            </Pressable>
+          ) : (
+            <Pressable
+              style={newStyles.searchIconButton}
+              onPress={() => {
+                trackEvent('search_voice_tap');
+                Alert.alert('Voice capture coming soon');
+              }}
+            >
+              <Ionicons name="mic-outline" size={18} color="#94A3B8" />
+            </Pressable>
+          )}
+        </View>
+        <View style={newStyles.searchFiltersRow}>
+          {SEARCH_FILTERS.map(({ id, label, icon }) => (
+            <Pressable
+              key={id}
+              style={[newStyles.searchChip, filter === id && newStyles.searchChipActive]}
+              onPress={() => handleFilterChange(id)}
+            >
+              <Ionicons name={icon as any} size={14} color={filter === id ? '#0C1D37' : '#64748B'} />
+              <Text style={[newStyles.searchChipLabel, filter === id && newStyles.searchChipLabelActive]}>
+                {label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        {suggestions.length ? (
+          <View style={newStyles.searchSuggestionPanel}>
+            {suggestions.map((suggestion) => (
+              <Pressable
+                key={suggestion}
+                style={newStyles.searchSuggestionRow}
+                onPress={() => handleSuggestion(suggestion)}
+              >
+                <Ionicons name="sparkles-outline" size={14} color="#4FD1C5" />
+                <Text style={newStyles.searchSuggestionText}>{suggestion}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+      </Animated.View>
+    </View>
   );
 }
 
@@ -926,6 +1121,87 @@ const newStyles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#F5F7FA'
+  },
+  searchContainer: {
+    paddingHorizontal: 24,
+    paddingTop: 12
+  },
+  searchWrapper: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    shadowColor: '#101828',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#0C1D37'
+  },
+  searchIconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  searchFiltersRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 8,
+    rowGap: 8,
+    marginTop: 12
+  },
+  searchChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 12,
+    paddingVertical: 6
+  },
+  searchChipActive: {
+    backgroundColor: '#E6FFFA',
+    borderColor: '#4FD1C5'
+  },
+  searchChipLabel: {
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '600'
+  },
+  searchChipLabelActive: {
+    color: '#0C1D37'
+  },
+  searchSuggestionPanel: {
+    marginTop: 12,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    paddingVertical: 8
+  },
+  searchSuggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  searchSuggestionText: {
+    color: '#0C1D37',
+    fontSize: 14,
+    flex: 1
   },
   body: {
     flex: 1,
