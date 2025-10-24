@@ -71,6 +71,7 @@ Invoke-Step "Assemble debug build" { & .\gradlew.bat :app:assembleDebug }
 Invoke-Step "Install debug build" { & .\gradlew.bat :app:installDebug }
 Pop-Location
 
-Write-Host "`nRebuild complete. Restart Metro with:`" -ForegroundColor Green
-Write-Host "  pnpm --filter @smart-shopper/mobile start" -ForegroundColor Yellow
-Write-Host "Run pnpm --filter @smart-shopper/mobile verify before launching." -ForegroundColor Yellow
+Write-Host '`nRebuild complete. Restart Metro with:`' -ForegroundColor Green
+Write-Host '  pnpm --filter @smart-shopper/mobile start' -ForegroundColor Yellow
+Write-Host '  Run the command below before launching:' -ForegroundColor Yellow
+Write-Host '    pnpm --filter @smart-shopper/mobile verify' -ForegroundColor Yellow

@@ -21,6 +21,7 @@ web-build/
 /build/
 android/
 ios/
+apps/mobile/dist/
 
 # Logs
 npm-debug.log*
