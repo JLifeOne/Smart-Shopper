@@ -1,10 +1,11 @@
-﻿import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useList } from '@/src/features/lists/use-list';
 import { useListItems, type ListItemSummary } from '@/src/features/list-items/use-list-items';
 import { createListItem, deleteListItem } from '@/src/features/list-items/mutations';
+import { useSearchOverlay } from '@/src/providers/SearchOverlayProvider';
 import { trackEvent } from '@/src/lib/analytics';
 
 const palette = {
@@ -22,6 +23,14 @@ export default function ListDetailScreen() {
   const { list, loading, error } = useList(listId);
   const { items, loading: itemsLoading } = useListItems(listId ?? null);
   const [draft, setDraft] = useState('');
+  const { setActiveListId } = useSearchOverlay();
+
+  useEffect(() => {
+    if (listId) {
+      setActiveListId(String(listId));
+    }
+    return () => setActiveListId(null);
+  }, [listId, setActiveListId]);
 
   const handleAdd = useCallback(async () => {
     if (!listId) {
@@ -79,7 +88,7 @@ export default function ListDetailScreen() {
         </Pressable>
         <View style={styles.headerText}>
           <Text style={styles.title}>{list.name}</Text>
-          <Text style={styles.subtitle}>{items.length} items · Updated {formatRelative(list.updatedAt)}</Text>
+          <Text style={styles.subtitle}>{items.length} items � Updated {formatRelative(list.updatedAt)}</Text>
         </View>
       </View>
 
@@ -275,3 +284,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center'
   }
 });
+

@@ -3,7 +3,7 @@
           "version": "0.1.0",
           "private": true,
           "main": "index.js",
-  "scripts": {
+          "scripts": {
                     "start": "expo start --dev-client",
                     "start:clear": "expo start --dev-client -c",
                     "android": "expo run:android",
@@ -29,6 +29,7 @@
                     "expo-sqlite": "~15.0.1",
                     "expo-status-bar": "~3.0.8",
                     "expo-system-ui": "~6.0.7",
+                    "fuse.js": "^7.1.0",
                     "libphonenumber-js": "^1.10.58",
                     "react": "19.1.0",
                     "react-dom": "19.1.0",
@@ -38,7 +39,8 @@
                     "react-native-safe-area-context": "5.6.1",
                     "react-native-screens": "~4.16.0",
                     "react-native-web": "^0.21.2",
-                    "react-native-worklets": "0.5.1"
+                    "react-native-worklets": "0.5.1",
+                    "zustand": "^5.0.8"
           },
           "devDependencies": {
                     "@react-native-community/eslint-config": "^3.2.0",
