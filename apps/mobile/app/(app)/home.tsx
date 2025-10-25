@@ -9,7 +9,6 @@ import { trackEvent } from '@/src/lib/analytics';
 import { useDashboardMetrics, type HeatmapData } from '@/src/lib/dashboard-data';
 import { useRecommendations } from '@/src/features/recommendations/use-recommendations';
 import { ListsScreen } from '@/src/features/lists/ListsScreen';
-import { useSearchOverlay } from '@/src/providers/SearchOverlayProvider';
 import { useTopBar } from '@/src/providers/TopBarProvider';
 
 const NEXT_ACTIONS = [
@@ -1505,6 +1504,7 @@ const newStyles = StyleSheet.create({
     lineHeight: 18
   }
 });
+
 
 
 

@@ -16,8 +16,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { searchService } from '@/src/shared/search/searchService';
 import { useSearchStore } from '@/src/shared/search/store';
 import type { SearchEntity } from '@/src/shared/search/types';
+import { useSearchOverlay } from '@/src/providers/SearchOverlayProvider';
 import { AddFab } from './AddFab';
-import { PopSearchBar } from './PopSearchBar';
 import { Toast } from './Toast';
 
 const kindIcon = {
@@ -37,11 +37,22 @@ export function SearchOverlay({ topOffset = 0 }: SearchOverlayProps) {
   const query = useSearchStore((state) => state.query);
   const results = useSearchStore((state) => state.results);
   const loading = useSearchStore((state) => state.loading);
-  const setOpen = useSearchStore((state) => state.setOpen);
   const setQuery = useSearchStore((state) => state.setQuery);
   const setResults = useSearchStore((state) => state.setResults);
+  const { closeSearch } = useSearchOverlay();
 
   const trimmed = useMemo(() => query.trim(), [query]);
+
+  const listHeader = useMemo(() => {
+    if (!open || !trimmed) {
+      return null;
+    }
+    return (
+      <View style={styles.addHeader}>
+        <AddFab query={trimmed} variant="inline" />
+      </View>
+    );
+  }, [open, trimmed]);
 
   useEffect(() => {
     if (!open) {
@@ -60,38 +71,21 @@ export function SearchOverlay({ topOffset = 0 }: SearchOverlayProps) {
       return;
     }
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      setOpen(false);
+      closeSearch();
       return true;
     });
     return () => subscription.remove();
-  }, [open, setOpen]);
+  }, [closeSearch, open]);
 
   if (!open) {
     return null;
   }
 
-  const showAddFab = !loading && trimmed.length >= 2 && results.length === 0;
-
   const handleSelect = (entity: SearchEntity) => {
     if (entity.route) {
       router.push(entity.route as never);
     }
-    setOpen(false);
-    setQuery('');
-    setResults([]);
-  };
-
-  const handleSubmit = (text: string) => {
-    const value = text.trim();
-    if (!value) {
-      return;
-    }
-    const next = searchService.search(value);
-    if (next.length && next[0].route) {
-      handleSelect(next[0]);
-    } else {
-      setResults(next);
-    }
+    closeSearch();
   };
 
   const renderEmpty = () => {
@@ -124,7 +118,7 @@ export function SearchOverlay({ topOffset = 0 }: SearchOverlayProps) {
 
   return (
     <View style={styles.absolute} pointerEvents="box-none">
-      <Pressable style={styles.scrim} onPress={() => setOpen(false)} />
+      <Pressable style={styles.scrim} onPress={() => closeSearch()} />
       <KeyboardAvoidingView
         style={[
           styles.keyboardWrap,
@@ -135,22 +129,12 @@ export function SearchOverlay({ topOffset = 0 }: SearchOverlayProps) {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={[styles.sheet, { paddingTop: 12, paddingBottom: Math.max(bottom, 16) }]}>
-          <PopSearchBar
-            value={query}
-            onChangeText={setQuery}
-            onSubmit={handleSubmit}
-            onCancel={() => {
-              setOpen(false);
-              setQuery('');
-              setResults([]);
-            }}
-          />
-
           <FlatList
             data={results}
             keyExtractor={(item) => `${item.kind}:${item.id}`}
             keyboardShouldPersistTaps="handled"
             ListEmptyComponent={renderEmpty}
+            ListHeaderComponent={listHeader}
             contentContainerStyle={[
               styles.listContent,
               { paddingBottom: Math.max(bottom, 16) + 96 }
@@ -175,8 +159,6 @@ export function SearchOverlay({ topOffset = 0 }: SearchOverlayProps) {
           />
         </View>
       </KeyboardAvoidingView>
-
-      {showAddFab ? <AddFab query={trimmed} /> : null}
       <Toast.Host />
     </View>
   );
@@ -206,6 +188,10 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 8,
     paddingTop: 12
+  },
+  addHeader: {
+    paddingHorizontal: 8,
+    paddingBottom: 12
   },
   resultRow: {
     flexDirection: 'row',
@@ -268,3 +254,14 @@ const styles = StyleSheet.create({
     color: '#475569'
   }
 });
+
+
+
+
+
+
+
+
+
+
+

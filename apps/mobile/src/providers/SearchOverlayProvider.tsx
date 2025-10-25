@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo } from 'react';
 import { searchService } from '@/src/shared/search/searchService';
+import { trackEvent } from '@/src/lib/analytics';
 import { useSearchStore } from '@/src/shared/search/store';
 import { SearchOverlay } from '@/src/components/search/SearchOverlay';
 
@@ -53,6 +54,7 @@ export function SearchOverlayProvider({ children, topOffset = 0 }: ProviderProps
     };
 
     const closeSearch = () => {
+      trackEvent('search.close');
       const { setOpen, setQuery, setResults } = useSearchStore.getState();
       setOpen(false);
       setQuery('');
@@ -77,3 +79,7 @@ export function SearchOverlayProvider({ children, topOffset = 0 }: ProviderProps
     </SearchOverlayContext.Provider>
   );
 }
+
+
+
+
