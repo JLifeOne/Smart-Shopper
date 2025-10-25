@@ -10,6 +10,7 @@ import { useDashboardMetrics, type HeatmapData } from '@/src/lib/dashboard-data'
 import { useRecommendations } from '@/src/features/recommendations/use-recommendations';
 import { ListsScreen } from '@/src/features/lists/ListsScreen';
 import { useSearchOverlay } from '@/src/providers/SearchOverlayProvider';
+import { useTopBar } from '@/src/providers/TopBarProvider';
 
 const NEXT_ACTIONS = [
   'Create a list via text, voice, or photo capture.',
@@ -80,7 +81,6 @@ function HomeWithNewNavigation({ auth }: { auth: AuthContextValue }) {
 
   return (
     <SafeAreaView style={newStyles.safeArea} edges={['bottom']}>
-      <GlobalSearchBar />
       <View style={newStyles.body}>{renderContent}</View>
       <BottomNavigation
         activeTab={activeTab}
@@ -96,27 +96,7 @@ function HomeWithNewNavigation({ auth }: { auth: AuthContextValue }) {
 }
 
 
-function GlobalSearchBar() {
-  const { openSearch } = useSearchOverlay();
 
-  return (
-    <View style={newStyles.searchLauncherContainer}>
-      <Pressable
-        style={({ pressed }) => [
-          newStyles.searchLauncher,
-          pressed && newStyles.searchLauncherPressed
-        ]}
-        accessibilityRole="search"
-        accessibilityLabel="Open search"
-        onPress={() => openSearch()}
-      >
-        <Ionicons name="search" size={18} color="#0f766e" />
-        <Text style={newStyles.searchLauncherPlaceholder}>Search lists, items, receipts…</Text>
-        <Ionicons name="mic-outline" size={18} color="#94a3b8" />
-      </Pressable>
-    </View>
-  );
-}
 
 function DashboardView({
   auth,
@@ -209,9 +189,20 @@ function DashboardView({
     }
   }, [closeMenu, handleSignOut, isAuthenticating]);
 
+  useTopBar(
+    useMemo(
+      () => ({
+        initials,
+        onProfilePress: openProfile,
+        onMenuPress: openMenu,
+        showSearch: true
+      }),
+      [initials, openMenu, openProfile]
+    )
+  );
+
   return (
     <View style={newStyles.dashboardContainer}>
-      <TopBar initials={initials} onProfilePress={openProfile} onMenuPress={openMenu} />
       <Animated.ScrollView
         contentContainerStyle={newStyles.dashboardScroll}
         showsVerticalScrollIndicator={false}
@@ -299,40 +290,6 @@ function DashboardView({
         isAuthenticating={isAuthenticating}
         flags={featureFlags}
       />
-    </View>
-  );
-}
-
-function TopBar({
-  initials,
-  onProfilePress,
-  onMenuPress
-}: {
-  initials: string;
-  onProfilePress: () => void;
-  onMenuPress: () => void;
-}) {
-  return (
-    <View style={newStyles.topBar}>
-      <View style={newStyles.logoBadge}>
-        <Text style={newStyles.logoLetter}>SS</Text>
-      </View>
-      <Text style={newStyles.logoWordmark}>Smart Shopper</Text>
-      <View style={newStyles.topBarSpacer} />
-      <Pressable
-        accessibilityRole="button"
-        onPress={onProfilePress}
-        style={({ pressed }) => [newStyles.topBarAvatar, pressed && newStyles.topBarAvatarPressed]}
-      >
-        <Text style={newStyles.topBarAvatarLabel}>{initials}</Text>
-      </Pressable>
-      <Pressable
-        accessibilityRole="button"
-        onPress={onMenuPress}
-        style={({ pressed }) => [newStyles.menuButton, pressed && newStyles.menuButtonPressed]}
-      >
-        <Ionicons name="ellipsis-horizontal" size={22} color="#0C1D37" />
-      </Pressable>
     </View>
   );
 }
@@ -951,34 +908,6 @@ const newStyles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F7FA'
   },
-  searchLauncherContainer: {
-    paddingHorizontal: 24,
-    paddingTop: 12
-  },
-  searchLauncher: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    shadowColor: '#101828',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 2
-  },
-  searchLauncherPressed: {
-    backgroundColor: '#ECFEFF'
-  },
-  searchLauncherPlaceholder: {
-    flex: 1,
-    color: '#64748B',
-    fontSize: 15
-  },
   body: {
     flex: 1,
     paddingBottom: 110
@@ -991,52 +920,6 @@ const newStyles = StyleSheet.create({
     paddingTop: 32,
     paddingBottom: 24,
     gap: 24
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 12,
-    paddingBottom: 8,
-    gap: 12
-  },
-  logoBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#0C1D37',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  logoLetter: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 14
-  },
-  logoWordmark: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0C1D37'
-  },
-  topBarSpacer: {
-    flex: 1
-  },
-  topBarAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#4FD1C5',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8
-  },
-  topBarAvatarPressed: {
-    opacity: 0.85
-  },
-  topBarAvatarLabel: {
-    color: '#0C1D37',
-    fontWeight: '700',
-    fontSize: 16
   },
   heading: {
     fontSize: 20,
@@ -1062,17 +945,6 @@ const newStyles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 12,
     elevation: 2
-  },
-  menuButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#E2E8F0',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  menuButtonPressed: {
-    opacity: 0.75
   },
   analyticsGrid: {
     gap: 16
@@ -1633,4 +1505,8 @@ const newStyles = StyleSheet.create({
     lineHeight: 18
   }
 });
+
+
+
+
 
