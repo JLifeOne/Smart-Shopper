@@ -1,5 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Alert,
+  Animated,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions
+} from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -21,7 +33,6 @@ const FALLBACK_SUGGESTED_ITEMS = ['Milk', 'Butter', 'Bananas', 'Yogurt', 'Olive 
 
 type AuthContextValue = ReturnType<typeof useAuth>;
 type TabKey = 'home' | 'insights' | 'promos' | 'lists' | 'receipts';
-type MenuStage = 'closed' | 'root' | 'settings' | 'receipts' | 'help';
 export default function HomeScreen() {
   const auth = useAuth();
   const router = useRouter();
@@ -157,15 +168,15 @@ function DashboardView({
       .slice(0, 2);
   }, [user?.email]);
 
-  const [menuStage, setMenuStage] = useState<MenuStage>('closed');
+  const [isMenuOpen, setMenuOpen] = useState(false);
   const [profileVisible, setProfileVisible] = useState(false);
 
   const openMenu = useCallback(() => {
-    setMenuStage('root');
+    setMenuOpen(true);
   }, []);
 
   const closeMenu = useCallback(() => {
-    setMenuStage('closed');
+    setMenuOpen(false);
   }, []);
 
   const openProfile = useCallback(() => {
@@ -177,9 +188,10 @@ function DashboardView({
   }, []);
 
   const handleNavigateToReceipts = useCallback(() => {
-    setMenuStage('closed');
+    trackEvent('menu.navigate', { target: 'receipts_dashboard' });
+    closeMenu();
     onNavigate('receipts');
-  }, [onNavigate]);
+  }, [closeMenu, onNavigate]);
 
   const handleRequestSignOut = useCallback(() => {
     if (!isAuthenticating) {
@@ -219,7 +231,7 @@ function DashboardView({
             <View style={newStyles.quickStatRow}>
               {quickStats.map((stat) => (
                 <View key={stat.label} style={newStyles.quickStat}>
-                  <Text style={newStyles.quickStatValue}>{metricsLoading ? '…' : stat.value}</Text>
+                  <Text style={newStyles.quickStatValue}>{metricsLoading ? '...' : stat.value}</Text>
                   <Text style={newStyles.quickStatLabel}>{stat.label}</Text>
                 </View>
               ))}
@@ -259,7 +271,7 @@ function DashboardView({
           ) : null}
           <View style={newStyles.suggestionsRow}>
             {recommendationsLoading ? (
-              <Text style={newStyles.suggestionStatus}>Loading ideas…</Text>
+              <Text style={newStyles.suggestionStatus}>Loading ideas...</Text>
             ) : (
               suggestedItems.map((item) => (
                 <Pressable key={item} style={({ pressed }) => [newStyles.suggestionChip, pressed && newStyles.suggestionChipPressed]}>
@@ -280,13 +292,20 @@ function DashboardView({
         </View>
       </Animated.ScrollView>
       <ProfilePeekSheet visible={profileVisible} onClose={closeProfile} user={user} onSignOut={handleRequestSignOut} />
-      <MenuModal
-        stage={menuStage}
-        onStageChange={setMenuStage}
+      <CommandDrawer
+        visible={isMenuOpen}
         onClose={closeMenu}
+        onNavigateTab={onNavigate}
         onNavigateReceipts={handleNavigateToReceipts}
         onSignOut={handleRequestSignOut}
+        onOpenProfile={openProfile}
         isAuthenticating={isAuthenticating}
+        user={user}
+        quickStats={quickStats}
+        heatmap={heatmap}
+        metricsLoading={metricsLoading}
+        metricsError={metricsError}
+        recommendationsCount={suggestedItems.length}
         flags={featureFlags}
       />
     </View>
@@ -342,284 +361,530 @@ function ProfilePeekSheet({
   );
 }
 
-function MenuModal({
-  stage,
-  onStageChange,
+type DrawerQuickAction = {
+  id: string;
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  onPress: () => void;
+};
+
+type DrawerSectionItem = {
+  id: string;
+  label: string;
+  meta?: string;
+  onPress?: () => void;
+};
+
+type DrawerSection = {
+  id: string;
+  title: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  badge?: string;
+  items: DrawerSectionItem[];
+};
+
+function CommandDrawer({
+  visible,
   onClose,
+  onNavigateTab,
   onNavigateReceipts,
   onSignOut,
+  onOpenProfile,
   isAuthenticating,
+  user,
+  quickStats,
+  heatmap,
+  metricsLoading,
+  metricsError,
+  recommendationsCount,
   flags
 }: {
-  stage: MenuStage;
-  onStageChange: (stage: MenuStage) => void;
+  visible: boolean;
   onClose: () => void;
+  onNavigateTab: (tab: TabKey) => void;
   onNavigateReceipts: () => void;
   onSignOut: () => void;
+  onOpenProfile: () => void;
   isAuthenticating: boolean;
+  user: AuthContextValue['user'];
+  quickStats: Array<{ label: string; value: string }>;
+  heatmap: HeatmapData;
+  metricsLoading: boolean;
+  metricsError?: string;
+  recommendationsCount: number;
   flags: typeof featureFlags;
 }) {
-  if (stage === 'closed') {
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const [rendered, setRendered] = useState(visible);
+  const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
+  const [cellularUploadsEnabled, setCellularUploadsEnabled] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setRendered(true);
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: 220,
+        useNativeDriver: true
+      }).start();
+      return;
+    }
+    Animated.timing(progress, {
+      toValue: 0,
+      duration: 180,
+      useNativeDriver: true
+    }).start(({ finished }) => {
+      if (finished) {
+        setRendered(false);
+      }
+    });
+  }, [progress, visible]);
+
+  const dismiss = useCallback(() => {
+    trackEvent('menu.close');
+    onClose();
+  }, [onClose]);
+
+  const translateY = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-24, 0]
+  });
+
+  const backdropOpacity = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 0.35]
+  });
+
+  const initials = useMemo(() => {
+    if (!user?.email) {
+      return 'SS';
+    }
+    return user.email
+      .split('@')[0]
+      .split('.')
+      .map((part) => part.charAt(0).toUpperCase())
+      .join('')
+      .slice(0, 2);
+  }, [user?.email]);
+
+  const primaryEmail = user?.email ?? 'guest@smartshopper.app';
+
+  const handleQuickAction = useCallback(
+    (id: string, callback?: () => void) => {
+      trackEvent('menu.quick_action', { id });
+      onClose();
+      callback?.();
+    },
+    [onClose]
+  );
+
+  const quickActions = useMemo<DrawerQuickAction[]>(
+    () => [
+      {
+        id: 'scan_receipt',
+        label: 'Scan receipt',
+        icon: 'scan-outline',
+        onPress: () => handleQuickAction('scan_receipt', onNavigateReceipts)
+      },
+      {
+        id: 'log_price',
+        label: 'Log price',
+        icon: 'create-outline',
+        onPress: () =>
+          handleQuickAction('log_price', () =>
+            Alert.alert('Log price', 'Manual price logging unlocks alongside offline-first inventory.')
+          )
+      },
+      {
+        id: 'add_pantry_item',
+        label: 'Add pantry item',
+        icon: 'bag-add-outline',
+        onPress: () => handleQuickAction('add_pantry_item', () => onNavigateTab('lists'))
+      },
+      {
+        id: 'invite_household',
+        label: 'Invite household',
+        icon: 'share-social-outline',
+        onPress: () =>
+          handleQuickAction('invite_household', () =>
+            Alert.alert('Invite household', 'Household invites go live once list sharing is generally available.')
+          )
+      }
+    ],
+    [handleQuickAction, onNavigateReceipts, onNavigateTab]
+  );
+
+  const sections = useMemo<DrawerSection[]>(() => {
+    const listsStat = quickStats.find((stat) => stat.label === 'Lists')?.value ?? '0';
+    const itemsStat = quickStats.find((stat) => stat.label === 'Tracked items')?.value ?? '0';
+    const receiptsStat = quickStats.find((stat) => stat.label === 'Receipts scanned')?.value ?? '0';
+
+    return [
+      {
+        id: 'shopping',
+        title: 'Shopping intelligence',
+        icon: 'analytics-outline',
+        badge: metricsLoading ? 'Syncing...' : metricsError ? 'Attention' : 'Up to date',
+        items: [
+          {
+            id: 'heatmap',
+            label: 'Spend heatmap',
+            meta: metricsError
+              ? metricsError
+              : `${heatmap.monthLabel} · ${receiptsStat} receipt${receiptsStat === '1' ? '' : 's'}`
+          },
+          {
+            id: 'lists',
+            label: 'Active lists',
+            meta: `${listsStat} maintained`,
+            onPress: () => handleQuickAction('open_lists', () => onNavigateTab('lists'))
+          },
+          {
+            id: 'inventory',
+            label: 'Tracked pantry items',
+            meta: `${itemsStat} in sync`
+          }
+        ]
+      },
+      {
+        id: 'savings',
+        title: 'Savings radar',
+        icon: 'cash-outline',
+        badge: recommendationsCount ? `${recommendationsCount} tips` : undefined,
+        items: [
+          {
+            id: 'promos',
+            label: 'Promos preview',
+            meta: 'See what is trending this week.',
+            onPress: () => handleQuickAction('open_promos', () => onNavigateTab('promos'))
+          },
+          {
+            id: 'ai_suggestions',
+            label: 'AI suggestions',
+            meta: flags.aiSuggestions
+              ? `${recommendationsCount || 0} ready for review`
+              : 'Enable feature_ai_suggestions to preview tailored ideas.',
+            onPress: flags.aiSuggestions
+              ? () => handleQuickAction('open_ai_suggestions', () => onNavigateTab('home'))
+              : () =>
+                  handleQuickAction('ai_waitlist', () =>
+                    Alert.alert('AI suggestions', 'Flip on feature_ai_suggestions in your env to test the workflow.')
+                  )
+          }
+        ]
+      },
+      {
+        id: 'household',
+        title: 'Household',
+        icon: 'people-circle-outline',
+        badge: flags.listSharing ? 'Live' : 'Beta soon',
+        items: [
+          {
+            id: 'sharing',
+            label: 'Sharing status',
+            meta: flags.listSharing ? 'Invites enabled' : 'Enable feature_list_sharing to test collaboration.',
+            onPress: flags.listSharing
+              ? () =>
+                  handleQuickAction('manage_sharing', () =>
+                    Alert.alert('Household sharing', 'Manage members from the Lists workspace.')
+                  )
+              : undefined
+          },
+          {
+            id: 'account',
+            label: 'Account & billing',
+            meta: 'Review plan, receipts, and notification settings.',
+            onPress: () => handleQuickAction('open_account', onOpenProfile)
+          }
+        ]
+      }
+    ];
+  }, [
+    flags.aiSuggestions,
+    flags.listSharing,
+    handleQuickAction,
+    heatmap.monthLabel,
+    metricsError,
+    metricsLoading,
+    onNavigateTab,
+    onOpenProfile,
+    quickStats,
+    recommendationsCount
+  ]);
+
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() =>
+    sections.reduce((acc, section, index) => {
+      acc[section.id] = index === 0;
+      return acc;
+    }, {} as Record<string, boolean>)
+  );
+
+  useEffect(() => {
+    setExpandedSections((prev) => {
+      let changed = sections.length !== Object.keys(prev).length;
+      const next: Record<string, boolean> = {};
+      sections.forEach((section, index) => {
+        const nextValue = prev[section.id] ?? index === 0;
+        next[section.id] = nextValue;
+        if (prev[section.id] !== nextValue) {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [sections]);
+
+  const toggleSection = useCallback((id: string) => {
+    setExpandedSections((prev) => {
+      const next = !prev[id];
+      trackEvent('menu.section_toggle', { id, expanded: next });
+      return { ...prev, [id]: next };
+    });
+  }, []);
+
+  const supportLinks = useMemo(
+    () => [
+      {
+        id: 'support',
+        label: 'Contact support',
+        icon: 'chatbubble-ellipses-outline',
+        onPress: () =>
+          handleQuickAction('contact_support', () =>
+            Alert.alert('Support', 'Email support@smartshopper.app or use in-app chat (coming soon).')
+          )
+      },
+      {
+        id: 'docs',
+        label: 'Runbooks & docs',
+        icon: 'book-outline',
+        onPress: () =>
+          handleQuickAction('open_docs', () =>
+            Alert.alert('Runbooks', 'Documentation opens in the Smart Shopper portal in the upcoming release.')
+          )
+      },
+      {
+        id: 'feedback',
+        label: 'Request a feature',
+        icon: 'bulb-outline',
+        onPress: () =>
+          handleQuickAction('request_feature', () =>
+            Alert.alert('Feature requests', 'Tell us what to build next at feedback@smartshopper.app.')
+          )
+      }
+    ],
+    [handleQuickAction]
+  );
+
+  if (!rendered) {
     return null;
   }
 
-  const handleShowStage = (nextStage: Exclude<MenuStage, 'closed'>) => {
-    onStageChange(nextStage);
-  };
-
-  const handleBack = () => {
-    onStageChange('root');
-  };
-
-  const activeStage = stage;
-
-  const headerTitle = (() => {
-    switch (activeStage) {
-      case 'settings':
-        return 'Settings';
-      case 'receipts':
-        return 'Receipts';
-      case 'help':
-        return 'Help & support';
-      default:
-        return 'Quick menu';
-    }
-  })();
-
-  const content = (() => {
-    switch (activeStage) {
-      case 'settings':
-        return <SettingsMenuContent flags={flags} />;
-      case 'receipts':
-        return <ReceiptsMenuContent onNavigateReceipts={onNavigateReceipts} />;
-      case 'help':
-        return <HelpMenuContent />;
-      default:
-        return (
-          <MenuRoot
-            onShowStage={handleShowStage}
-            onSignOut={onSignOut}
-            isAuthenticating={isAuthenticating}
-          />
-        );
-    }
-  })();
-
   return (
-    <Modal transparent animationType="fade" visible onRequestClose={onClose}>
-      <View style={newStyles.menuOverlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={newStyles.menuContainer}>
-          <View style={newStyles.menuHeader}>
-            {activeStage !== 'root' ? (
-              <Pressable accessibilityRole="button" onPress={handleBack} style={newStyles.menuHeaderButton}>
-                <Ionicons name="chevron-back" size={20} color="#0C1D37" />
-              </Pressable>
-            ) : (
-              <View style={newStyles.menuHeaderSpacer} />
-            )}
-            <Text style={newStyles.menuHeaderTitle}>{headerTitle}</Text>
-            <Pressable accessibilityRole="button" onPress={onClose} style={newStyles.menuHeaderButton}>
-              <Ionicons name="close" size={20} color="#0C1D37" />
+    <Modal transparent animationType="none" visible onRequestClose={dismiss}>
+      <View style={drawerStyles.modalRoot}>
+        <Animated.View style={[drawerStyles.backdrop, { opacity: backdropOpacity }]} />
+        <Pressable style={StyleSheet.absoluteFill} onPress={dismiss} />
+        <Animated.View
+          style={[
+            drawerStyles.drawer,
+            {
+              top: insets.top + 12,
+              right: 16,
+              bottom: Math.max(insets.bottom + 24, 32),
+              width: Math.min(width - 32, 360),
+              transform: [{ translateY }]
+            }
+          ]}
+        >
+          <View style={drawerStyles.headerRow}>
+            <Text style={drawerStyles.headerTitle}>Command center</Text>
+            <Pressable accessibilityRole="button" onPress={dismiss} style={drawerStyles.headerButton}>
+              <Ionicons name="close" size={18} color="#0F172A" />
             </Pressable>
           </View>
-          <ScrollView style={newStyles.menuScroll} contentContainerStyle={newStyles.menuScrollContent}>
-            {content}
+
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={drawerStyles.scrollContent}
+          >
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => handleQuickAction('view_account', onOpenProfile)}
+              style={({ pressed }) => [
+                drawerStyles.profileCard,
+                pressed && drawerStyles.profileCardPressed
+              ]}
+            >
+              <View style={drawerStyles.profileAvatar}>
+                <Text style={drawerStyles.profileAvatarLabel}>{initials}</Text>
+              </View>
+              <View style={drawerStyles.profileMeta}>
+                <Text style={drawerStyles.profileName}>{primaryEmail.split('@')[0]}</Text>
+                <Text style={drawerStyles.profileEmail}>{primaryEmail}</Text>
+                <Text style={drawerStyles.profilePlan}>Smart Shopper Beta</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color="#64748B" />
+            </Pressable>
+
+            <Text style={drawerStyles.sectionLabel}>Quick capture</Text>
+            <View style={drawerStyles.quickRow}>
+              {quickActions.map((action) => (
+                <Pressable
+                  key={action.id}
+                  accessibilityRole="button"
+                  onPress={action.onPress}
+                  style={({ pressed }) => [
+                    drawerStyles.quickChip,
+                    pressed && drawerStyles.quickChipPressed
+                  ]}
+                >
+                  <View style={drawerStyles.quickChipIcon}>
+                    <Ionicons name={action.icon} size={18} color="#0F172A" />
+                  </View>
+                  <Text style={drawerStyles.quickChipLabel}>{action.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {sections.map((section) => {
+              const expanded = expandedSections[section.id];
+              return (
+                <View key={section.id} style={drawerStyles.accordion}>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => toggleSection(section.id)}
+                    style={({ pressed }) => [
+                      drawerStyles.accordionHeader,
+                      pressed && drawerStyles.accordionHeaderPressed
+                    ]}
+                  >
+                    <View style={drawerStyles.accordionIcon}>
+                      <Ionicons name={section.icon} size={18} color="#0F172A" />
+                    </View>
+                    <View style={drawerStyles.accordionTitleWrap}>
+                      <Text style={drawerStyles.accordionTitle}>{section.title}</Text>
+                      {section.badge ? (
+                        <View style={drawerStyles.accordionBadge}>
+                          <Text style={drawerStyles.accordionBadgeLabel}>{section.badge}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#64748B" />
+                  </Pressable>
+                  {expanded ? (
+                    <View style={drawerStyles.accordionBody}>
+                      {section.items.map((item) => (
+                        <Pressable
+                          key={item.id}
+                          accessibilityRole={item.onPress ? 'button' : 'text'}
+                          onPress={item.onPress}
+                          disabled={!item.onPress}
+                          style={({ pressed }) => [
+                            drawerStyles.accordionItem,
+                            pressed && item.onPress && drawerStyles.accordionItemPressed
+                          ]}
+                        >
+                          <Text style={drawerStyles.accordionItemLabel}>{item.label}</Text>
+                          {item.meta ? <Text style={drawerStyles.accordionItemMeta}>{item.meta}</Text> : null}
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })}
+
+            <View style={drawerStyles.toolkitCard}>
+              <View style={drawerStyles.toolkitRow}>
+                <View>
+                  <Text style={drawerStyles.toolkitTitle}>Offline queue</Text>
+                  <Text style={drawerStyles.toolkitSubtitle}>Retry pending sync events instantly.</Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() =>
+                    handleQuickAction('flush_queue', () =>
+                      Alert.alert('Sync queue', 'We will retry pending events and surface issues in the activity log.')
+                    )
+                  }
+                  style={({ pressed }) => [
+                    drawerStyles.toolkitButton,
+                    pressed && drawerStyles.toolkitButtonPressed
+                  ]}
+                >
+                  <Text style={drawerStyles.toolkitButtonLabel}>Flush</Text>
+                </Pressable>
+              </View>
+              <View style={drawerStyles.toolkitDivider} />
+              <View style={drawerStyles.toolkitRow}>
+                <View>
+                  <Text style={drawerStyles.toolkitTitle}>Auto-sync</Text>
+                  <Text style={drawerStyles.toolkitSubtitle}>Sync whenever the app becomes active.</Text>
+                </View>
+                <Switch
+                  value={autoSyncEnabled}
+                  onValueChange={(value) => {
+                    setAutoSyncEnabled(value);
+                    trackEvent('menu.toolkit_toggle', { id: 'auto_sync', value });
+                  }}
+                />
+              </View>
+              <View style={drawerStyles.toolkitRow}>
+                <View>
+                  <Text style={drawerStyles.toolkitTitle}>Cellular uploads</Text>
+                  <Text style={drawerStyles.toolkitSubtitle}>Allow receipt uploads on mobile data.</Text>
+                </View>
+                <Switch
+                  value={cellularUploadsEnabled}
+                  onValueChange={(value) => {
+                    setCellularUploadsEnabled(value);
+                    trackEvent('menu.toolkit_toggle', { id: 'cellular_uploads', value });
+                  }}
+                />
+              </View>
+            </View>
+
+            <Text style={drawerStyles.sectionLabel}>Support & docs</Text>
+            <View style={drawerStyles.supportList}>
+              {supportLinks.map((link) => (
+                <Pressable
+                  key={link.id}
+                  accessibilityRole="button"
+                  onPress={link.onPress}
+                  style={({ pressed }) => [
+                    drawerStyles.supportItem,
+                    pressed && drawerStyles.supportItemPressed
+                  ]}
+                >
+                  <View style={drawerStyles.supportItemIcon}>
+                    <Ionicons name={link.icon} size={18} color="#0F172A" />
+                  </View>
+                  <Text style={drawerStyles.supportItemLabel}>{link.label}</Text>
+                </Pressable>
+              ))}
+              <Pressable
+                accessibilityRole="button"
+                disabled={isAuthenticating}
+                onPress={() => handleQuickAction('sign_out', onSignOut)}
+                style={({ pressed }) => [
+                  drawerStyles.supportItem,
+                  pressed && drawerStyles.supportItemPressed
+                ]}
+              >
+                <View style={drawerStyles.supportItemIcon}>
+                  <Ionicons name="log-out-outline" size={18} color="#DC2626" />
+                </View>
+                <Text style={drawerStyles.supportItemLabelDanger}>
+                  {isAuthenticating ? 'Switching...' : 'Switch phone number'}
+                </Text>
+              </Pressable>
+            </View>
           </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
-  );
-}
-
-function MenuRoot({
-  onShowStage,
-  onSignOut,
-  isAuthenticating
-}: {
-  onShowStage: (stage: Exclude<MenuStage, 'closed' | 'root'>) => void;
-  onSignOut: () => void;
-  isAuthenticating: boolean;
-}) {
-  return (
-    <View style={newStyles.menuSection}>
-      <MenuActionItem
-        label="Receipts dashboard"
-        description="Review scans, exports, and reimbursement insights."
-        icon="document-text-outline"
-        onPress={() => onShowStage('receipts')}
-      />
-      <MenuActionItem
-        label="Settings"
-        description="Update preferences, theme, and notification plan."
-        icon="settings-outline"
-        onPress={() => onShowStage('settings')}
-      />
-      <MenuActionItem
-        label="Help & support"
-        description="Browse FAQs or contact the smart shopper team."
-        icon="help-circle-outline"
-        onPress={() => onShowStage('help')}
-      />
-      <MenuDivider />
-      <MenuActionItem
-        label="Switch phone number"
-        description="Use a different phone number on this device."
-        icon="log-out-outline"
-        destructive
-        disabled={isAuthenticating}
-        onPress={onSignOut}
-      />
-    </View>
-  );
-}
-
-function SettingsMenuContent({ flags }: { flags: typeof featureFlags }) {
-  return (
-    <View style={newStyles.menuSection}>
-      <MenuSectionTitle>Personalization</MenuSectionTitle>
-      {flags.themeSelection ? (
-        <MenuActionItem
-          label="App theme"
-          description="Choose a color palette for navigation and analytics cards."
-          icon="color-palette-outline"
-          onPress={() => Alert.alert('Theme selection', 'Theme selection controls will land in Sprint 1.')}
-        />
-      ) : (
-        <MenuInfoCard
-          icon="color-palette-outline"
-          title="Dynamic themes coming soon"
-          body="Theme selection ships in Sprint 1. Keep this page handy to try the new palettes once the feature flag is on."
-        />
-      )}
-      <MenuSectionTitle>Account</MenuSectionTitle>
-      <MenuInfoCard
-        icon="person-outline"
-        title="Profile settings"
-        body="Tap your avatar in the top bar to review contact details or update your household preferences."
-      />
-      <MenuInfoCard
-        icon="shield-checkmark-outline"
-        title="Privacy"
-        body="Receipt data is stored securely with Supabase policies. Delete requests can be sent through Help & support."
-      />
-    </View>
-  );
-}
-
-function ReceiptsMenuContent({ onNavigateReceipts }: { onNavigateReceipts: () => void }) {
-  return (
-    <View style={newStyles.menuSection}>
-      <MenuSectionTitle>Capture options</MenuSectionTitle>
-      <MenuInfoCard
-        icon="scan-outline"
-        title="Scan a receipt"
-        body="Use the Receipts tab to scan receipts and sync price points to your heatmap automatically."
-      />
-      <MenuSectionTitle>Quick actions</MenuSectionTitle>
-      <MenuActionItem
-        label="Open receipts tab"
-        description="Jump into the receipts workspace to view upload history."
-        icon="open-outline"
-        onPress={onNavigateReceipts}
-      />
-      <MenuInfoCard
-        icon="trending-up-outline"
-        title="Analytics tie-ins"
-        body="Receipts populate inventory counts, price history, and daily heatmap totals. Connect more stores to enrich insights."
-      />
-    </View>
-  );
-}
-
-function HelpMenuContent() {
-  return (
-    <View style={newStyles.menuSection}>
-      <MenuSectionTitle>Need assistance?</MenuSectionTitle>
-      <MenuInfoCard
-        icon="chatbubbles-outline"
-        title="Knowledge base"
-        body="Browse quick tips for list building, receipt scanning, and analytics. Articles roll out alongside each sprint."
-      />
-      <MenuInfoCard
-        icon="mail-outline"
-        title="Contact support"
-        body="Email support@smartshopper.app for help with account access, data corrections, or feature requests."
-      />
-      <MenuInfoCard
-        icon="bulb-outline"
-        title="Roadmap feedback"
-        body="Share suggestions directly inside the beta community so we can prioritize the features that matter most."
-      />
-    </View>
-  );
-}
-
-function MenuSectionTitle({ children }: { children: string }) {
-  return <Text style={newStyles.menuSectionTitle}>{children}</Text>;
-}
-
-function MenuDivider() {
-  return <View style={newStyles.menuDivider} />;
-}
-
-function MenuActionItem({
-  label,
-  description,
-  icon,
-  destructive,
-  disabled,
-  onPress
-}: {
-  label: string;
-  description?: string;
-  icon: React.ComponentProps<typeof Ionicons>['name'];
-  destructive?: boolean;
-  disabled?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      style={({ pressed }) => [
-        newStyles.menuItem,
-        pressed && !disabled && newStyles.menuItemPressed,
-        destructive && newStyles.menuItemDestructive,
-        disabled && newStyles.menuItemDisabled
-      ]}
-      accessibilityRole="button"
-      onPress={onPress}
-      disabled={disabled}
-    >
-      <View style={newStyles.menuItemIcon}>
-        <Ionicons name={icon} size={20} color={destructive ? '#E53E3E' : '#0C1D37'} />
-      </View>
-      <View style={newStyles.menuItemText}>
-        <Text style={[newStyles.menuItemLabel, destructive && newStyles.menuItemLabelDestructive]}>{label}</Text>
-        {description ? <Text style={newStyles.menuItemDescription}>{description}</Text> : null}
-      </View>
-    </Pressable>
-  );
-}
-
-function MenuInfoCard({
-  icon,
-  title,
-  body
-}: {
-  icon: React.ComponentProps<typeof Ionicons>['name'];
-  title: string;
-  body: string;
-}) {
-  return (
-    <View style={newStyles.menuInfoCard}>
-      <View style={newStyles.menuInfoIcon}>
-        <Ionicons name={icon} size={20} color="#4FD1C5" />
-      </View>
-      <View style={newStyles.menuInfoText}>
-        <Text style={newStyles.menuInfoTitle}>{title}</Text>
-        <Text style={newStyles.menuInfoBody}>{body}</Text>
-      </View>
-    </View>
   );
 }
 
@@ -675,7 +940,7 @@ function HeatmapCalendar({
           </View>
         ))}
       </View>
-      {loading ? <Text style={newStyles.heatmapHint}>Refreshing spend heatmap…</Text> : null}
+      {loading ? <Text style={newStyles.heatmapHint}>Refreshing spend heatmap...</Text> : null}
       {!enabled ? <Text style={newStyles.heatmapHint}>Enable feature_heatmap_v2 to test live data.</Text> : null}
       {error ? <Text style={newStyles.heatmapError}>{error}</Text> : null}
     </View>
@@ -902,6 +1167,267 @@ function CreateSheet({ visible, onClose }: { visible: boolean; onClose: () => vo
     </Modal>
   );
 }
+const drawerStyles = StyleSheet.create({
+  modalRoot: {
+    flex: 1
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(12,29,55,0.35)'
+  },
+  drawer: {
+    position: 'absolute',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 28,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    shadowColor: '#0C1D37',
+    shadowOpacity: 0.18,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 18
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  headerButton: {
+    height: 36,
+    width: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F1F5F9'
+  },
+  scrollContent: {
+    paddingBottom: 48
+  },
+  profileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 24,
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 20
+  },
+  profileCardPressed: {
+    opacity: 0.85
+  },
+  profileAvatar: {
+    height: 48,
+    width: 48,
+    borderRadius: 24,
+    backgroundColor: '#0F766E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14
+  },
+  profileAvatarLabel: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700'
+  },
+  profileMeta: {
+    flex: 1
+  },
+  profileName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0C1D37'
+  },
+  profileEmail: {
+    fontSize: 13,
+    color: '#475569',
+    marginTop: 2
+  },
+  profilePlan: {
+    fontSize: 12,
+    color: '#0F766E',
+    fontWeight: '600',
+    marginTop: 6
+  },
+  sectionLabel: {
+    fontSize: 13,
+    letterSpacing: 0.8,
+    color: '#64748B',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    marginBottom: 12
+  },
+  quickRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 20
+  },
+  quickChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EEF2F6',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginRight: 10,
+    marginBottom: 10
+  },
+  quickChipPressed: {
+    opacity: 0.85
+  },
+  quickChipIcon: {
+    marginRight: 8
+  },
+  quickChipLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0C1D37'
+  },
+  accordion: {
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 16,
+    overflow: 'hidden'
+  },
+  accordionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    backgroundColor: '#F8FAFC'
+  },
+  accordionHeaderPressed: {
+    backgroundColor: '#EDF2F7'
+  },
+  accordionIcon: {
+    height: 32,
+    width: 32,
+    borderRadius: 16,
+    backgroundColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10
+  },
+  accordionTitleWrap: {
+    flex: 1
+  },
+  accordionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0C1D37'
+  },
+  accordionBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    backgroundColor: '#E0F2F1'
+  },
+  accordionBadgeLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#0F766E'
+  },
+  accordionBody: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF'
+  },
+  accordionItem: {
+    paddingVertical: 10
+  },
+  accordionItemPressed: {
+    opacity: 0.7
+  },
+  accordionItemLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0C1D37'
+  },
+  accordionItemMeta: {
+    fontSize: 12,
+    color: '#475569',
+    marginTop: 4
+  },
+  toolkitCard: {
+    borderRadius: 24,
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 24
+  },
+  toolkitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6
+  },
+  toolkitTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0C1D37'
+  },
+  toolkitSubtitle: {
+    fontSize: 12,
+    color: '#475569',
+    marginTop: 2,
+    maxWidth: 200
+  },
+  toolkitButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: '#0F766E'
+  },
+  toolkitButtonPressed: {
+    opacity: 0.85
+  },
+  toolkitButtonLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8
+  },
+  toolkitDivider: {
+    height: 1,
+    backgroundColor: '#E2E8F0',
+    marginVertical: 10
+  },
+  supportList: {
+    marginTop: 12
+  },
+  supportItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12
+  },
+  supportItemPressed: {
+    opacity: 0.75
+  },
+  supportItemIcon: {
+    marginRight: 12
+  },
+  supportItemLabel: {
+    fontSize: 14,
+    color: '#0C1D37',
+    fontWeight: '500'
+  },
+  supportItemLabelDanger: {
+    fontSize: 14,
+    color: '#DC2626',
+    fontWeight: '600'
+  }
+});
+
 const newStyles = StyleSheet.create({
   safeArea: {
     flex: 1,
