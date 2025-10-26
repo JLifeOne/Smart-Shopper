@@ -4,12 +4,14 @@ import { database } from '@/src/database';
 import type { Product } from '@/src/database/models/product';
 import type { ListItem } from '@/src/database/models/list-item';
 import type { PriceSnapshot } from '@/src/database/models/price-snapshot';
+import { categoryLabel } from '@/src/categorization';
 
 export type LibraryItem = {
   id: string;
   name: string;
   brand: string | null;
   category: string;
+  categoryLabel: string;
   sizeValue: number;
   sizeUnit: string;
   lastUsedAt: number | null;
@@ -46,11 +48,13 @@ export function useLibraryItems() {
                 .query(Q.where('product_remote_id', product.id), Q.sortBy('captured_at', Q.desc))
                 .fetch();
 
+              const label = categoryLabel(product.category);
               return {
                 id: product.id,
                 name: product.name,
                 brand: product.brand,
                 category: product.category,
+                categoryLabel: label,
                 sizeValue: product.sizeValue,
                 sizeUnit: product.sizeUnit,
                 lastUsedAt: (latestListItem[0]?.updatedAt ?? latestPrice[0]?.capturedAt) ?? null,

@@ -1,0 +1,395 @@
+{
+  "categories": [
+    {
+      "id": "produce",
+      "label": "Produce",
+      "synonyms": [
+        "produce",
+        "fruit",
+        "fruits",
+        "vegetable",
+        "vegetables",
+        "greens",
+        "lettuce",
+        "spinach",
+        "kale",
+        "apple",
+        "apples",
+        "banana",
+        "bananas",
+        "berries",
+        "strawberry",
+        "strawberries",
+        "blueberry",
+        "blueberries",
+        "grape",
+        "grapes",
+        "citrus",
+        "orange",
+        "oranges",
+        "lemon",
+        "lemons",
+        "lime",
+        "limes",
+        "tomato",
+        "tomatoes",
+        "avocado",
+        "avocados",
+        "onion",
+        "onions",
+        "garlic",
+        "ginger",
+        "potato",
+        "potatoes",
+        "sweet potato",
+        "sweet potatoes",
+        "carrot",
+        "carrots",
+        "pepper",
+        "peppers",
+        "broccoli",
+        "cauliflower",
+        "cucumber",
+        "cucumbers",
+        "mushroom",
+        "mushrooms",
+        "herbs",
+        "cilantro",
+        "parsley",
+        "basil"
+      ]
+    },
+    {
+      "id": "dairy",
+      "label": "Dairy & Alternatives",
+      "synonyms": [
+        "dairy",
+        "milk",
+        "cow milk",
+        "whole milk",
+        "skim milk",
+        "almond milk",
+        "oat milk",
+        "soy milk",
+        "cheese",
+        "cheddar",
+        "mozzarella",
+        "yogurt",
+        "greek yogurt",
+        "butter",
+        "cream",
+        "half and half",
+        "cottage cheese",
+        "sour cream",
+        "cream cheese",
+        "ghee",
+        "plant-based milk"
+      ]
+    },
+    {
+      "id": "meat_seafood",
+      "label": "Meat & Seafood",
+      "synonyms": [
+        "meat",
+        "seafood",
+        "protein",
+        "chicken",
+        "chicken breast",
+        "chicken thighs",
+        "whole chicken",
+        "beef",
+        "ground beef",
+        "steak",
+        "pork",
+        "ham",
+        "bacon",
+        "sausage",
+        "turkey",
+        "deli meat",
+        "salmon",
+        "shrimp",
+        "fish",
+        "tuna",
+        "cod",
+        "tilapia",
+        "crab",
+        "lobster",
+        "plant-based protein",
+        "tofu",
+        "tempeh"
+      ]
+    },
+    {
+      "id": "bakery",
+      "label": "Bakery",
+      "synonyms": [
+        "bakery",
+        "bread",
+        "bagel",
+        "bagels",
+        "bun",
+        "buns",
+        "roll",
+        "rolls",
+        "sourdough",
+        "pita",
+        "wrap",
+        "wraps",
+        "croissant",
+        "muffin",
+        "muffins",
+        "tortilla",
+        "tortillas",
+        "cake",
+        "cakes",
+        "pastry",
+        "pastries",
+        "cookies"
+      ]
+    },
+    {
+      "id": "pantry",
+      "label": "Pantry Staples",
+      "synonyms": [
+        "pantry",
+        "staples",
+        "cereal",
+        "granola",
+        "oatmeal",
+        "rice",
+        "brown rice",
+        "white rice",
+        "quinoa",
+        "pasta",
+        "spaghetti",
+        "macaroni",
+        "noodles",
+        "beans",
+        "lentils",
+        "chickpeas",
+        "canned beans",
+        "canned vegetables",
+        "canned fruit",
+        "broth",
+        "stock",
+        "oil",
+        "olive oil",
+        "canola oil",
+        "vinegar",
+        "sauce",
+        "tomato sauce",
+        "condiment",
+        "ketchup",
+        "mustard",
+        "mayonnaise",
+        "spice",
+        "seasoning",
+        "sugar",
+        "flour",
+        "baking powder",
+        "baking soda",
+        "yeast"
+      ]
+    },
+    {
+      "id": "beverages",
+      "label": "Beverages",
+      "synonyms": [
+        "beverage",
+        "beverages",
+        "drink",
+        "drinks",
+        "juice",
+        "apple juice",
+        "orange juice",
+        "soda",
+        "pop",
+        "soft drink",
+        "sparkling water",
+        "seltzer",
+        "coffee",
+        "ground coffee",
+        "coffee beans",
+        "tea",
+        "iced tea",
+        "kombucha",
+        "sports drink",
+        "energy drink",
+        "water",
+        "bottled water",
+        "coconut water"
+      ]
+    },
+    {
+      "id": "frozen",
+      "label": "Frozen Foods",
+      "synonyms": [
+        "frozen",
+        "frozen meal",
+        "frozen meals",
+        "frozen pizza",
+        "frozen vegetables",
+        "frozen fruit",
+        "frozen berries",
+        "ice cream",
+        "sorbet",
+        "gelato",
+        "popsicle",
+        "frozen waffles",
+        "frozen breakfast",
+        "frozen dinners"
+      ]
+    },
+    {
+      "id": "snacks",
+      "label": "Snacks",
+      "synonyms": [
+        "snack",
+        "snacks",
+        "chips",
+        "pretzels",
+        "popcorn",
+        "crackers",
+        "nuts",
+        "trail mix",
+        "protein bar",
+        "granola bar",
+        "candy",
+        "chocolate",
+        "cookies",
+        "snack cakes"
+      ]
+    },
+    {
+      "id": "household",
+      "label": "Household",
+      "synonyms": [
+        "household",
+        "cleaning",
+        "detergent",
+        "laundry detergent",
+        "dish soap",
+        "sponges",
+        "trash bag",
+        "paper towel",
+        "toilet paper",
+        "aluminum foil",
+        "plastic wrap",
+        "storage bag",
+        "light bulb",
+        "battery"
+      ]
+    },
+    {
+      "id": "personal_care",
+      "label": "Personal Care",
+      "synonyms": [
+        "personal care",
+        "toiletries",
+        "shampoo",
+        "conditioner",
+        "body wash",
+        "soap",
+        "face wash",
+        "toothpaste",
+        "toothbrush",
+        "deodorant",
+        "lotion",
+        "razor",
+        "shaving cream",
+        "skincare"
+      ]
+    },
+    {
+      "id": "baby",
+      "label": "Baby",
+      "synonyms": [
+        "baby",
+        "infant",
+        "toddler",
+        "baby food",
+        "formula",
+        "diapers",
+        "wipes",
+        "baby snacks"
+      ]
+    },
+    {
+      "id": "pet",
+      "label": "Pet",
+      "synonyms": [
+        "pet",
+        "dog",
+        "cat",
+        "pet food",
+        "dog food",
+        "cat food",
+        "pet treats",
+        "litter",
+        "pet toys"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "category": "produce",
+      "patterns": ["\\b(fresh|organic)\\b", "\\b(arugula|chard|radish)\\b"],
+      "score": 0.85
+    },
+    {
+      "category": "dairy",
+      "patterns": ["\\b(cheese|yogurt|cream)\\b", "\\b(barista oat)\\b"],
+      "score": 0.8
+    },
+    {
+      "category": "meat_seafood",
+      "patterns": ["\\b(fillet|fillet|loin)\\b", "\\b(smoked salmon)\\b"],
+      "score": 0.75
+    },
+    {
+      "category": "bakery",
+      "patterns": ["\\b(gluten[- ]free bread)\\b", "\\b(artisan loaf)\\b"],
+      "score": 0.7
+    },
+    {
+      "category": "pantry",
+      "patterns": ["\\b(canned|jarred)\\b", "\\b(spice blend)\\b"],
+      "score": 0.65
+    },
+    {
+      "category": "beverages",
+      "patterns": ["\\b(cold brew)\\b", "\\b(sparkling)\\b"],
+      "score": 0.7
+    },
+    {
+      "category": "frozen",
+      "patterns": ["\\b(frozen|ice cream|sorbet)\\b"],
+      "score": 0.7
+    },
+    {
+      "category": "snacks",
+      "patterns": ["\\b(crisps|protein bar|jerky)\\b"],
+      "score": 0.7
+    },
+    {
+      "category": "household",
+      "patterns": ["\\b(cleaner|detergent|trash bag|foil)\\b"],
+      "score": 0.8
+    },
+    {
+      "category": "personal_care",
+      "patterns": ["\\b(shampoo|spf|sunscreen|conditioner|serum)\\b"],
+      "score": 0.8
+    },
+    {
+      "category": "baby",
+      "patterns": ["\\b(diaper|formula|puree)\\b"],
+      "score": 0.85
+    },
+    {
+      "category": "pet",
+      "patterns": ["\\b(cat litter|dog treats|pet pad)\\b"],
+      "score": 0.85
+    }
+  ]
+}

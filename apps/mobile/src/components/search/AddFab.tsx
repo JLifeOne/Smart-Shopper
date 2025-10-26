@@ -8,13 +8,13 @@ import { createListItem } from '@/src/features/list-items/mutations';
 import { searchService } from '@/src/shared/search/searchService';
 import { useSearchStore } from '@/src/shared/search/store';
 import { Toast } from './Toast';
+import { categoryService } from '@/src/categorization/category-service';
 
 type AddFabProps = {
   query: string;
   variant?: 'floating' | 'inline';
 };
 
-const DEFAULT_CATEGORY = 'uncategorized';
 const DEFAULT_UNIT = 'unit';
 
 export function AddFab({ query, variant = 'inline' }: AddFabProps) {
@@ -41,12 +41,15 @@ export function AddFab({ query, variant = 'inline' }: AddFabProps) {
           null;
       }
 
+      let matchResult = record ? null : await categoryService.categorize(draft);
+
       if (!record) {
+        const match = matchResult ?? (await categoryService.categorize(draft));
         record = await database.write(async () =>
           productCollection.create((product) => {
             product.name = draft;
             product.brand = null;
-            product.category = DEFAULT_CATEGORY;
+            product.category = match.category;
             product.sizeValue = 1;
             product.sizeUnit = DEFAULT_UNIT;
             product.barcode = null;
@@ -55,6 +58,16 @@ export function AddFab({ query, variant = 'inline' }: AddFabProps) {
             product.lastSyncedAt = null;
           })
         );
+      } else if (!record.category || record.category === 'uncategorized') {
+        const match = matchResult ?? (await categoryService.categorize(draft));
+        if (match.category !== record.category) {
+          await database.write(async () => {
+            await record?.update((product) => {
+              product.category = match.category;
+              product.dirty = true;
+            });
+          });
+        }
       }
 
       if (!record) {

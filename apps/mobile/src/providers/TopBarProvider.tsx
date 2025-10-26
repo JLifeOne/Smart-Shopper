@@ -9,8 +9,7 @@ import React, {
 
 export type TopBarConfig = {
   title?: string;
-  initials?: string | null;
-  onProfilePress?: (() => void) | null;
+  logoGlyph?: string | null;
   onMenuPress?: (() => void) | null;
   showSearch?: boolean;
 };
@@ -23,8 +22,7 @@ type TopBarState = {
 
 const defaultConfig: TopBarConfig = {
   title: 'Smart Shopper',
-  initials: null,
-  onProfilePress: null,
+  logoGlyph: 'SS',
   onMenuPress: null,
   showSearch: true
 };

@@ -1,4 +1,4 @@
-﻿import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Modal, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/src/context/auth-context';
@@ -33,7 +33,12 @@ export function LibraryScreen() {
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
     const applyQuery = (item: LibraryItem) =>
-      term ? item.name.toLowerCase().includes(term) || item.category.toLowerCase().includes(term) : true;
+      term
+        ? item.name.toLowerCase().includes(term) ||
+          item.category.toLowerCase().includes(term) ||
+          item.categoryLabel.toLowerCase().includes(term) ||
+          (item.brand ? item.brand.toLowerCase().includes(term) : false)
+        : true;
 
     switch (tab) {
       case 'pinned':
@@ -200,14 +205,17 @@ function LibraryRow({
 }) {
   return (
     <View style={styles.row}>
-      <View style={styles.rowText}> 
+      <View style={styles.rowText}>
         <Text style={styles.rowTitle}>{item.name}</Text>
         <Text style={styles.rowSubtitle}>
-          {item.brand ? `${item.brand} · ` : ''}{item.sizeValue} {item.sizeUnit}
+          {item.categoryLabel}{item.brand ? ` - ${item.brand}` : ''}
+        </Text>
+        <Text style={styles.rowMeta}>
+          {item.sizeValue} {item.sizeUnit}
         </Text>
         {item.latestPrice ? (
           <Text style={styles.rowPrice}>
-            {item.latestPrice.currency} {item.latestPrice.unitPrice.toFixed(2)} · {formatRelative(item.latestPrice.capturedAt)}
+            {item.latestPrice.currency} {item.latestPrice.unitPrice.toFixed(2)} - {formatRelative(item.latestPrice.capturedAt)}
           </Text>
         ) : null}
       </View>
@@ -232,7 +240,7 @@ function AddToListModal({ state, onClose, lists, onSelect }: { state: AddModalSt
     <Modal transparent animationType="fade" visible>
       <View style={styles.modalOverlay}>
         <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>Add “{state.product.name}”</Text>
+          <Text style={styles.modalTitle}>Add �{state.product.name}�</Text>
           {lists.length ? (
             <FlatList
               data={lists}
@@ -392,6 +400,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: palette.accentDark
+  },
+  rowMeta: {
+    fontSize: 12,
+    color: palette.subtitle
   },
   rowSubtitle: {
     fontSize: 13,

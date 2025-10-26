@@ -203,12 +203,11 @@ function DashboardView({
   useTopBar(
     useMemo(
       () => ({
-        initials,
-        onProfilePress: openProfile,
+        logoGlyph: initials,
         onMenuPress: openMenu,
         showSearch: true
       }),
-      [initials, openMenu, openProfile]
+      [initials, openMenu]
     )
   );
 

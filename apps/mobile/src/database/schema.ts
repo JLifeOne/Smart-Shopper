@@ -1,7 +1,7 @@
 ﻿import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const schema = appSchema({
-  version: 1,
+  version: 2,
   tables: [
     tableSchema({
       name: 'lists',
@@ -47,6 +47,18 @@ export const schema = appSchema({
         { name: 'barcode', type: 'string', isOptional: true },
         { name: 'dirty', type: 'boolean' },
         { name: 'last_synced_at', type: 'number', isOptional: true }
+      ]
+    }),
+    tableSchema({
+      name: 'category_signals',
+      columns: [
+        { name: 'product_key', type: 'string', isIndexed: true },
+        { name: 'category', type: 'string' },
+        { name: 'confidence', type: 'number' },
+        { name: 'source', type: 'string' },
+        { name: 'merchant_code', type: 'string', isOptional: true },
+        { name: 'payload', type: 'string', isOptional: true },
+        { name: 'updated_at', type: 'number' }
       ]
     }),
     tableSchema({

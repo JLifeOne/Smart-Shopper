@@ -5,6 +5,7 @@ import type { ListItem } from '@/src/database/models/list-item';
 import type { Product } from '@/src/database/models/product';
 import { SearchIndex } from './searchIndex';
 import type { SearchEntity } from './types';
+import { categoryLabel } from '@/src/categorization';
 
 const featureActions: SearchEntity[] = [
   {
@@ -39,15 +40,19 @@ class SearchService {
         listCollection.query(Q.where('is_deleted', false)).fetch()
       ]);
 
-      const productEntities: SearchEntity[] = products.map((product) => ({
+      const productEntities: SearchEntity[] = products.map((product) => {
+        const label = categoryLabel(product.category);
+        const subtitle = product.brand ? `${label} · ${product.brand}` : label;
+        return {
         id: product.id,
         kind: 'product',
         title: product.name,
-        subtitle: product.brand ?? undefined,
-        tags: [product.category].filter(Boolean),
+        subtitle,
+        tags: [label],
         route: '/(app)/library',
         payload: { productId: product.id }
-      }));
+      };
+      });
 
       const listEntities: SearchEntity[] = await Promise.all(
         lists.map(async (list) => {

@@ -34,21 +34,20 @@ export const TopBar: React.FC = () => {
   const inputRef = useRef<TextInput>(null);
   const progress = useRef(new Animated.Value(0)).current;
 
-  const initialsLabel = useMemo(() => {
-    const raw = config.initials?.trim();
+  const logoGlyph = useMemo(() => {
+    const raw = config.logoGlyph?.trim();
     if (!raw) return 'SS';
-    return raw.slice(0, 2).toUpperCase();
-  }, [config.initials]);
+    return raw.slice(0, 3).toUpperCase();
+  }, [config.logoGlyph]);
 
-  const showProfile = Boolean(config.onProfilePress);
   const showMenu = Boolean(config.onMenuPress);
   const showSearch = config.showSearch !== false;
   const title = config.title ?? 'Smart Shopper';
 
   const reservedRight = useMemo(() => {
-    const buttons = (showProfile ? ICON_WIDTH : 0) + (showMenu ? ICON_WIDTH : 0);
-    return buttons + 24; // spacing
-  }, [showMenu, showProfile]);
+    const buttons = showMenu ? ICON_WIDTH : 0;
+    return buttons + 24;
+  }, [showMenu]);
 
   const maxWidth = useMemo(() => {
     if (!barWidth) return ICON_WIDTH;
@@ -139,7 +138,7 @@ export const TopBar: React.FC = () => {
       >
         <Animated.View style={[styles.brand, { opacity: brandOpacity }]}>
           <View style={styles.logoBadge}>
-            <Text style={styles.logoLetter}>SS</Text>
+            <Text style={styles.logoLetter}>{logoGlyph}</Text>
           </View>
           <Text style={styles.title}>{title}</Text>
         </Animated.View>
@@ -152,16 +151,6 @@ export const TopBar: React.FC = () => {
               hitSlop={10}
             >
               <Ionicons name="ellipsis-horizontal" size={22} color="#0C1D37" />
-            </Pressable>
-          ) : null}
-          {showProfile ? (
-            <Pressable
-              onPress={() => config.onProfilePress?.()}
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.avatarButton, pressed && styles.avatarButtonPressed]}
-              hitSlop={8}
-            >
-              <Text style={styles.avatarLabel}>{initialsLabel}</Text>
             </Pressable>
           ) : null}
           {showSearch ? (
@@ -285,23 +274,6 @@ const styles = StyleSheet.create({
   },
   iconButtonPressed: {
     backgroundColor: 'rgba(15,118,110,0.08)'
-  },
-  avatarButton: {
-    width: ICON_WIDTH,
-    height: ICON_WIDTH,
-    borderRadius: ICON_WIDTH / 2,
-    backgroundColor: '#4FD1C5',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: 6
-  },
-  avatarButtonPressed: {
-    opacity: 0.85
-  },
-  avatarLabel: {
-    color: '#0C1D37',
-    fontWeight: '700',
-    fontSize: 15
   },
   searchContainer: {
     height: ICON_WIDTH,

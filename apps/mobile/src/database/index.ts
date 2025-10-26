@@ -1,17 +1,20 @@
 ﻿import { Database } from '@nozbe/watermelondb';
 import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite';
 import schema from './schema';
+import migrations from './migrations';
 import {
   List,
   ListItem,
   PriceSnapshot,
   Product,
   ReceiptUpload,
-  SyncEvent
+  SyncEvent,
+  CategorySignal
 } from './models';
 
 const adapter = new SQLiteAdapter({
   schema,
+  migrations,
   dbName: 'smart_shopper',
   jsi: true,
   onSetUpError(error) {
@@ -21,7 +24,7 @@ const adapter = new SQLiteAdapter({
 
 export const database = new Database({
   adapter,
-  modelClasses: [List, ListItem, Product, PriceSnapshot, ReceiptUpload, SyncEvent],
+  modelClasses: [List, ListItem, Product, PriceSnapshot, ReceiptUpload, SyncEvent, CategorySignal]
 });
 
 export async function resetDatabase() {
