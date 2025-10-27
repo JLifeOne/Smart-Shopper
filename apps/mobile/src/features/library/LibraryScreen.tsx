@@ -32,26 +32,36 @@ export function LibraryScreen() {
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
-    const applyQuery = (item: LibraryItem) =>
-      term
-        ? item.name.toLowerCase().includes(term) ||
-          item.category.toLowerCase().includes(term) ||
-          item.categoryLabel.toLowerCase().includes(term) ||
-          (item.brand ? item.brand.toLowerCase().includes(term) : false)
-        : true;
+    const matches = (item: LibraryItem) => {
+      if (!term) {
+        return true;
+      }
+      const haystack = [
+        item.name,
+        item.category,
+        item.categoryLabel,
+        item.brand ?? '',
+        item.variant ?? '',
+        item.region ?? '',
+        ...item.tags
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(term);
+    };
 
     switch (tab) {
       case 'pinned':
-        return items.filter((item) => isPinned(item.id)).filter(applyQuery);
+        return items.filter((item) => isPinned(item.id)).filter(matches);
       case 'recent':
         return items
           .filter((item) => item.lastUsedAt)
           .sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0))
-          .filter(applyQuery)
+          .filter(matches)
           .slice(0, 50);
       case 'all':
       default:
-        return items.filter(applyQuery);
+        return items.filter(matches);
     }
   }, [items, tab, query, isPinned]);
 
@@ -171,7 +181,9 @@ export function LibraryScreen() {
             style={[styles.tabButton, tab === key && styles.tabButtonActive]}
             onPress={() => setTab(key)}
           >
-            <Text style={[styles.tabLabel, tab === key && styles.tabLabelActive]}>{key === 'all' ? 'All' : key.charAt(0).toUpperCase() + key.slice(1)}</Text>
+            <Text style={[styles.tabLabel, tab === key && styles.tabLabelActive]}>
+              {key === 'all' ? 'All' : key.charAt(0).toUpperCase() + key.slice(1)}
+            </Text>
           </Pressable>
         ))}
       </View>
@@ -203,20 +215,46 @@ function LibraryRow({
   onTogglePin: () => void;
   onQuickAdd: () => void;
 }) {
+  const subtitleParts = [
+    item.categoryLabel,
+    item.variant ?? '',
+    item.brand ?? '',
+    item.region ?? ''
+  ].filter(Boolean);
+
+  const tagLine = item.tags.length ? item.tags.join(', ') : null;
+  const latest = item.priceSummary?.latest;
+  const lowest = item.priceSummary?.lowest;
+  const savings = item.priceSummary?.difference ? Math.abs(item.priceSummary.difference) : null;
+
   return (
     <View style={styles.row}>
       <View style={styles.rowText}>
         <Text style={styles.rowTitle}>{item.name}</Text>
-        <Text style={styles.rowSubtitle}>
-          {item.categoryLabel}{item.brand ? ` - ${item.brand}` : ''}
-        </Text>
+        {subtitleParts.length ? (
+          <Text style={styles.rowSubtitle}>{subtitleParts.join(' - ')}</Text>
+        ) : null}
         <Text style={styles.rowMeta}>
           {item.sizeValue} {item.sizeUnit}
+          {tagLine ? ` - ${tagLine}` : ''}
         </Text>
-        {item.latestPrice ? (
-          <Text style={styles.rowPrice}>
-            {item.latestPrice.currency} {item.latestPrice.unitPrice.toFixed(2)} - {formatRelative(item.latestPrice.capturedAt)}
-          </Text>
+        {latest ? (
+          <View style={styles.priceSection}>
+            <View style={styles.priceRow}>
+              <Text style={styles.priceLabel}>Latest</Text>
+              <Text style={styles.priceValue}>{formatPrice(latest.unitPrice, latest.currency)}</Text>
+              {latest.store ? <Text style={styles.priceStore}>{latest.store}</Text> : null}
+              <Text style={styles.priceTime}>{formatRelative(latest.capturedAt)}</Text>
+            </View>
+            {lowest && savings && savings > 0.009 ? (
+              <View style={[styles.priceRow, styles.priceRowSecondary]}>
+                <Text style={styles.priceLabelSecondary}>Best</Text>
+                <Text style={styles.priceValue}>{formatPrice(lowest.unitPrice, lowest.currency)}</Text>
+                {lowest.store ? <Text style={styles.priceStore}>{lowest.store}</Text> : null}
+                <Text style={styles.priceDelta}>Save {formatPrice(savings, lowest.currency)}</Text>
+              </View>
+            ) : null}
+          </View>
         ) : null}
       </View>
       <View style={styles.rowActions}>
@@ -240,7 +278,7 @@ function AddToListModal({ state, onClose, lists, onSelect }: { state: AddModalSt
     <Modal transparent animationType="fade" visible>
       <View style={styles.modalOverlay}>
         <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>Add “{state.product.name}”</Text>
+          <Text style={styles.modalTitle}>Add "{state.product.name}"</Text>
           {lists.length ? (
             <FlatList
               data={lists}
@@ -266,6 +304,14 @@ function AddToListModal({ state, onClose, lists, onSelect }: { state: AddModalSt
       </View>
     </Modal>
   );
+}
+
+function formatPrice(value: number, currency: string) {
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value);
+  } catch {
+    return `${currency} ${value.toFixed(2)}`;
+  }
 }
 
 function formatRelative(timestamp: number | null | undefined) {
@@ -320,48 +366,44 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     color: palette.accentDark,
-    marginLeft: 8
+    marginLeft: 10
   },
   searchClear: {
-    marginLeft: 8,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center'
+    marginLeft: 8
   },
   tabRow: {
     flexDirection: 'row',
-    gap: 8
+    gap: 12
   },
   tabButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: palette.border,
-    backgroundColor: '#FFFFFF'
+    backgroundColor: '#E2E8F0'
   },
   tabButtonActive: {
-    backgroundColor: '#E6FFFA',
-    borderColor: palette.accent
+    backgroundColor: palette.accent,
+    shadowColor: '#101828',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 2
   },
   tabLabel: {
     fontWeight: '600',
-    color: palette.subtitle,
-    textTransform: 'capitalize'
+    color: palette.subtitle
   },
   tabLabelActive: {
     color: palette.accentDark
   },
+  listContent: {
+    paddingBottom: 120,
+    gap: 12
+  },
   center: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 32,
-    gap: 12
+    gap: 12,
+    paddingVertical: 48
   },
   errorText: {
     color: '#E53E3E',
@@ -377,10 +419,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: palette.subtitle,
     textAlign: 'center'
-  },
-  listContent: {
-    paddingBottom: 120,
-    gap: 12
   },
   row: {
     flexDirection: 'row',
@@ -401,17 +439,55 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: palette.accentDark
   },
-  rowMeta: {
-    fontSize: 12,
-    color: palette.subtitle
-  },
   rowSubtitle: {
     fontSize: 13,
     color: palette.subtitle
   },
-  rowPrice: {
+  rowMeta: {
     fontSize: 12,
     color: palette.subtitle
+  },
+  priceSection: {
+    gap: 4,
+    marginTop: 6
+  },
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  priceRowSecondary: {
+    opacity: 0.85
+  },
+  priceLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: palette.accentDark,
+    textTransform: 'uppercase'
+  },
+  priceLabelSecondary: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1E40AF',
+    textTransform: 'uppercase'
+  },
+  priceValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: palette.accentDark
+  },
+  priceStore: {
+    fontSize: 11,
+    color: palette.subtitle
+  },
+  priceTime: {
+    fontSize: 11,
+    color: '#64748B'
+  },
+  priceDelta: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#0F766E'
   },
   rowActions: {
     flexDirection: 'row',

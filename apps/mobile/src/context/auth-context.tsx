@@ -1,7 +1,8 @@
-﻿import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { getSupabaseClient } from '@/src/lib/supabase';
 import { supabaseEnv } from '@/src/lib/env';
+import { ensureCatalogSeeded } from '@/src/catalog';
 import { syncService } from '@/src/database/sync-service';
 
 export interface AuthActionResult {
@@ -76,6 +77,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     syncService.setSession(session);
+    if (session) {
+      ensureCatalogSeeded().catch((error) => {
+        console.warn('Catalog seeding failed', error);
+      });
+    }
   }, [session]);
 
   const buildErrorResult = useCallback((message: string): AuthActionResult => {

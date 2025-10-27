@@ -19,11 +19,23 @@ export class Product extends Model {
 
   @field('category') category!: string;
 
+  @field('region') region!: string | null;
+
+  @field('variant') variant!: string | null;
+
   @field('size_value') sizeValue!: number;
 
   @field('size_unit') sizeUnit!: string;
 
   @field('barcode') barcode!: string | null;
+
+  @field('tags') tags!: string | null;
+
+  @field('source_url') sourceUrl!: string | null;
+
+  @field('image_url') imageUrl!: string | null;
+
+  @field('search_key') searchKey!: string | null;
 
   @field('dirty') dirty!: boolean;
 

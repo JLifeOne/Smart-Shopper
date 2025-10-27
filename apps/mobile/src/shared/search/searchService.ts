@@ -42,18 +42,25 @@ class SearchService {
 
       const productEntities: SearchEntity[] = products.map((product) => {
         const label = categoryLabel(product.category);
-        const subtitle = product.brand ? `${label} · ${product.brand}` : label;
+        const parts: string[] = [];
+        if (product.variant) { parts.push(product.variant); }
+        parts.push(label);
+        if (product.brand) { parts.push(product.brand); }
+        if (product.region) { parts.push(product.region); }
+        const subtitle = parts.join(' | ') || label;
+        const tags: string[] = [label];
+        if (product.region) { tags.push(product.region); }
+        if (product.variant) { tags.push(product.variant); }
         return {
-        id: product.id,
-        kind: 'product',
-        title: product.name,
-        subtitle,
-        tags: [label],
-        route: '/(app)/library',
-        payload: { productId: product.id }
-      };
+          id: product.id,
+          kind: 'product',
+          title: product.name,
+          subtitle,
+          tags,
+          route: '/(app)/library',
+          payload: { productId: product.id }
+        } satisfies SearchEntity;
       });
-
       const listEntities: SearchEntity[] = await Promise.all(
         lists.map(async (list) => {
           const itemCount = await listItemCollection
@@ -115,3 +122,5 @@ class SearchService {
 }
 
 export const searchService = new SearchService();
+
+

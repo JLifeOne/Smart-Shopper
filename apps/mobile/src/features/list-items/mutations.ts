@@ -1,4 +1,5 @@
-﻿import { database } from '@/src/database';
+import { database } from '@/src/database';
+import { upsertProductFromName } from '@/src/catalog';
 import type { List } from '@/src/database/models/list';
 import type { ListItem } from '@/src/database/models/list-item';
 import { syncService } from '@/src/database/sync-service';
@@ -33,6 +34,9 @@ export async function createListItem(listId: string, label: string) {
       item.lastSyncedAt = null;
     })
   );
+  await upsertProductFromName(trimmed, { markDirty: true }).catch((err) => {
+    console.warn('Failed to upsert product for list item', err);
+  });
 
   try {
     await syncService.enqueueMutation('LIST_ITEM_CREATED', {
@@ -74,3 +78,5 @@ export async function deleteListItem(itemId: string) {
     console.warn('Failed to enqueue list item archive', err);
   }
 }
+
+

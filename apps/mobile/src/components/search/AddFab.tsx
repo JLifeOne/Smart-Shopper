@@ -1,21 +1,16 @@
-﻿import { Q } from '@nozbe/watermelondb';
-import React, { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { database } from '@/src/database';
-import type { Product } from '@/src/database/models/product';
+import { upsertProductFromName } from '@/src/catalog';
 import { createListItem } from '@/src/features/list-items/mutations';
 import { searchService } from '@/src/shared/search/searchService';
 import { useSearchStore } from '@/src/shared/search/store';
 import { Toast } from './Toast';
-import { categoryService } from '@/src/categorization/category-service';
 
 type AddFabProps = {
   query: string;
   variant?: 'floating' | 'inline';
 };
-
-const DEFAULT_UNIT = 'unit';
 
 export function AddFab({ query, variant = 'inline' }: AddFabProps) {
   const activeListId = useSearchStore((state) => state.activeListId);
@@ -30,53 +25,11 @@ export function AddFab({ query, variant = 'inline' }: AddFabProps) {
 
     setSaving(true);
     try {
-      const productCollection = database.get<Product>('products');
-      const [exactMatch] = await productCollection.query(Q.where('name', draft)).fetch();
-      let record: Product | null = exactMatch ?? null;
-
-      if (!record) {
-        const allProducts = await productCollection.query().fetch();
-        record =
-          allProducts.find((item) => item.name.trim().toLowerCase() === draft.toLowerCase()) ??
-          null;
-      }
-
-      let matchResult = record ? null : await categoryService.categorize(draft);
-
-      if (!record) {
-        const match = matchResult ?? (await categoryService.categorize(draft));
-        record = await database.write(async () =>
-          productCollection.create((product) => {
-            product.name = draft;
-            product.brand = null;
-            product.category = match.category;
-            product.sizeValue = 1;
-            product.sizeUnit = DEFAULT_UNIT;
-            product.barcode = null;
-            product.remoteId = null;
-            product.dirty = true;
-            product.lastSyncedAt = null;
-          })
-        );
-      } else if (!record.category || record.category === 'uncategorized') {
-        const match = matchResult ?? (await categoryService.categorize(draft));
-        if (match.category !== record.category) {
-          await database.write(async () => {
-            await record?.update((product) => {
-              product.category = match.category;
-              product.dirty = true;
-            });
-          });
-        }
-      }
-
-      if (!record) {
-        throw new Error('AddFab: product record not resolved');
-      }
+      const product = await upsertProductFromName(draft, { markDirty: true });
 
       if (activeListId) {
         try {
-          await createListItem(activeListId, record.name);
+          await createListItem(activeListId, product.name);
         } catch (itemErr) {
           console.warn('AddFab: failed to append to active list', itemErr);
         }
@@ -100,8 +53,8 @@ export function AddFab({ query, variant = 'inline' }: AddFabProps) {
     if (!trimmed) {
       return 'Add new entry';
     }
-    const preview = trimmed.length > 32 ? trimmed.slice(0, 30) + '…' : trimmed;
-    return 'Add "' + preview + '"';
+    const preview = trimmed.length > 32 ? `${trimmed.slice(0, 30)}...` : trimmed;
+    return `Add "${preview}"`;
   }, [trimmed]);
 
   const inlineSub = useMemo(() => {

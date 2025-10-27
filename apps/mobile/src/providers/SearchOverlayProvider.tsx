@@ -3,6 +3,7 @@ import { searchService } from '@/src/shared/search/searchService';
 import { trackEvent } from '@/src/lib/analytics';
 import { useSearchStore } from '@/src/shared/search/store';
 import { SearchOverlay } from '@/src/components/search/SearchOverlay';
+import { ensureCatalogSeeded } from '@/src/catalog';
 
 type SearchOverlayContextValue = {
   openSearch: (initialQuery?: string) => void;
@@ -27,6 +28,7 @@ export function SearchOverlayProvider({ children, topOffset = 0 }: ProviderProps
     setLoading(true);
 
     (async () => {
+      await ensureCatalogSeeded();
       await searchService.buildIndex();
       setLoading(false);
       unsubscribe = searchService.attachLiveReindex();
@@ -79,6 +81,11 @@ export function SearchOverlayProvider({ children, topOffset = 0 }: ProviderProps
     </SearchOverlayContext.Provider>
   );
 }
+
+
+
+
+
 
 
 

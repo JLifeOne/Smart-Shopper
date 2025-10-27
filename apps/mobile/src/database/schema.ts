@@ -1,7 +1,7 @@
-﻿import { appSchema, tableSchema } from '@nozbe/watermelondb';
+import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const schema = appSchema({
-  version: 2,
+  version: 3,
   tables: [
     tableSchema({
       name: 'lists',
@@ -42,9 +42,15 @@ export const schema = appSchema({
         { name: 'brand', type: 'string', isOptional: true },
         { name: 'name', type: 'string' },
         { name: 'category', type: 'string', isIndexed: true },
+        { name: 'region', type: 'string', isIndexed: true, isOptional: true },
+        { name: 'variant', type: 'string', isOptional: true },
         { name: 'size_value', type: 'number' },
         { name: 'size_unit', type: 'string' },
         { name: 'barcode', type: 'string', isOptional: true },
+        { name: 'tags', type: 'string', isOptional: true },
+        { name: 'source_url', type: 'string', isOptional: true },
+        { name: 'image_url', type: 'string', isOptional: true },
+        { name: 'search_key', type: 'string', isIndexed: true, isOptional: true },
         { name: 'dirty', type: 'boolean' },
         { name: 'last_synced_at', type: 'number', isOptional: true }
       ]
