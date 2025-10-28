@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@/src/database';
 import type { ListItem } from '@/src/database/models/list-item';
@@ -149,8 +149,35 @@ export function useListItems(listId: string | null | undefined) {
     return () => subscription.unsubscribe();
   }, [listId]);
 
+  const mutateItem = useCallback(
+    (id: string, updater: (current: ListItemSummary) => ListItemSummary) => {
+      setItems((current) => current.map((entry) => (entry.id === id ? updater(entry) : entry)));
+    },
+    []
+  );
+
+  const removeItem = useCallback((id: string) => {
+    setItems((current) => current.filter((entry) => entry.id !== id));
+  }, []);
+
+  const restoreItem = useCallback((entry: ListItemSummary, index?: number) => {
+    setItems((current) => {
+      const exists = current.some((item) => item.id === entry.id);
+      if (exists) {
+        return current;
+      }
+      const next = [...current];
+      if (index === undefined || index < 0 || index > next.length) {
+        next.push(entry);
+      } else {
+        next.splice(index, 0, entry);
+      }
+      return next;
+    });
+  }, []);
+
   return useMemo(
-    () => ({ items, loading, error }),
-    [items, loading, error]
+    () => ({ items, loading, error, mutateItem, removeItem, restoreItem }),
+    [items, loading, error, mutateItem, removeItem, restoreItem]
   );
 }

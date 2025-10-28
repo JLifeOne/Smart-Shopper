@@ -10,7 +10,8 @@ import {
   Text,
   TextInput,
   View,
-  useWindowDimensions
+  useWindowDimensions,
+  ActivityIndicator
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +22,17 @@ import { trackEvent } from '@/src/lib/analytics';
 import { useDashboardMetrics, type HeatmapData } from '@/src/lib/dashboard-data';
 import { useRecommendations } from '@/src/features/recommendations/use-recommendations';
 import { ListsScreen, type ListsScreenHandle } from '@/src/features/lists/ListsScreen';
+import { createList, setListStore } from '@/src/features/lists/mutations';
+import { createListItem } from '@/src/features/list-items/mutations';
+import {
+  parseListInput,
+  enrichParsedEntries,
+  type EnrichedListEntry
+} from '@/src/features/lists/parse-list-input';
+import { SmartAddPreview } from '@/src/features/lists/components/SmartAddPreview';
+import { storeSuggestionsFor, stores, type StoreDefinition } from '@/src/data/stores';
+import { detectRegion } from '@/src/catalog/catalogService';
+import { Toast } from '@/src/components/search/Toast';
 import { useTopBar } from '@/src/providers/TopBarProvider';
 
 const NEXT_ACTIONS = [
@@ -54,41 +66,30 @@ function HomeWithNewNavigation({ auth }: { auth: AuthContextValue }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabKey>('home');
   const [isCreateSheetVisible, setCreateSheetVisible] = useState(false);
-  const [shouldOpenListPrompt, setShouldOpenListPrompt] = useState(false);
   const listsScreenRef = useRef<ListsScreenHandle | null>(null);
   const insets = useSafeAreaInsets();
 
   const handleSelectTab = useCallback((tab: TabKey) => {
     setActiveTab(tab);
-    if (tab !== 'lists') {
-      setShouldOpenListPrompt(false);
-    }
-  }, [setShouldOpenListPrompt]);
+  }, []);
 
   const handleCreatePress = useCallback(() => {
-    trackEvent('nav_create_press', { tab: activeTab, createSheet: featureFlags.createWorkflow });
-    if (featureFlags.createWorkflow) {
-      setCreateSheetVisible(true);
-      return;
-    }
-    if (activeTab === 'lists') {
-      listsScreenRef.current?.openCreatePrompt();
-      return;
-    }
-    setActiveTab('lists');
-    setShouldOpenListPrompt(true);
-  }, [activeTab, setActiveTab, setCreateSheetVisible, setShouldOpenListPrompt]);
+    trackEvent('nav_create_press', { tab: activeTab, createSheet: true });
+    setCreateSheetVisible(true);
+  }, [activeTab]);
 
   const handleCloseCreateSheet = useCallback(() => {
     setCreateSheetVisible(false);
   }, []);
 
-  useEffect(() => {
-    if (activeTab === 'lists' && shouldOpenListPrompt) {
-      listsScreenRef.current?.openCreatePrompt();
-      setShouldOpenListPrompt(false);
-    }
-  }, [activeTab, shouldOpenListPrompt, setShouldOpenListPrompt]);
+  const handleCreateSheetSuccess = useCallback(
+    ({ listId }: { listId: string }) => {
+      setCreateSheetVisible(false);
+      setActiveTab('lists');
+      router.push(`/lists/${listId}` as never);
+    },
+    [router]
+  );
 
   let content: ReactNode = null;
   switch (activeTab) {
@@ -122,9 +123,12 @@ function HomeWithNewNavigation({ auth }: { auth: AuthContextValue }) {
         onCreatePress={handleCreatePress}
         bottomInset={insets.bottom}
       />
-      {featureFlags.createWorkflow && (
-        <CreateSheet visible={isCreateSheetVisible} onClose={handleCloseCreateSheet} />
-      )}
+      <CreateSheet
+        visible={isCreateSheetVisible}
+        onClose={handleCloseCreateSheet}
+        ownerId={auth.user?.id ?? null}
+        onCreated={handleCreateSheetSuccess}
+      />
     </SafeAreaView>
   );
 }
@@ -154,7 +158,7 @@ function DashboardView({
       query: 'pantry staples',
       locale: user?.user_metadata?.locale ?? undefined
     };
-  }, [featureFlags.aiSuggestions, user?.user_metadata?.locale]);
+  }, [user?.user_metadata?.locale]);
 
   const { data: recommendations, loading: recommendationsLoading, error: recommendationsError } = useRecommendations(
     recommendationRequest,
@@ -1066,97 +1070,284 @@ function NavTabButton({
   );
 }
 
-function CreateSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+function suggestListName() {
+  const now = new Date();
+  const weekday = now.toLocaleDateString(undefined, { weekday: 'long' });
+  const hour = now.getHours();
+  const descriptor = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
+  return `${weekday} ${descriptor} list`;
+}
+
+function detectLocaleRegion() {
+  try {
+    return detectRegion();
+  } catch {
+    return 'US';
+  }
+}
+
+type CreateSheetProps = {
+  visible: boolean;
+  onClose: () => void;
+  ownerId?: string | null;
+  deviceId?: string | null;
+  onCreated: (result: { listId: string }) => void;
+};
+
+function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateSheetProps) {
   const [activeTab, setActiveTab] = useState<'type' | 'voice' | 'camera'>('type');
+  const [listName, setListName] = useState(() => suggestListName());
   const [textValue, setTextValue] = useState('');
-  const parsedItems = useMemo(
-    () =>
-      textValue
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0),
-    [textValue]
-  );
-  const itemCount = parsedItems.length;
-  const listParserReady = featureFlags.listParserV2;
+  const [parsedEntries, setParsedEntries] = useState<EnrichedListEntry[]>([]);
+  const [parsing, setParsing] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [selectedStore, setSelectedStore] = useState<StoreDefinition | null>(null);
+
+  const region = useMemo(() => detectLocaleRegion(), []);
+  const storeOptions = useMemo(() => {
+    const options = storeSuggestionsFor(region);
+    return options.length ? options : stores;
+  }, [region]);
 
   useEffect(() => {
     if (visible) {
       trackEvent('create_sheet_opened');
+      setActiveTab('type');
+      setListName(suggestListName());
+      setTextValue('');
+      setParsedEntries([]);
+      setParsing(false);
+      setCreating(false);
+      setSelectedStore((current) => current ?? storeOptions[0] ?? null);
       return;
     }
-    setActiveTab('type');
     setTextValue('');
-  }, [visible]);
+    setParsedEntries([]);
+    setParsing(false);
+    setCreating(false);
+  }, [visible, storeOptions]);
+
+  useEffect(() => {
+    if (!visible || activeTab !== 'type') {
+      setParsedEntries([]);
+      setParsing(false);
+      return;
+    }
+    const trimmed = textValue.trim();
+    if (!trimmed) {
+      setParsedEntries([]);
+      setParsing(false);
+      return;
+    }
+    const parsed = parseListInput(trimmed);
+    if (!parsed.length) {
+      setParsedEntries([]);
+      setParsing(false);
+      return;
+    }
+    let cancelled = false;
+    setParsing(true);
+    enrichParsedEntries(parsed, { merchantCode: selectedStore?.id ?? null })
+      .then((entries) => {
+        if (!cancelled) {
+          setParsedEntries(entries);
+        }
+      })
+      .catch((err) => {
+        console.warn('create-sheet: enrich failed', err);
+        if (!cancelled) {
+          setParsedEntries(
+            parsed.map((entry) => ({
+              ...entry,
+              category: 'pantry',
+              categoryLabel: 'Pantry',
+              confidence: 0.2,
+              suggestions: []
+            }))
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setParsing(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, textValue, selectedStore?.id, visible]);
 
   const handleDismiss = useCallback(() => {
-    trackEvent('create_sheet_closed', { fromTab: activeTab, typedItems: itemCount });
+    if (creating) {
+      return;
+    }
+    trackEvent('create_sheet_closed', { fromTab: activeTab, typedItems: parsedEntries.length });
     onClose();
-  }, [activeTab, itemCount, onClose]);
+  }, [activeTab, creating, parsedEntries.length, onClose]);
 
-  const handleTabChange = useCallback(
-    (tab: 'type' | 'voice' | 'camera') => {
-      setActiveTab(tab);
-      trackEvent('create_sheet_tab_selected', { tab });
+  const handleTabChange = useCallback((tab: 'type' | 'voice' | 'camera') => {
+    setActiveTab(tab);
+    trackEvent('create_sheet_tab_selected', { tab });
+  }, []);
+
+  const handleStoreSelect = useCallback(
+    (store: StoreDefinition | null) => {
+      setSelectedStore(store);
+      trackEvent('create_sheet_store_selected', { storeId: store?.id ?? null });
     },
     []
   );
 
-  const handleAddItems = useCallback(() => {
-    if (!itemCount) {
-      Alert.alert('Add your items', 'Enter at least one item to continue.');
+  const handleCreateList = useCallback(async () => {
+    const trimmedName = listName.trim();
+    if (!trimmedName) {
+      Alert.alert('Name required', 'Give this list a name before creating it.');
       return;
     }
-    trackEvent('create_sheet_items_submitted', { tab: 'type', itemCount });
-    Alert.alert(
-      'Items captured',
-      `We will categorize ${itemCount} item${itemCount === 1 ? '' : 's'} as list parsing matures.`
-    );
-    setTextValue('');
-    handleDismiss();
-  }, [handleDismiss, itemCount]);
+
+    const entries = parsedEntries.length
+      ? parsedEntries
+      : parseListInput(textValue).map((entry) => ({
+          ...entry,
+          category: 'pantry',
+          categoryLabel: 'Pantry',
+          confidence: 0.2,
+          suggestions: []
+        }));
+
+    setCreating(true);
+    try {
+      const list = await createList({ name: trimmedName, ownerId: ownerId ?? null, deviceId: deviceId ?? null });
+      if (selectedStore) {
+        await setListStore(list.id, selectedStore);
+      }
+      for (const entry of entries) {
+        await createListItem(list.id, entry.label, entry.quantity, {
+          unit: entry.unit,
+          category: entry.category,
+          merchantCode: selectedStore?.id ?? null
+        });
+      }
+      trackEvent('create_sheet_list_created', {
+        itemCount: entries.length,
+        storeId: selectedStore?.id ?? null
+      });
+      Toast.show(entries.length ? `Created ${trimmedName}, ${entries.length} items ready.` : `Created ${trimmedName}`);
+      onCreated({ listId: list.id });
+    } catch (err) {
+      console.error('Failed to create list from sheet', err);
+      Alert.alert('Could not create list', err instanceof Error ? err.message : 'Try again.');
+    } finally {
+      setCreating(false);
+    }
+  }, [listName, parsedEntries, textValue, ownerId, deviceId, selectedStore, onCreated]);
+
+  const storeChips = useMemo(() => {
+    const chips = [null, ...storeOptions.slice(0, 5)];
+    return chips;
+  }, [storeOptions]);
+
+  const renderTypeTab = () => (
+    <>
+      <Text style={newStyles.createLabel}>List name</Text>
+      <TextInput
+        style={newStyles.createNameInput}
+        value={listName}
+        onChangeText={setListName}
+        placeholder="e.g. Weekend run"
+      />
+      <Text style={newStyles.createLabel}>Store</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={newStyles.storeChipRow}>
+        {storeChips.map((store) => {
+          const isActive = store ? selectedStore?.id === store.id : !selectedStore;
+          return (
+            <Pressable
+              key={store ? store.id : 'none'}
+              style={[newStyles.storeChip, isActive && newStyles.storeChipActive]}
+              onPress={() => handleStoreSelect(store)}
+            >
+              <Text
+                style={[
+                  newStyles.storeChipLabel,
+                  !store && !isActive && newStyles.storeChipLabelMuted
+                ]}
+              >
+                {store ? store.label : 'Any store'}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+      <Text style={newStyles.createLabel}>Items</Text>
+      <TextInput
+        style={newStyles.createInput}
+        multiline
+        placeholder="Paste or type items, one per line (e.g. Eggs, Coffee, Bread, Chicken)"
+        value={textValue}
+        onChangeText={setTextValue}
+      />
+      <Text style={newStyles.createHelperText}>
+        {parsedEntries.length
+          ? `${parsedEntries.length} item${parsedEntries.length === 1 ? '' : 's'} ready`
+          : 'Type or paste one item per line to build your list.'}
+      </Text>
+      <SmartAddPreview
+        entries={parsedEntries}
+        loading={parsing}
+        onCategoryChange={(index, suggestion) =>
+          setParsedEntries((current) =>
+            current.map((entry, idx) =>
+              idx === index
+                ? {
+                    ...entry,
+                    category: suggestion.category,
+                    categoryLabel: suggestion.label,
+                    confidence: suggestion.confidence
+                  }
+                : entry
+            )
+          )
+        }
+        theme={{
+          accent: '#4FD1C5',
+          accentDark: '#0C1D37',
+          subtitle: '#4A576D',
+          border: '#E2E8F0',
+          card: '#FFFFFF'
+        }}
+      />
+      <Pressable
+        accessibilityRole="button"
+        onPress={handleCreateList}
+        disabled={creating}
+        style={({ pressed }) => [
+          newStyles.createSubmitButton,
+          pressed && !creating && newStyles.createSubmitButtonPressed,
+          creating && newStyles.createSubmitButtonDisabled
+        ]}
+      >
+        {creating ? (
+          <ActivityIndicator size="small" color="#0C1D37" />
+        ) : (
+          <Text style={newStyles.createSubmitButtonLabel}>Create list</Text>
+        )}
+      </Pressable>
+    </>
+  );
 
   const renderBody = () => {
     if (activeTab === 'type') {
-      return (
-        <>
-          <TextInput
-            style={newStyles.createInput}
-            multiline
-            placeholder="Paste or type items, one per line (e.g. Eggs, Coffee, Bread, Chicken)"
-            value={textValue}
-            onChangeText={setTextValue}
-          />
-          <Text style={newStyles.createHelperText}>
-            {itemCount
-              ? `${itemCount} item${itemCount === 1 ? '' : 's'} ready to add`
-              : 'Type or paste one item per line to build your list.'}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={handleAddItems}
-            disabled={!itemCount}
-            style={({ pressed }) => [
-              newStyles.createSubmitButton,
-              pressed && itemCount > 0 && newStyles.createSubmitButtonPressed,
-              !itemCount && newStyles.createSubmitButtonDisabled
-            ]}
-          >
-            <Text style={newStyles.createSubmitButtonLabel}>Add items</Text>
-          </Pressable>
-        </>
-      );
+      return renderTypeTab();
     }
 
     const label = activeTab === 'voice' ? 'Voice capture' : 'Camera capture';
-    const bodyCopy = listParserReady
-      ? `${label} is rolling out with List Parser v2. We will enable beta access for your account soon.`
-      : `${label} will launch alongside List Parser v2. Keep typing lists for now so analytics can stay accurate.`;
     return (
       <View style={newStyles.createPlaceholder}>
         <Ionicons name="construct-outline" size={36} color="#4FD1C5" />
         <Text style={newStyles.createPlaceholderTitle}>{label} coming soon</Text>
-        <Text style={newStyles.createPlaceholderBody}>{bodyCopy}</Text>
+        <Text style={newStyles.createPlaceholderBody}>
+          We're wiring this mode into the smart parser. For now, type or paste items so analytics stay accurate.
+        </Text>
         <Text style={newStyles.createPlaceholderFootnote}>
           Beta access will unlock this workflow once QA flips the new parser flag.
         </Text>
@@ -1170,7 +1361,7 @@ function CreateSheet({ visible, onClose }: { visible: boolean; onClose: () => vo
         <Pressable style={newStyles.createDismissZone} onPress={handleDismiss} />
         <View style={newStyles.createSheet}>
           <View style={newStyles.createHandle} />
-          <Text style={newStyles.createTitle}>Add items</Text>
+          <Text style={newStyles.createTitle}>New list</Text>
           <View style={newStyles.createTabs}>
             {(['type', 'voice', 'camera'] as const).map((tab) => (
               <Pressable
@@ -1190,6 +1381,7 @@ function CreateSheet({ visible, onClose }: { visible: boolean; onClose: () => vo
     </Modal>
   );
 }
+
 const drawerStyles = StyleSheet.create({
   modalRoot: {
     flex: 1
@@ -1993,6 +2185,46 @@ const newStyles = StyleSheet.create({
   },
   createTabLabelActive: {
     color: '#0C1D37'
+  },
+  createLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#4A576D',
+    marginTop: 8
+  },
+  createNameInput: {
+    borderRadius: 16,
+    borderColor: '#CBD5E1',
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#0C1D37'
+  },
+  storeChipRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 8
+  },
+  storeChip: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#FFFFFF'
+  },
+  storeChipActive: {
+    borderColor: '#4FD1C5',
+    backgroundColor: '#ECFDF5'
+  },
+  storeChipLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0C1D37'
+  },
+  storeChipLabelMuted: {
+    color: '#64748B'
   },
   createInput: {
     minHeight: 120,

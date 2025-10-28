@@ -32,6 +32,7 @@ import { useSearchOverlay } from '@/src/providers/SearchOverlayProvider';
 import { trackEvent } from '@/src/lib/analytics';
 import { parseListInput, enrichParsedEntries, type EnrichedListEntry } from '@/src/features/lists/parse-list-input';
 import { defaultAisleOrderFor, storeSuggestionsFor, stores, type StoreDefinition } from '@/src/data/stores';
+import { SmartAddPreview } from '@/src/features/lists/components/SmartAddPreview';
 import { Toast } from '@/src/components/search/Toast';
 
 const palette = {
@@ -127,7 +128,7 @@ export default function ListDetailScreen() {
   const { listId } = useLocalSearchParams<{ listId?: string }>();
   const router = useRouter();
   const { list, loading, error } = useList(listId);
-  const { items, loading: itemsLoading } = useListItems(listId ?? null);
+  const { items, loading: itemsLoading, mutateItem, removeItem, restoreItem } = useListItems(listId ?? null);
   const [draft, setDraft] = useState('');
   const [parsedEntries, setParsedEntries] = useState<EnrichedListEntry[]>([]);
   const [parsing, setParsing] = useState(false);
@@ -318,17 +319,37 @@ export default function ListDetailScreen() {
     }
   }, [draft, list?.storeId, listId, parsedEntries]);
 
-  const handleAdjustQuantity = useCallback((item: ListItemSummary, delta: number) => {
-    adjustListItemQuantity(item.id, delta).catch((err) => {
-      console.error('Failed to adjust quantity', err);
-      Alert.alert('Could not adjust quantity', err instanceof Error ? err.message : 'Try again.');
-    });
-  }, []);
+  const handleAdjustQuantity = useCallback(
+    (item: ListItemSummary, delta: number) => {
+      const proposed = item.desiredQty + delta;
+      if (proposed < 1 || delta === 0) {
+        return;
+      }
+      const previousQty = item.desiredQty;
+      mutateItem(item.id, (current) => ({
+        ...current,
+        desiredQty: proposed
+      }));
+      adjustListItemQuantity(item.id, delta).catch((err) => {
+        console.error('Failed to adjust quantity', err);
+        mutateItem(item.id, (current) => ({
+          ...current,
+          desiredQty: previousQty
+        }));
+        Alert.alert('Could not adjust quantity', err instanceof Error ? err.message : 'Try again.');
+      });
+    },
+    [mutateItem]
+  );
 
   const handleToggleChecked = useCallback(
     (item: ListItemSummary) => {
       const nextChecked = !item.isChecked;
       Haptics.selectionAsync().catch(() => undefined);
+      mutateItem(item.id, (current) => ({
+        ...current,
+        isChecked: nextChecked
+      }));
       setListItemChecked(item.id, nextChecked)
         .then(() => {
           trackEvent(nextChecked ? 'list_item_checked' : 'list_item_unchecked', {
@@ -340,19 +361,25 @@ export default function ListDetailScreen() {
         })
         .catch((err) => {
           console.error('Failed to toggle item', err);
+          mutateItem(item.id, (current) => ({
+            ...current,
+            isChecked: item.isChecked
+          }));
           Alert.alert('Could not update item', err instanceof Error ? err.message : 'Try again.');
         });
     },
-    [listId]
+    [listId, mutateItem]
   );
 
   const handleDelete = useCallback((item: ListItemSummary) => {
+    const index = items.findIndex((entry) => entry.id === item.id);
     Alert.alert('Remove item', `Remove ${item.label} from this list?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
         style: 'destructive',
         onPress: () => {
+          removeItem(item.id);
           deleteListItem(item.id)
             .then(() => {
               trackEvent('list_item_deleted', { listId, itemId: item.id });
@@ -360,12 +387,13 @@ export default function ListDetailScreen() {
             })
             .catch((err) => {
               console.error('Failed to remove item', err);
+              restoreItem(item, index);
               Alert.alert('Could not remove item', err instanceof Error ? err.message : 'Try again.');
             });
         }
       }
     ]);
-  }, [listId]);
+  }, [items, listId, removeItem, restoreItem]);
 
   const handleDraftCategoryChange = useCallback(
     (entryIndex: number, suggestion: { category: string; label: string; confidence: number }) => {
@@ -431,6 +459,11 @@ export default function ListDetailScreen() {
       return;
     }
     try {
+      mutateItem(editorItem.id, (current) => ({
+        ...current,
+        desiredQty: updates.desiredQty ?? current.desiredQty,
+        notes: updates.notes !== undefined ? updates.notes : current.notes
+      }));
       await updateListItemDetails(editorItem.id, updates);
       trackEvent('list_item_updated', {
         listId,
@@ -441,9 +474,10 @@ export default function ListDetailScreen() {
       setEditorItem(null);
     } catch (err) {
       console.error('Failed to update item', err);
+      mutateItem(editorItem.id, () => ({ ...editorItem }));
       Alert.alert('Could not update item', err instanceof Error ? err.message : 'Try again.');
     }
-  }, [editorItem, editorNote, editorQty, listId]);
+  }, [editorItem, editorNote, editorQty, listId, mutateItem]);
 
   const handleEditorDelete = useCallback(() => {
     if (!editorItem) {
@@ -566,10 +600,17 @@ export default function ListDetailScreen() {
       </View>
 
       {parsedEntries.length ? (
-        <DraftPreview
+        <SmartAddPreview
           entries={parsedEntries}
           loading={parsing}
           onCategoryChange={handleDraftCategoryChange}
+          theme={{
+            accent: palette.accent,
+            accentDark: palette.accentDark,
+            subtitle: palette.subtitle,
+            border: palette.border,
+            card: palette.card
+          }}
         />
       ) : null}
 
@@ -635,83 +676,6 @@ export default function ListDetailScreen() {
 
       <Toast.Host />
     </SafeAreaView>
-  );
-}
-
-function DraftPreview({
-  entries,
-  loading,
-  onCategoryChange
-}: {
-  entries: EnrichedListEntry[];
-  loading: boolean;
-  onCategoryChange: (index: number, suggestion: { category: string; label: string; confidence: number }) => void;
-}) {
-  if (!entries.length) {
-    return null;
-  }
-
-  return (
-    <View style={styles.preview}>
-      <View style={styles.previewHeaderRow}>
-        <Text style={styles.previewTitle}>Ready to add</Text>
-        {loading ? (
-          <View style={styles.previewLoader}>
-            <ActivityIndicator size="small" color={palette.accentDark} />
-            <Text style={styles.previewLoaderLabel}>Categorizing…</Text>
-          </View>
-        ) : null}
-      </View>
-      {entries.map((entry, index) => (
-        <View key={`${entry.normalized}-${index}`} style={styles.previewCard}>
-          <View style={styles.previewHeader}>
-            <Text style={styles.previewItemLabel}>{entry.label}</Text>
-            <Text style={styles.previewBadge}>
-              Qty {entry.quantity}
-              {entry.unit ? ` ${entry.unit}` : ''}
-            </Text>
-          </View>
-          <View style={styles.previewCategoryRow}>
-            <Text style={styles.previewCategoryLabel}>Section</Text>
-            <Pressable
-              style={styles.previewCategoryChip}
-              onPress={() =>
-                onCategoryChange(index, {
-                  category: entry.category,
-                  label: entry.categoryLabel,
-                  confidence: entry.confidence
-                })
-              }
-            >
-              <Text style={styles.previewCategoryChipLabel}>{entry.categoryLabel}</Text>
-            </Pressable>
-          </View>
-          {entry.confidence < 0.6 && entry.suggestions.length ? (
-            <View style={styles.previewChips}>
-              <Text style={styles.previewSuggestLabel}>Likely:</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.previewChipsScroll}
-              >
-                {entry.suggestions.map((suggestion) => (
-                  <Pressable
-                    key={`${entry.normalized}-${suggestion.category}`}
-                    style={[
-                      styles.previewChip,
-                      suggestion.category === entry.category && styles.previewChipActive
-                    ]}
-                    onPress={() => onCategoryChange(index, suggestion)}
-                  >
-                    <Text style={styles.previewChipLabel}>{suggestion.label}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-          ) : null}
-        </View>
-      ))}
-    </View>
   );
 }
 
@@ -1062,111 +1026,6 @@ const styles = StyleSheet.create({
   addButtonLabel: {
     fontWeight: '700',
     color: palette.accentDark
-  },
-  preview: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: palette.border,
-    gap: 12
-  },
-  previewHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between'
-  },
-  previewTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: palette.accentDark
-  },
-  previewLoader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8
-  },
-  previewLoaderLabel: {
-    fontSize: 12,
-    color: palette.subtitle
-  },
-  previewCard: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    padding: 12,
-    gap: 8
-  },
-  previewHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between'
-  },
-  previewItemLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: palette.accentDark,
-    flexShrink: 1,
-    marginRight: 12
-  },
-  previewBadge: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#0F172A',
-    backgroundColor: '#E6FFFA',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12
-  },
-  previewCategoryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8
-  },
-  previewCategoryLabel: {
-    fontSize: 12,
-    color: palette.subtitle,
-    fontWeight: '600'
-  },
-  previewCategoryChip: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: palette.border,
-    paddingHorizontal: 10,
-    paddingVertical: 4
-  },
-  previewCategoryChipLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: palette.accentDark
-  },
-  previewChips: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8
-  },
-  previewSuggestLabel: {
-    fontSize: 12,
-    color: palette.subtitle,
-    fontWeight: '600'
-  },
-  previewChipsScroll: {
-    gap: 8,
-    paddingRight: 6
-  },
-  previewChip: {
-    backgroundColor: '#E2E8F0',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12
-  },
-  previewChipActive: {
-    backgroundColor: palette.accent
-  },
-  previewChipLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#0C1D37'
   },
   emptyState: {
     marginTop: 48,
