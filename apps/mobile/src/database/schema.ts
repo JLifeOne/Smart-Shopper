@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const schema = appSchema({
-  version: 3,
+  version: 5,
   tables: [
     tableSchema({
       name: 'lists',
@@ -13,6 +13,10 @@ export const schema = appSchema({
         { name: 'is_deleted', type: 'boolean' },
         { name: 'dirty', type: 'boolean' },
         { name: 'device_id', type: 'string', isIndexed: true, isOptional: true },
+        { name: 'store_id', type: 'string', isOptional: true },
+        { name: 'store_label', type: 'string', isOptional: true },
+        { name: 'store_region', type: 'string', isOptional: true },
+        { name: 'aisle_order', type: 'string', isOptional: true },
         { name: 'created_at', type: 'number' },
         { name: 'updated_at', type: 'number' },
         { name: 'last_synced_at', type: 'number', isOptional: true }
@@ -29,6 +33,7 @@ export const schema = appSchema({
         { name: 'substitutions_ok', type: 'boolean' },
         { name: 'notes', type: 'string', isOptional: true },
         { name: 'is_deleted', type: 'boolean' },
+        { name: 'is_checked', type: 'boolean', isOptional: true },
         { name: 'dirty', type: 'boolean' },
         { name: 'created_at', type: 'number' },
         { name: 'updated_at', type: 'number' },

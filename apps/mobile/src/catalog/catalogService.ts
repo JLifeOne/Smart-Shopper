@@ -84,7 +84,10 @@ async function ensurePriceSnapshots(
   });
 }
 
-type UpsertMetadata = Partial<CatalogRecord> & { markDirty?: boolean };
+type UpsertMetadata = Partial<CatalogRecord> & {
+  markDirty?: boolean;
+  merchantCode?: string | null;
+};
 
 function shouldOverwrite<T>(current: T | null | undefined, next: T | null | undefined) {
   if (next === undefined || next === null) {
@@ -181,6 +184,12 @@ export async function upsertProductFromName(name: string, metadata: UpsertMetada
         }
       });
     });
+    if (metadata.category) {
+      await categoryService.recordManualAssignment(draft, metadata.category as any, Math.max(0.9, metadata.markDirty === false ? 0.8 : 0.95), {
+        merchantCode: metadata.merchantCode ?? null,
+        sample: draft
+      });
+    }
     if (metadata.prices?.length) {
       await ensurePriceSnapshots(existing, metadata.prices);
     }
@@ -217,6 +226,12 @@ export async function upsertProductFromName(name: string, metadata: UpsertMetada
   }
 
   const created = await productCollection.find(createdId);
+  if (metadata.category) {
+    await categoryService.recordManualAssignment(draft, metadata.category as any, 0.92, {
+      merchantCode: metadata.merchantCode ?? null,
+      sample: draft
+    });
+  }
   await ensurePriceSnapshots(created, metadata.prices);
   return created;
 }

@@ -23,6 +23,14 @@ export class List extends Model {
 
   @field('device_id') deviceId!: string | null;
 
+  @field('store_id') storeId!: string | null;
+
+  @field('store_label') storeLabel!: string | null;
+
+  @field('store_region') storeRegion!: string | null;
+
+  @field('aisle_order') aisleOrder!: string | null;
+
   @field('created_at') createdAt!: number;
 
   @field('updated_at') updatedAt!: number;

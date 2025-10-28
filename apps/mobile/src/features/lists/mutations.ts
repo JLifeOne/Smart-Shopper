@@ -1,6 +1,7 @@
-﻿import { database } from '@/src/database';
+import { database } from '@/src/database';
 import type { List } from '@/src/database/models/list';
 import { syncService } from '@/src/database/sync-service';
+import { defaultAisleOrderFor, type StoreDefinition } from '@/src/data/stores';
 
 function now() {
   return Date.now();
@@ -97,5 +98,41 @@ export async function archiveList(listId: string) {
     });
   } catch (err) {
     console.warn('Failed to enqueue list archive', err);
+  }
+}
+
+export async function setListStore(listId: string, store: StoreDefinition | null) {
+  const collection = database.get<List>('lists');
+  const list = await collection.find(listId);
+  const timestamp = now();
+  const storeId = store?.id ?? null;
+  const aisleArray = storeId
+    ? store?.aisles.map((aisle) => aisle.category) ?? defaultAisleOrderFor(storeId) ?? []
+    : [];
+  const aisleOrder = aisleArray.length ? JSON.stringify(aisleArray) : null;
+
+  await database.write(async () => {
+    await list.update((record) => {
+      record.storeId = storeId;
+      record.storeLabel = store?.label ?? null;
+      record.storeRegion = store?.region ?? null;
+      record.aisleOrder = aisleOrder;
+      record.updatedAt = timestamp;
+      record.dirty = true;
+    });
+  });
+
+  try {
+    await syncService.enqueueMutation('LIST_UPDATED', {
+      local_id: list.id,
+      remote_id: list.remoteId,
+      store_id: storeId,
+      store_label: store?.label ?? null,
+      store_region: store?.region ?? null,
+      aisle_order: aisleOrder,
+      updated_at: timestamp
+    });
+  } catch (err) {
+    console.warn('Failed to enqueue list store update', err);
   }
 }

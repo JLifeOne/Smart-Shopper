@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Alert,
   Animated,
@@ -20,7 +20,7 @@ import { featureFlags } from '@/src/lib/env';
 import { trackEvent } from '@/src/lib/analytics';
 import { useDashboardMetrics, type HeatmapData } from '@/src/lib/dashboard-data';
 import { useRecommendations } from '@/src/features/recommendations/use-recommendations';
-import { ListsScreen } from '@/src/features/lists/ListsScreen';
+import { ListsScreen, type ListsScreenHandle } from '@/src/features/lists/ListsScreen';
 import { useTopBar } from '@/src/providers/TopBarProvider';
 
 const NEXT_ACTIONS = [
@@ -54,44 +54,68 @@ function HomeWithNewNavigation({ auth }: { auth: AuthContextValue }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabKey>('home');
   const [isCreateSheetVisible, setCreateSheetVisible] = useState(false);
+  const [shouldOpenListPrompt, setShouldOpenListPrompt] = useState(false);
+  const listsScreenRef = useRef<ListsScreenHandle | null>(null);
   const insets = useSafeAreaInsets();
 
   const handleSelectTab = useCallback((tab: TabKey) => {
     setActiveTab(tab);
-  }, []);
+    if (tab !== 'lists') {
+      setShouldOpenListPrompt(false);
+    }
+  }, [setShouldOpenListPrompt]);
 
   const handleCreatePress = useCallback(() => {
-    if (!featureFlags.createWorkflow) {
-      Alert.alert('Coming soon', 'The new list creation workflow is under development.');
+    trackEvent('nav_create_press', { tab: activeTab, createSheet: featureFlags.createWorkflow });
+    if (featureFlags.createWorkflow) {
+      setCreateSheetVisible(true);
       return;
     }
-    setCreateSheetVisible(true);
-  }, []);
+    if (activeTab === 'lists') {
+      listsScreenRef.current?.openCreatePrompt();
+      return;
+    }
+    setActiveTab('lists');
+    setShouldOpenListPrompt(true);
+  }, [activeTab, setActiveTab, setCreateSheetVisible, setShouldOpenListPrompt]);
 
   const handleCloseCreateSheet = useCallback(() => {
     setCreateSheetVisible(false);
   }, []);
 
-  const renderContent = useMemo(() => {
-    switch (activeTab) {
-      case 'home':
-        return <DashboardView auth={auth} onNavigate={setActiveTab} />;
-      case 'insights':
-        return <PlaceholderScreen title="Insights" message="Insights coming soon." />;
-      case 'promos':
-        return <PromosScreen />;
-      case 'lists':
-        return <ListsScreen />;
-      case 'receipts':
-        return <PlaceholderScreen title="Receipts" message="Your scanned receipts will appear here for quick reference." />;
-      default:
-        return null;
+  useEffect(() => {
+    if (activeTab === 'lists' && shouldOpenListPrompt) {
+      listsScreenRef.current?.openCreatePrompt();
+      setShouldOpenListPrompt(false);
     }
-  }, [activeTab, auth]);
+  }, [activeTab, shouldOpenListPrompt, setShouldOpenListPrompt]);
+
+  let content: ReactNode = null;
+  switch (activeTab) {
+    case 'home':
+      content = <DashboardView auth={auth} onNavigate={handleSelectTab} />;
+      break;
+    case 'insights':
+      content = <PlaceholderScreen title="Insights" message="Insights coming soon." />;
+      break;
+    case 'promos':
+      content = <PromosScreen />;
+      break;
+    case 'lists':
+      content = <ListsScreen ref={listsScreenRef} />;
+      break;
+    case 'receipts':
+      content = (
+        <PlaceholderScreen title="Receipts" message="Your scanned receipts will appear here for quick reference." />
+      );
+      break;
+    default:
+      content = null;
+  }
 
   return (
     <SafeAreaView style={newStyles.safeArea} edges={['bottom']}>
-      <View style={newStyles.body}>{renderContent}</View>
+      <View style={newStyles.body}>{content}</View>
       <BottomNavigation
         activeTab={activeTab}
         onSelectTab={handleSelectTab}

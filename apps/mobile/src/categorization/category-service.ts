@@ -113,32 +113,45 @@ class CategoryService {
   private signalCollection = database.get<CategorySignal>('category_signals');
 
   async categorize(name: string, options: CategorizeOptions = {}): Promise<CategoryMatch> {
+    const ranked = await this.rank(name, options);
+    return ranked[0] ?? this.fallback();
+  }
+
+  async rank(name: string, options: CategorizeOptions = {}): Promise<CategoryMatch[]> {
     const normalized = normalizeName(name);
     if (!normalized) {
-      return this.fallback();
+      return [this.fallback()];
     }
 
     const override = await this.lookupSignal(normalized, options.merchantCode);
     if (override) {
-      return override;
+      const embeddings = this.embeddingRank(normalized, 2).filter((entry) => entry.category !== override.category);
+      return [override, ...embeddings, this.fallback()];
     }
 
     const lexiconHit = this.lookupLexicon(normalized);
     if (lexiconHit) {
-      return lexiconHit;
+      const alternates = this.embeddingRank(normalized, 3).filter((entry) => entry.category !== lexiconHit.category);
+      return [lexiconHit, ...alternates, this.fallback()];
     }
 
     const heuristic = this.lookupHeuristic(normalized);
-    if (heuristic) {
-      return heuristic;
+    const heuristicCandidates = heuristic ? [heuristic] : [];
+
+    const mlRank = this.embeddingRank(normalized, heuristic ? 2 : 3);
+    const combined = [...heuristicCandidates, ...mlRank];
+    if (combined.length) {
+      const seen = new Set<string>();
+      const ranked = combined.filter((match) => {
+        if (seen.has(match.category)) return false;
+        seen.add(match.category);
+        return true;
+      });
+      ranked.push(this.fallback());
+      return ranked;
     }
 
-    const mlGuess = this.embeddingGuess(normalized);
-    if (mlGuess) {
-      return mlGuess;
-    }
-
-    return this.fallback();
+    return [this.fallback()];
   }
 
   private async lookupSignal(key: string, merchantCode?: string | null): Promise<CategoryMatch | null> {
@@ -200,28 +213,27 @@ class CategoryService {
     return null;
   }
 
-  private embeddingGuess(key: string): CategoryMatch | null {
+  private embeddingRank(key: string, limit = 3): CategoryMatch[] {
     const vector = tokenizeForEmbedding(key);
-    let best: { match: CategoryMatch; score: number } | null = null;
+    const scored: Array<{ match: CategoryMatch; score: number }> = [];
     for (const candidate of this.categoryVectors) {
       const score = cosineSimilarity(vector, candidate.vector);
-      if (!best || score > best.score) {
-        best = {
-          score,
-          match: {
-            category: candidate.id,
-            confidence: Math.min(0.72, Math.max(0.35, score)),
-            source: 'ml',
-            label: candidate.label,
-            explanation: `Vector similarity ${score.toFixed(2)}`
-          }
-        };
-      }
+      scored.push({
+        score,
+        match: {
+          category: candidate.id,
+          confidence: Math.min(0.72, Math.max(0.35, score)),
+          source: 'ml',
+          label: candidate.label,
+          explanation: `Vector similarity ${score.toFixed(2)}`
+        }
+      });
     }
-    if (!best || best.score < 0.32) {
-      return null;
-    }
-    return best.match;
+    return scored
+      .filter((entry) => entry.score >= 0.28)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((entry) => entry.match);
   }
 
   private fallback(): CategoryMatch {

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { forwardRef, useCallback, useImperativeHandle, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -6,6 +6,10 @@ import { useAuth } from '@/src/context/auth-context';
 import { trackEvent } from '@/src/lib/analytics';
 import { useLists, type ListSummary } from './use-lists';
 import { archiveList, createList, renameList } from './mutations';
+
+export type ListsScreenHandle = {
+  openCreatePrompt: () => void;
+};
 
 const palette = {
   background: '#F5F7FA',
@@ -20,7 +24,7 @@ type PromptState =
   | { mode: 'create' }
   | { mode: 'rename'; listId: string; currentName: string };
 
-export function ListsScreen({ searchQuery }: { searchQuery?: string }) {
+export const ListsScreen = forwardRef<ListsScreenHandle, { searchQuery?: string }>(function ListsScreen({ searchQuery }, ref) {
   const { user } = useAuth();
   const router = useRouter();
   const { lists, loading, error } = useLists({ ownerId: user?.id });
@@ -36,6 +40,14 @@ export function ListsScreen({ searchQuery }: { searchQuery?: string }) {
     setPrompt({ mode: 'create' });
     setNameDraft('');
   }, []);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      openCreatePrompt: () => startCreatePrompt()
+    }),
+    [startCreatePrompt]
+  );
 
   const startRenamePrompt = useCallback((list: ListSummary) => {
     setPrompt({ mode: 'rename', listId: list.id, currentName: list.name });
@@ -234,7 +246,7 @@ export function ListsScreen({ searchQuery }: { searchQuery?: string }) {
       {renderPrompt()}
     </View>
   );
-}
+});
 
 function ListCard({
   summary,
@@ -259,7 +271,7 @@ function ListCard({
         ) : null}
       </View>
       <Text style={styles.cardMeta}>
-        {summary.itemCount} items · Updated {formatRelative(summary.updatedAt)}
+        {summary.itemCount} items \u2022 Updated {formatRelative(summary.updatedAt)}
       </Text>
       <View style={styles.cardActions}>
         <Pressable style={styles.cardButton} onPress={onOpen}>
@@ -484,6 +496,3 @@ const styles = StyleSheet.create({
     color: palette.accentDark
   }
 });
-
-
-

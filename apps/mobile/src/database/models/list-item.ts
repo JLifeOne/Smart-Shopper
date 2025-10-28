@@ -1,5 +1,6 @@
 ﻿import { Model } from '@nozbe/watermelondb';
 import { field, relation, writer } from '@nozbe/watermelondb/decorators';
+import type Relation from '@nozbe/watermelondb/Relation';
 import type { List } from './list';
 import type { Product } from './product';
 
@@ -27,6 +28,8 @@ export class ListItem extends Model {
 
   @field('is_deleted') isDeleted!: boolean;
 
+  @field('is_checked') isChecked!: boolean | null;
+
   @field('dirty') dirty!: boolean;
 
   @field('created_at') createdAt!: number;
@@ -35,9 +38,9 @@ export class ListItem extends Model {
 
   @field('last_synced_at') lastSyncedAt!: number | null;
 
-  @relation('lists', 'list_id') list!: List;
+  @relation('lists', 'list_id') list!: Relation<List>;
 
-  @relation('products', 'product_remote_id') product!: Product | null;
+  @relation('products', 'product_remote_id') product!: Relation<Product>;
 
   @writer async markSynced(remoteId: string, syncedAt: number) {
     await this.update((record) => {

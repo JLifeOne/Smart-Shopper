@@ -1,5 +1,6 @@
 ﻿import { Model } from '@nozbe/watermelondb';
 import { children, field, writer } from '@nozbe/watermelondb/decorators';
+import type Collection from '@nozbe/watermelondb/Collection';
 import type { ListItem } from './list-item';
 import type { PriceSnapshot } from './price-snapshot';
 
@@ -41,9 +42,9 @@ export class Product extends Model {
 
   @field('last_synced_at') lastSyncedAt!: number | null;
 
-  @children('list_items') listItems!: ListItem[];
+  @children('list_items') listItems!: Collection<ListItem>;
 
-  @children('price_snapshots') priceSnapshots!: PriceSnapshot[];
+  @children('price_snapshots') priceSnapshots!: Collection<PriceSnapshot>;
 
   @writer async markSynced(remoteId: string, syncedAt: number) {
     await this.update((record) => {

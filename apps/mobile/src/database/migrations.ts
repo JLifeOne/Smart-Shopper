@@ -34,6 +34,31 @@ export const migrations = schemaMigrations({
           ]
         })
       ]
+    },
+    {
+      toVersion: 4,
+      steps: [
+        addColumns({
+          table: 'list_items',
+          columns: [
+            { name: 'is_checked', type: 'boolean', isOptional: true }
+          ]
+        })
+      ]
+    },
+    {
+      toVersion: 5,
+      steps: [
+        addColumns({
+          table: 'lists',
+          columns: [
+            { name: 'store_id', type: 'string', isOptional: true },
+            { name: 'store_label', type: 'string', isOptional: true },
+            { name: 'store_region', type: 'string', isOptional: true },
+            { name: 'aisle_order', type: 'string', isOptional: true }
+          ]
+        })
+      ]
     }
   ]
 });
