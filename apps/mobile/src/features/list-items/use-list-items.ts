@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@/src/database';
 import type { ListItem } from '@/src/database/models/list-item';
@@ -82,6 +82,61 @@ export function useListItems(listId: string | null | undefined) {
   const [items, setItems] = useState<ListItemSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const hydrationKeyRef = useRef<Map<string, string>>(new Map());
+  const inflightHydrations = useRef<Map<string, Promise<void>>>(new Map());
+
+  const applyHydratedProduct = useCallback((itemId: string, payload: Partial<ListItemSummary>) => {
+    setItems((current) =>
+      current.map((entry) => (entry.id === itemId ? { ...entry, ...payload } : entry))
+    );
+  }, []);
+
+  const hydrateProduct = useCallback(
+    async (record: ListItem) => {
+      if (!record.productRemoteId) {
+        return;
+      }
+      const hydrationKey = `${record.id}:${record.productRemoteId}:${record.updatedAt}:${record.label}`;
+      if (hydrationKeyRef.current.get(record.id) === hydrationKey) {
+        return;
+      }
+      hydrationKeyRef.current.set(record.id, hydrationKey);
+
+      if (inflightHydrations.current.has(record.id)) {
+        return;
+      }
+      const task = (async () => {
+        try {
+          const product = await record.product.fetch();
+          const name = product?.name ?? record.label;
+          const { base, variant } = splitBaseAndVariant(name);
+          const tags = parseTags(product?.tags ?? null);
+          const category = product?.category ?? 'uncategorized';
+          let priceSummary: LibraryPriceSummary | null = null;
+          if (product && 'priceSnapshots' in product && typeof (product.priceSnapshots as any)?.fetch === 'function') {
+            const snapshots = await (product.priceSnapshots as any).fetch();
+            priceSummary = buildPriceSummary(Array.isArray(snapshots) ? snapshots : []);
+          }
+          applyHydratedProduct(record.id, {
+            label: name,
+            baseName: base,
+            variant: product?.variant ?? variant,
+            region: product?.region ?? null,
+            category,
+            categoryLabel: categoryLabel(category),
+            tags,
+            priceSummary
+          });
+        } catch (err) {
+          console.warn('useListItems: hydrate product failed', err);
+        } finally {
+          inflightHydrations.current.delete(record.id);
+        }
+      })();
+      inflightHydrations.current.set(record.id, task);
+    },
+    [applyHydratedProduct]
+  );
 
   useEffect(() => {
     if (!listId) {
@@ -96,42 +151,58 @@ export function useListItems(listId: string | null | undefined) {
       Q.where('is_deleted', false)
     );
 
-    const subscription = query.observe().subscribe({
-      next: (records) => {
+    const observable =
+      typeof (query as any).observeWithColumns === 'function'
+        ? (query as any).observeWithColumns([
+            'label',
+            'desired_qty',
+            'substitutions_ok',
+            'notes',
+            'is_checked',
+            'product_remote_id',
+            'updated_at'
+          ])
+        : query.observe();
+
+    const subscription = (observable as any).subscribe({
+      next: (records: ListItem[]) => {
         (async () => {
           try {
-            const summaries = await Promise.all(
-              records.map(async (record) => {
-                const product = record.productRemoteId ? await record.product.fetch().catch(() => null) : null;
-                const name = product?.name ?? record.label;
-                const { base, variant } = splitBaseAndVariant(name);
-                const tags = parseTags(product?.tags ?? null);
-                const category = product?.category ?? 'uncategorized';
-                const priceSnapshots =
-                  product && 'priceSnapshots' in product && typeof (product.priceSnapshots as any)?.fetch === 'function'
-                    ? await (product.priceSnapshots as any).fetch().catch(() => [])
-                    : [];
-                const priceSummary = buildPriceSummary(priceSnapshots);
-
-                return {
-                  id: record.id,
-                  label: name,
-                  baseName: base,
-                  variant: product?.variant ?? variant,
-                  region: product?.region ?? null,
-                  category,
-                  categoryLabel: categoryLabel(category),
-                  tags,
-                  desiredQty: record.desiredQty,
-                  substitutionsOk: record.substitutionsOk,
-                  notes: record.notes,
-                  isChecked: !!record.isChecked,
-                  updatedAt: record.updatedAt,
-                  priceSummary
-                } satisfies ListItemSummary;
-              })
-            );
+            const activeIds = new Set<string>();
+            const summaries = records.map((record) => {
+              activeIds.add(record.id);
+              const { base, variant } = splitBaseAndVariant(record.label);
+              const summary: ListItemSummary = {
+                id: record.id,
+                label: record.label,
+                baseName: base,
+                variant,
+                region: null,
+                category: 'uncategorized',
+                categoryLabel: categoryLabel('uncategorized'),
+                tags: [],
+                desiredQty: record.desiredQty,
+                substitutionsOk: record.substitutionsOk,
+                notes: record.notes,
+                isChecked: !!record.isChecked,
+                updatedAt: record.updatedAt,
+                priceSummary: null
+              };
+              if (record.productRemoteId) {
+                hydrateProduct(record).catch(() => undefined);
+              } else {
+                hydrationKeyRef.current.delete(record.id);
+                inflightHydrations.current.delete(record.id);
+              }
+              return summary;
+            });
             setItems(summaries);
+            hydrationKeyRef.current.forEach((_, key) => {
+              if (!activeIds.has(key)) {
+                hydrationKeyRef.current.delete(key);
+                inflightHydrations.current.delete(key);
+              }
+            });
             setLoading(false);
             setError(null);
           } catch (err) {
@@ -140,7 +211,7 @@ export function useListItems(listId: string | null | undefined) {
           }
         })();
       },
-      error: (err) => {
+      error: (err: unknown) => {
         console.error('useListItems: subscription error', err);
         setError(err instanceof Error ? err.message : 'Unable to load items');
       }

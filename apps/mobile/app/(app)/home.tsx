@@ -11,7 +11,9 @@ import {
   TextInput,
   View,
   useWindowDimensions,
-  ActivityIndicator
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -34,6 +36,10 @@ import { storeSuggestionsFor, stores, type StoreDefinition } from '@/src/data/st
 import { detectRegion } from '@/src/catalog/catalogService';
 import { Toast } from '@/src/components/search/Toast';
 import { useTopBar } from '@/src/providers/TopBarProvider';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Audio } from 'expo-av';
+import { startVoiceCapture, cancelVoiceCapture, finalizeVoiceCapture } from '@/src/features/capture/voice-capture';
+import { normalizeName } from '@/src/categorization';
 
 const NEXT_ACTIONS = [
   'Create a list via text, voice, or photo capture.',
@@ -42,6 +48,9 @@ const NEXT_ACTIONS = [
 ] as const;
 
 const FALLBACK_SUGGESTED_ITEMS = ['Milk', 'Butter', 'Bananas', 'Yogurt', 'Olive oil'] as const;
+
+const CREATE_LIST_DRAFT_KEY = '@smart-shopper:create-list-draft';
+const CUSTOM_STORES_KEY = '@smart-shopper:custom-stores';
 
 type AuthContextValue = ReturnType<typeof useAuth>;
 type TabKey = 'home' | 'insights' | 'promos' | 'lists' | 'receipts';
@@ -1094,42 +1103,109 @@ type CreateSheetProps = {
   onCreated: (result: { listId: string }) => void;
 };
 
+type ListDraftPayload = {
+  listName: string;
+  textValue: string;
+  store?: {
+    id: string | null;
+    label?: string | null;
+    region?: string | null;
+  };
+  updatedAt: number;
+};
+
 function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateSheetProps) {
-  const [activeTab, setActiveTab] = useState<'type' | 'voice' | 'camera'>('type');
+  const [activeTab, setActiveTab] = useState<'type' | 'voice'>('type');
   const [listName, setListName] = useState(() => suggestListName());
   const [textValue, setTextValue] = useState('');
   const [parsedEntries, setParsedEntries] = useState<EnrichedListEntry[]>([]);
   const [parsing, setParsing] = useState(false);
   const [creating, setCreating] = useState(false);
   const [selectedStore, setSelectedStore] = useState<StoreDefinition | null>(null);
+  const draftHydratedRef = useRef(false);
+  const customStoresReadyRef = useRef(false);
+  const [customStores, setCustomStores] = useState<StoreDefinition[]>([]);
+  const [addingCustomStore, setAddingCustomStore] = useState(false);
+  const [customStoreDraft, setCustomStoreDraft] = useState('');
+  const [editingCustomStoreId, setEditingCustomStoreId] = useState<string | null>(null);
+  const [voiceRecording, setVoiceRecording] = useState<Audio.Recording | null>(null);
+  const [voiceProcessing, setVoiceProcessing] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const defaultListNameRef = useRef('');
+  const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+
+  if (!defaultListNameRef.current) {
+    defaultListNameRef.current = listName;
+  }
 
   const region = useMemo(() => detectLocaleRegion(), []);
   const storeOptions = useMemo(() => {
-    const options = storeSuggestionsFor(region);
-    return options.length ? options : stores;
-  }, [region]);
+    const base = storeSuggestionsFor(region);
+    const map = new Map<string, StoreDefinition>();
+    [...customStores, ...base].forEach((store) => {
+      if (!map.has(store.id)) {
+        map.set(store.id, store);
+      }
+    });
+    return Array.from(map.values());
+  }, [region, customStores]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(CUSTOM_STORES_KEY);
+        if (cancelled || !raw) {
+          customStoresReadyRef.current = true;
+          return;
+        }
+        const parsed = JSON.parse(raw) as StoreDefinition[];
+        if (!cancelled && Array.isArray(parsed)) {
+          setCustomStores(parsed);
+        }
+      } catch (err) {
+        console.warn('create-sheet: failed to load custom stores', err);
+      } finally {
+        customStoresReadyRef.current = true;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!customStoresReadyRef.current) {
+      return;
+    }
+    AsyncStorage.setItem(CUSTOM_STORES_KEY, JSON.stringify(customStores)).catch((err: unknown) =>
+      console.warn('create-sheet: failed to persist custom stores', err)
+    );
+  }, [customStores]);
 
   useEffect(() => {
     if (visible) {
       trackEvent('create_sheet_opened');
-      setActiveTab('type');
-      setListName(suggestListName());
-      setTextValue('');
-      setParsedEntries([]);
+    } else {
       setParsing(false);
       setCreating(false);
-      setSelectedStore((current) => current ?? storeOptions[0] ?? null);
-      return;
     }
-    setTextValue('');
-    setParsedEntries([]);
-    setParsing(false);
-    setCreating(false);
-  }, [visible, storeOptions]);
+  }, [visible]);
 
   useEffect(() => {
-    if (!visible || activeTab !== 'type') {
-      setParsedEntries([]);
+    if (visible || !voiceRecording) {
+      return;
+    }
+    cancelVoiceCapture(voiceRecording).catch(() => undefined);
+    setVoiceRecording(null);
+  }, [visible, voiceRecording]);
+
+  useEffect(() => {
+    if (!visible) {
+      return;
+    }
+    if (activeTab !== 'type') {
       setParsing(false);
       return;
     }
@@ -1153,7 +1229,7 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
           setParsedEntries(entries);
         }
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         console.warn('create-sheet: enrich failed', err);
         if (!cancelled) {
           setParsedEntries(
@@ -1177,26 +1253,174 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
     };
   }, [activeTab, textValue, selectedStore?.id, visible]);
 
+  const persistDraft = useCallback(() => {
+    const baseline = (defaultListNameRef.current || '').trim();
+    const trimmedName = listName.trim();
+    const hasCustomName = trimmedName.length > 0 && trimmedName !== baseline;
+    const hasItems = textValue.trim().length > 0 || parsedEntries.length > 0;
+    const hasStore = Boolean(selectedStore);
+    const shouldPersist = hasCustomName || hasItems || hasStore;
+    if (!shouldPersist) {
+      AsyncStorage.removeItem(CREATE_LIST_DRAFT_KEY).catch((err: unknown) =>
+        console.warn('create-sheet: failed to clear draft', err)
+      );
+      return;
+    }
+    const payload: ListDraftPayload = {
+      listName: trimmedName.length ? listName : baseline || suggestListName(),
+      textValue,
+      store: selectedStore
+        ? { id: selectedStore.id, label: selectedStore.label, region: selectedStore.region ?? null }
+        : { id: null },
+      updatedAt: Date.now()
+    };
+    AsyncStorage.setItem(CREATE_LIST_DRAFT_KEY, JSON.stringify(payload)).catch((err: unknown) =>
+      console.warn('create-sheet: failed to persist draft', err)
+    );
+  }, [listName, parsedEntries.length, selectedStore, textValue]);
+
   const handleDismiss = useCallback(() => {
     if (creating) {
       return;
     }
+    persistDraft();
+    if (voiceRecording) {
+      cancelVoiceCapture(voiceRecording).catch(() => undefined);
+      setVoiceRecording(null);
+    }
+    setVoiceProcessing(false);
+    setVoiceTranscript('');
+    setCameraProcessing(false);
+    setCameraWarnings([]);
+    setCameraPreviewUri(null);
+    setPromoPreview(null);
+    setCameraMode('list');
+    skipTypeParseRef.current = false;
+    setAddingCustomStore(false);
+    setCustomStoreDraft('');
+    setEditingCustomStoreId(null);
     trackEvent('create_sheet_closed', { fromTab: activeTab, typedItems: parsedEntries.length });
     onClose();
-  }, [activeTab, creating, parsedEntries.length, onClose]);
+  }, [
+    activeTab,
+    cameraMode,
+    creating,
+    parsedEntries.length,
+    persistDraft,
+    voiceRecording,
+    onClose
+  ]);
 
-  const handleTabChange = useCallback((tab: 'type' | 'voice' | 'camera') => {
+  const handleTabChange = useCallback((tab: 'type' | 'voice') => {
     setActiveTab(tab);
     trackEvent('create_sheet_tab_selected', { tab });
   }, []);
 
+  const buildCustomStore = useCallback(
+    (label: string, regionHint?: string | null): StoreDefinition => {
+      const normalized = label.trim();
+      const slugBase = normalized.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      let slug = slugBase || `store-${Date.now()}`;
+      let candidateId = `custom:${slug}`;
+      const existingIds = new Set(storeOptions.map((store) => store.id));
+      let counter = 1;
+      while (existingIds.has(candidateId)) {
+        candidateId = `custom:${slug}-${counter++}`;
+      }
+      return {
+        id: candidateId,
+        label: normalized,
+        region: regionHint ?? region,
+        aisles: []
+      };
+    },
+    [storeOptions, region]
+  );
+
   const handleStoreSelect = useCallback(
     (store: StoreDefinition | null) => {
       setSelectedStore(store);
-      trackEvent('create_sheet_store_selected', { storeId: store?.id ?? null });
+      setAddingCustomStore(false);
+      setCustomStoreDraft('');
+      setEditingCustomStoreId(null);
+      trackEvent('create_sheet_store_selected', {
+        storeId: store?.id ?? null,
+        storeLabel: store?.label ?? null,
+        storeRegion: store?.region ?? null
+      });
     },
     []
   );
+
+  const handleSaveCustomStore = useCallback(() => {
+    const trimmed = customStoreDraft.trim();
+    if (!trimmed) {
+      Alert.alert('Store name required', 'Enter a store name or cancel.');
+      return;
+    }
+    if (editingCustomStoreId) {
+      setCustomStores((prev) =>
+        prev.map((store) => (store.id === editingCustomStoreId ? { ...store, label: trimmed } : store))
+      );
+      setSelectedStore((prev) => {
+        if (prev?.id !== editingCustomStoreId) {
+          return prev;
+        }
+        return { ...prev, label: trimmed };
+      });
+      setAddingCustomStore(false);
+      setCustomStoreDraft('');
+      setEditingCustomStoreId(null);
+      trackEvent('create_sheet_custom_store_renamed', { storeId: editingCustomStoreId });
+      return;
+    }
+    const newStore = buildCustomStore(trimmed, region);
+    setCustomStores((prev) => {
+      if (prev.some((store) => store.id === newStore.id)) {
+        return prev;
+      }
+      return [newStore, ...prev];
+    });
+    setAddingCustomStore(false);
+    setCustomStoreDraft('');
+    setEditingCustomStoreId(null);
+    trackEvent('create_sheet_custom_store_added', { storeId: newStore.id });
+    handleStoreSelect(newStore);
+  }, [buildCustomStore, customStoreDraft, editingCustomStoreId, handleStoreSelect, region]);
+
+  const handleCancelCustomStore = useCallback(() => {
+    setAddingCustomStore(false);
+    setCustomStoreDraft('');
+    setEditingCustomStoreId(null);
+  }, []);
+
+  const handleRemoveCustomStore = useCallback(() => {
+    if (!selectedStore || !selectedStore.id.startsWith('custom:')) {
+      return;
+    }
+    const storeId = selectedStore.id;
+    const label = selectedStore.label;
+    Alert.alert(
+      'Remove store?',
+      `Remove ${label} from your quick stores? You can always add it again later.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            setCustomStores((prev) => prev.filter((store) => store.id !== storeId));
+            setSelectedStore((prev) => (prev?.id === storeId ? null : prev));
+            setAddingCustomStore(false);
+            setCustomStoreDraft('');
+            setEditingCustomStoreId(null);
+            trackEvent('create_sheet_custom_store_removed', { storeId });
+          }
+        }
+      ],
+      { cancelable: true }
+    );
+  }, [selectedStore]);
 
   const handleCreateList = useCallback(async () => {
     const trimmedName = listName.trim();
@@ -1233,6 +1457,10 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
         storeId: selectedStore?.id ?? null
       });
       Toast.show(entries.length ? `Created ${trimmedName}, ${entries.length} items ready.` : `Created ${trimmedName}`);
+      await AsyncStorage.removeItem(CREATE_LIST_DRAFT_KEY).catch((err: unknown) =>
+        console.warn('create-sheet: failed to clear draft after create', err)
+      );
+      draftHydratedRef.current = false;
       onCreated({ listId: list.id });
     } catch (err) {
       console.error('Failed to create list from sheet', err);
@@ -1242,10 +1470,217 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
     }
   }, [listName, parsedEntries, textValue, ownerId, deviceId, selectedStore, onCreated]);
 
+  const handleVoiceToggle = useCallback(async () => {
+    if (voiceRecording) {
+      setVoiceProcessing(true);
+      try {
+        const result = await finalizeVoiceCapture(voiceRecording, { locale: region });
+        setVoiceTranscript(result.transcript);
+        setVoiceRecording(null);
+        setVoiceProcessing(false);
+        trackEvent('create_sheet_voice_transcribed', {
+          locale: result.locale ?? region,
+          confidence: result.confidence
+        });
+        if (result.transcript.trim().length) {
+          setTextValue(result.transcript.trim());
+          setActiveTab('type');
+          Toast.show('Voice captured – review your list.');
+        }
+      } catch (err) {
+        console.error('Voice capture failed', err);
+        Alert.alert('Voice capture failed', err instanceof Error ? err.message : 'Try again in a quiet space.');
+        setVoiceRecording(null);
+        setVoiceProcessing(false);
+      }
+      return;
+    }
+    try {
+      const recording = await startVoiceCapture();
+      setVoiceTranscript('');
+      setVoiceRecording(recording);
+      trackEvent('create_sheet_voice_started', { locale: region });
+    } catch (err) {
+      console.error('Unable to start voice capture', err);
+      Alert.alert(
+        'Microphone unavailable',
+        err instanceof Error ? err.message : 'Grant microphone permissions to use voice capture.'
+      );
+    }
+  }, [region, voiceRecording]);
+
   const storeChips = useMemo(() => {
-    const chips = [null, ...storeOptions.slice(0, 5)];
+    const chips: Array<StoreDefinition | null> = [null];
+    const seen = new Set<string>();
+    const register = (store: StoreDefinition | null) => {
+      if (!store) {
+        return;
+      }
+      if (seen.has(store.id)) {
+        return;
+      }
+      chips.push(store);
+      seen.add(store.id);
+    };
+    if (selectedStore) {
+      register(selectedStore);
+    }
+    customStores.forEach(register);
+    storeOptions.slice(0, 5).forEach(register);
     return chips;
-  }, [storeOptions]);
+  }, [customStores, storeOptions, selectedStore]);
+
+  const sheetMaxHeight = Math.min(height * 0.92, 820);
+  const sheetMinHeight = Math.min(height * 0.68, 620);
+  const sheetBottomPadding = Math.max(insets.bottom + 32, 56);
+  const keyboardOffset = Platform.OS === 'ios' ? insets.top + 48 : 0;
+  const isEditingCustomStore = editingCustomStoreId !== null;
+  const selectedIsCustom = Boolean(selectedStore?.id?.startsWith('custom:'));
+
+  useEffect(() => {
+    if (!visible) {
+      draftHydratedRef.current = false;
+      setEditingCustomStoreId(null);
+    }
+  }, [visible]);
+
+  const hydrateDefault = useCallback(() => {
+    const nextName = suggestListName();
+    defaultListNameRef.current = nextName;
+    setActiveTab('type');
+    setListName(nextName);
+    setTextValue('');
+    setParsedEntries([]);
+    setSelectedStore(null);
+    setAddingCustomStore(false);
+    setCustomStoreDraft('');
+    setEditingCustomStoreId(null);
+    setVoiceRecording(null);
+    setVoiceProcessing(false);
+    setVoiceTranscript('');
+    setCameraProcessing(false);
+    setCameraWarnings([]);
+    setCameraPreviewUri(null);
+    setPromoPreview(null);
+    setCameraMode('list');
+    skipTypeParseRef.current = false;
+    draftHydratedRef.current = true;
+  }, []);
+
+  const applyDraft = useCallback(
+    (draft: ListDraftPayload) => {
+      const fallbackName = suggestListName();
+      const chosenName = draft.listName && draft.listName.trim().length ? draft.listName : fallbackName;
+      defaultListNameRef.current = fallbackName;
+      setActiveTab('type');
+      setListName(chosenName);
+      setTextValue(draft.textValue ?? '');
+      setParsedEntries([]);
+      if (draft.store?.id && draft.store.label) {
+        const existing = [...customStores, ...storeOptions].find((store) => store.id === draft.store?.id);
+        if (existing) {
+          setSelectedStore(existing);
+        } else {
+          const newStore = buildCustomStore(draft.store.label, draft.store.region ?? region);
+          setCustomStores((prev) => {
+            if (prev.some((store) => store.id === newStore.id)) {
+              return prev;
+            }
+            return [newStore, ...prev];
+          });
+          setSelectedStore(newStore);
+        }
+      } else {
+        setSelectedStore(null);
+      }
+      setAddingCustomStore(false);
+      setCustomStoreDraft('');
+      setEditingCustomStoreId(null);
+      setVoiceRecording(null);
+      setVoiceProcessing(false);
+      setVoiceTranscript('');
+      setCameraProcessing(false);
+      setCameraWarnings([]);
+      setCameraPreviewUri(null);
+      setPromoPreview(null);
+      setCameraMode('list');
+      skipTypeParseRef.current = false;
+      draftHydratedRef.current = true;
+    },
+    [buildCustomStore, customStores, region, storeOptions]
+  );
+
+  useEffect(() => {
+    if (!visible || draftHydratedRef.current) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      if (!customStoresReadyRef.current) {
+        await new Promise<void>((resolve) => {
+          const interval = setInterval(() => {
+            if (customStoresReadyRef.current || cancelled) {
+              clearInterval(interval);
+              resolve();
+            }
+          }, 30);
+        });
+      }
+      if (cancelled) {
+        return;
+      }
+      try {
+        const rawDraft = await AsyncStorage.getItem(CREATE_LIST_DRAFT_KEY);
+        if (cancelled) {
+          return;
+        }
+        const draft = rawDraft ? (JSON.parse(rawDraft) as ListDraftPayload) : null;
+        if (draft && ((draft.listName && draft.listName.trim().length) || (draft.textValue && draft.textValue.trim().length))) {
+          Alert.alert(
+            'Resume draft?',
+            'You have an unsaved list draft. Continue editing or discard it.',
+            [
+              {
+                text: 'Discard',
+                style: 'destructive',
+                onPress: () => {
+                  AsyncStorage.removeItem(CREATE_LIST_DRAFT_KEY).catch((err: unknown) =>
+                    console.warn('create-sheet: failed to clear draft', err)
+                  );
+                  hydrateDefault();
+                }
+              },
+              {
+                text: 'Continue',
+                onPress: () => {
+                  applyDraft(draft);
+                }
+              }
+            ],
+            { cancelable: false }
+          );
+        } else {
+          hydrateDefault();
+        }
+      } catch (err) {
+        console.warn('create-sheet: failed to load draft', err);
+        hydrateDefault();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyDraft, hydrateDefault, visible]);
+
+  useEffect(() => {
+    if (!visible || !draftHydratedRef.current) {
+      return;
+    }
+    const handle = setTimeout(() => {
+      persistDraft();
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [persistDraft, visible]);
 
   const renderTypeTab = () => (
     <>
@@ -1259,10 +1694,11 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
       <Text style={newStyles.createLabel}>Store</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={newStyles.storeChipRow}>
         {storeChips.map((store) => {
+          const key = store ? store.id : 'any-store';
           const isActive = store ? selectedStore?.id === store.id : !selectedStore;
           return (
             <Pressable
-              key={store ? store.id : 'none'}
+              key={key}
               style={[newStyles.storeChip, isActive && newStyles.storeChipActive]}
               onPress={() => handleStoreSelect(store)}
             >
@@ -1277,7 +1713,61 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
             </Pressable>
           );
         })}
+        <Pressable
+          key="custom-add"
+          style={[newStyles.storeChip, newStyles.storeChipAdd]}
+          onPress={() => {
+            setAddingCustomStore(true);
+            setCustomStoreDraft('');
+            setEditingCustomStoreId(null);
+          }}
+        >
+          <Text style={newStyles.storeChipAddLabel}>+ Custom store</Text>
+        </Pressable>
       </ScrollView>
+      {selectedIsCustom && !addingCustomStore ? (
+        <View style={newStyles.customStoreManage}>
+          <Pressable
+            style={newStyles.customStoreManageButton}
+            onPress={() => {
+              if (!selectedStore) {
+                return;
+              }
+              setAddingCustomStore(true);
+              setEditingCustomStoreId(selectedStore.id);
+              setCustomStoreDraft(selectedStore.label);
+            }}
+          >
+            <Text style={newStyles.customStoreManageButtonLabel}>Rename store</Text>
+          </Pressable>
+          <Pressable style={newStyles.customStoreManageDanger} onPress={handleRemoveCustomStore}>
+            <Text style={newStyles.customStoreManageDangerLabel}>Remove</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {addingCustomStore ? (
+        <View style={newStyles.customStoreEditor}>
+          <TextInput
+            style={newStyles.customStoreInput}
+            placeholder={isEditingCustomStore ? 'Update store name' : 'Enter store name'}
+            value={customStoreDraft}
+            onChangeText={setCustomStoreDraft}
+          />
+          <View style={newStyles.customStoreActions}>
+            <Pressable style={newStyles.customStoreActionButton} onPress={handleCancelCustomStore}>
+              <Text style={newStyles.customStoreActionLabel}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={[newStyles.customStoreActionButton, newStyles.customStoreActionPrimary]}
+              onPress={handleSaveCustomStore}
+            >
+              <Text style={[newStyles.customStoreActionLabel, newStyles.customStoreActionPrimaryLabel]}>
+                {isEditingCustomStore ? 'Update' : 'Save'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
       <Text style={newStyles.createLabel}>Items</Text>
       <TextInput
         style={newStyles.createInput}
@@ -1335,48 +1825,213 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
     </>
   );
 
+  const renderVoiceTab = () => {
+    const isRecording = Boolean(voiceRecording);
+    return (
+      <View style={newStyles.captureContainer}>
+        <Text style={newStyles.captureTitle}>Speak your list</Text>
+        <Text style={newStyles.captureBody}>
+          Dictate each item naturally—pause between items and we will build the list for you.
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          style={[
+            newStyles.capturePrimaryButton,
+            isRecording && newStyles.capturePrimaryButtonActive,
+            voiceProcessing && newStyles.capturePrimaryButtonDisabled
+          ]}
+          onPress={handleVoiceToggle}
+          disabled={voiceProcessing}
+        >
+          {voiceProcessing ? (
+            <ActivityIndicator size="small" color="#0C1D37" />
+          ) : (
+            <>
+              <Ionicons
+                name={isRecording ? 'stop-circle' : 'mic'}
+                size={18}
+                color={isRecording ? '#0C1D37' : '#FFFFFF'}
+              />
+              <Text
+                style={[
+                  newStyles.capturePrimaryLabel,
+                  isRecording && newStyles.capturePrimaryLabelActive
+                ]}
+              >
+                {isRecording ? 'Stop & transcribe' : 'Start recording'}
+              </Text>
+            </>
+          )}
+        </Pressable>
+        {voiceTranscript ? (
+          <View style={newStyles.voiceTranscriptCard}>
+            <Text style={newStyles.voiceTranscriptTitle}>Last capture</Text>
+            <Text style={newStyles.voiceTranscriptText}>{voiceTranscript}</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setActiveTab('type')}
+              style={newStyles.captureSecondaryButton}
+            >
+              <Text style={newStyles.captureSecondaryLabel}>Review in form</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        <Text style={newStyles.captureFootnote}>
+          We automatically move you to the Type tab after transcription so you can confirm and edit the items.
+        </Text>
+      </View>
+    );
+  };
+
+  const renderCameraTab = () => (
+    <View style={newStyles.captureContainer}>
+      <Text style={newStyles.captureTitle}>Snap a list or flyer</Text>
+      <Text style={newStyles.captureBody}>
+        Aim your camera at a handwritten list or grocery flyer. We will detect items, prices, and metadata.
+      </Text>
+      <View style={newStyles.captureSegment}>
+        {(['list', 'promo'] as const).map((mode) => (
+          <Pressable
+            key={mode}
+            onPress={() => handleCameraModeChange(mode)}
+            style={[
+              newStyles.captureSegmentButton,
+              cameraMode === mode && newStyles.captureSegmentButtonActive
+            ]}
+          >
+            <Text
+              style={[
+                newStyles.captureSegmentLabel,
+                cameraMode === mode && newStyles.captureSegmentLabelActive
+              ]}
+            >
+              {mode === 'list' ? 'Shopping list' : 'Promo / flyer'}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      <Pressable
+        accessibilityRole="button"
+        style={[
+          newStyles.capturePrimaryButton,
+          cameraProcessing && newStyles.capturePrimaryButtonDisabled
+        ]}
+        onPress={handleCameraCapture}
+        disabled={cameraProcessing}
+      >
+        {cameraProcessing ? (
+          <ActivityIndicator size="small" color="#0C1D37" />
+        ) : (
+          <>
+            <Ionicons name="camera" size={18} color="#FFFFFF" />
+            <Text style={newStyles.capturePrimaryLabel}>
+              {cameraMode === 'list' ? 'Capture list photo' : 'Capture promo photo'}
+            </Text>
+          </>
+        )}
+      </Pressable>
+      {cameraWarnings.length ? (
+        <View style={newStyles.captureWarnings}>
+          {cameraWarnings.map((warning) => (
+            <Text key={warning} style={newStyles.captureWarningText}>
+              • {warning}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+      {cameraPreviewUri ? (
+        <Image source={{ uri: cameraPreviewUri }} style={newStyles.capturePreviewImage} resizeMode="cover" />
+      ) : null}
+      {promoPreview && cameraMode === 'promo' ? (
+        <View style={newStyles.promoPreviewCard}>
+          <Text style={newStyles.promoPreviewTitle}>{promoPreview.title}</Text>
+          {promoPreview.price ? (
+            <Text style={newStyles.promoPreviewPrice}>
+              {promoPreview.price.currency} {promoPreview.price.current.toFixed(2)}
+              {promoPreview.price.previous
+                ? ` · was ${promoPreview.price.currency} ${promoPreview.price.previous.toFixed(2)}`
+                : ''}
+            </Text>
+          ) : null}
+          {promoPreview.store ? (
+            <Text style={newStyles.promoPreviewMeta}>{promoPreview.store}</Text>
+          ) : null}
+          {promoPreview.validFrom || promoPreview.validTo ? (
+            <Text style={newStyles.promoPreviewMeta}>
+              {promoPreview.validFrom ? `From ${promoPreview.validFrom}` : ''}
+              {promoPreview.validTo ? ` · Until ${promoPreview.validTo}` : ''}
+            </Text>
+          ) : null}
+          {promoPreview.description ? (
+            <Text style={newStyles.promoPreviewDescription}>{promoPreview.description}</Text>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              setActiveTab('type');
+              trackEvent('create_sheet_camera_review_in_type', { mode: 'promo' });
+            }}
+            style={newStyles.captureSecondaryButton}
+          >
+            <Text style={newStyles.captureSecondaryLabel}>Send to Promos builder</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      <Text style={newStyles.captureFootnote}>
+        Items and promos open in the Type tab or Promos center for final edits after capture.
+      </Text>
+    </View>
+  );
+
   const renderBody = () => {
     if (activeTab === 'type') {
       return renderTypeTab();
     }
-
-    const label = activeTab === 'voice' ? 'Voice capture' : 'Camera capture';
-    return (
-      <View style={newStyles.createPlaceholder}>
-        <Ionicons name="construct-outline" size={36} color="#4FD1C5" />
-        <Text style={newStyles.createPlaceholderTitle}>{label} coming soon</Text>
-        <Text style={newStyles.createPlaceholderBody}>
-          We're wiring this mode into the smart parser. For now, type or paste items so analytics stay accurate.
-        </Text>
-        <Text style={newStyles.createPlaceholderFootnote}>
-          Beta access will unlock this workflow once QA flips the new parser flag.
-        </Text>
-      </View>
-    );
+    if (activeTab === 'voice') {
+      return renderVoiceTab();
+    }
+    return renderCameraTab();
   };
 
   return (
     <Modal transparent animationType="slide" visible={visible} onRequestClose={handleDismiss}>
       <View style={newStyles.createOverlay}>
         <Pressable style={newStyles.createDismissZone} onPress={handleDismiss} />
-        <View style={newStyles.createSheet}>
-          <View style={newStyles.createHandle} />
-          <Text style={newStyles.createTitle}>New list</Text>
-          <View style={newStyles.createTabs}>
-            {(['type', 'voice', 'camera'] as const).map((tab) => (
-              <Pressable
-                key={tab}
-                style={[newStyles.createTab, activeTab === tab && newStyles.createTabActive]}
-                onPress={() => handleTabChange(tab)}
-              >
-                <Text style={[newStyles.createTabLabel, activeTab === tab && newStyles.createTabLabelActive]}>
-                  {tab === 'type' ? 'Type' : tab === 'voice' ? 'Voice' : 'Camera'}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          {renderBody()}
-        </View>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={keyboardOffset}
+          style={[newStyles.createAvoiding, { maxHeight: sheetMaxHeight }]}
+        >
+          <ScrollView
+            style={[newStyles.createSheetScroll, { maxHeight: sheetMaxHeight }]}
+            contentContainerStyle={[
+              newStyles.createSheetContainer,
+              { minHeight: sheetMinHeight, paddingBottom: sheetBottomPadding }
+            ]}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={[newStyles.createSheet, { paddingBottom: Math.max(24, sheetBottomPadding - 12) }]}>
+              <View style={newStyles.createHandle} />
+              <Text style={newStyles.createTitle}>New list</Text>
+              <View style={newStyles.createTabs}>
+                {(['type', 'voice', 'camera'] as const).map((tab) => (
+                  <Pressable
+                    key={tab}
+                    style={[newStyles.createTab, activeTab === tab && newStyles.createTabActive]}
+                    onPress={() => handleTabChange(tab)}
+                  >
+                    <Text style={[newStyles.createTabLabel, activeTab === tab && newStyles.createTabLabelActive]}>
+                      {tab === 'type' ? 'Type' : tab === 'voice' ? 'Voice' : 'Camera'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              {renderBody()}
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -2139,6 +2794,19 @@ const newStyles = StyleSheet.create({
   createDismissZone: {
     flex: 1
   },
+  createAvoiding: {
+    alignSelf: 'stretch',
+    width: '100%',
+    flexShrink: 0
+  },
+  createSheetScroll: {
+    alignSelf: 'stretch'
+  },
+  createSheetContainer: {
+    paddingHorizontal: 0,
+    flexGrow: 1,
+    justifyContent: 'flex-end'
+  },
   createSheet: {
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 32,
@@ -2226,6 +2894,91 @@ const newStyles = StyleSheet.create({
   storeChipLabelMuted: {
     color: '#64748B'
   },
+  storeChipAdd: {
+    borderStyle: 'dashed',
+    borderColor: '#CBD5E1'
+  },
+  storeChipAddLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0C1D37'
+  },
+  customStoreManage: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    marginBottom: 12
+  },
+  customStoreManageButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: '#E2F8F4'
+  },
+  customStoreManageButtonLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0F766E',
+    letterSpacing: 0.3
+  },
+  customStoreManageDanger: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: '#FEE2E2'
+  },
+  customStoreManageDangerLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#B91C1C',
+    letterSpacing: 0.3
+  },
+  customStoreEditor: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#D9E2EC',
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+    gap: 12,
+    marginTop: 8,
+    marginBottom: 12
+  },
+  customStoreInput: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: '#0C1D37',
+    backgroundColor: '#FFFFFF'
+  },
+  customStoreActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12
+  },
+  customStoreActionButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF'
+  },
+  customStoreActionPrimary: {
+    backgroundColor: '#4FD1C5',
+    borderColor: '#4FD1C5'
+  },
+  customStoreActionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0C1D37'
+  },
+  customStoreActionPrimaryLabel: {
+    color: '#0C1D37'
+  },
   createInput: {
     minHeight: 120,
     borderRadius: 16,
@@ -2283,11 +3036,149 @@ const newStyles = StyleSheet.create({
     color: '#6C7A91',
     textAlign: 'center',
     lineHeight: 18
+  },
+  captureContainer: {
+    gap: 16,
+    paddingVertical: 8
+  },
+  captureTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0C1D37'
+  },
+  captureBody: {
+    fontSize: 13,
+    color: '#4A576D',
+    lineHeight: 19
+  },
+  capturePrimaryButton: {
+    borderRadius: 18,
+    backgroundColor: '#0C1D37',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    gap: 8
+  },
+  capturePrimaryButtonActive: {
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1'
+  },
+  capturePrimaryButtonDisabled: {
+    backgroundColor: '#94A3B8'
+  },
+  capturePrimaryLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FFFFFF'
+  },
+  capturePrimaryLabelActive: {
+    color: '#0C1D37'
+  },
+  captureFootnote: {
+    fontSize: 12,
+    color: '#6C7A91',
+    lineHeight: 18
+  },
+  voiceTranscriptCard: {
+    borderRadius: 16,
+    backgroundColor: '#F8FAFC',
+    padding: 16,
+    gap: 8
+  },
+  voiceTranscriptTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0C1D37'
+  },
+  voiceTranscriptText: {
+    fontSize: 14,
+    color: '#334155',
+    lineHeight: 20
+  },
+  captureSecondaryButton: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: '#E2E8F0'
+  },
+  captureSecondaryLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0C1D37'
+  },
+  captureSegment: {
+    flexDirection: 'row',
+    borderRadius: 16,
+    backgroundColor: '#E2E8F0',
+    padding: 4,
+    gap: 4
+  },
+  captureSegmentButton: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 8,
+    alignItems: 'center'
+  },
+  captureSegmentButtonActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#101828',
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2
+  },
+  captureSegmentLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#4A576D'
+  },
+  captureSegmentLabelActive: {
+    color: '#0C1D37',
+    fontWeight: '700'
+  },
+  captureWarnings: {
+    borderRadius: 12,
+    backgroundColor: '#FFF4DE',
+    padding: 12,
+    gap: 4
+  },
+  captureWarningText: {
+    fontSize: 12,
+    color: '#B45309'
+  },
+  capturePreviewImage: {
+    width: '100%',
+    height: 160,
+    borderRadius: 16
+  },
+  promoPreviewCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    gap: 6
+  },
+  promoPreviewTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  promoPreviewPrice: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0F766E'
+  },
+  promoPreviewMeta: {
+    fontSize: 12,
+    color: '#4A576D'
+  },
+  promoPreviewDescription: {
+    fontSize: 12,
+    color: '#475569',
+    lineHeight: 18
   }
 });
-
-
-
-
-
-
