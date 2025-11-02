@@ -13,7 +13,8 @@ import {
   useWindowDimensions,
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Image
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -39,6 +40,12 @@ import { useTopBar } from '@/src/providers/TopBarProvider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import { startVoiceCapture, cancelVoiceCapture, finalizeVoiceCapture } from '@/src/features/capture/voice-capture';
+import {
+  captureListFromCamera,
+  capturePromoFromCamera,
+  type CameraCaptureMode,
+  type PromoCaptureResult
+} from '@/src/features/capture/camera-capture';
 import { normalizeName } from '@/src/categorization';
 
 const NEXT_ACTIONS = [
@@ -1115,7 +1122,7 @@ type ListDraftPayload = {
 };
 
 function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateSheetProps) {
-  const [activeTab, setActiveTab] = useState<'type' | 'voice'>('type');
+  const [activeTab, setActiveTab] = useState<'type' | 'voice' | 'camera'>('type');
   const [listName, setListName] = useState(() => suggestListName());
   const [textValue, setTextValue] = useState('');
   const [parsedEntries, setParsedEntries] = useState<EnrichedListEntry[]>([]);
@@ -1131,7 +1138,13 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
   const [voiceRecording, setVoiceRecording] = useState<Audio.Recording | null>(null);
   const [voiceProcessing, setVoiceProcessing] = useState(false);
   const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [cameraMode, setCameraMode] = useState<CameraCaptureMode>('list');
+  const [cameraProcessing, setCameraProcessing] = useState(false);
+  const [cameraWarnings, setCameraWarnings] = useState<string[]>([]);
+  const [cameraPreviewUri, setCameraPreviewUri] = useState<string | null>(null);
+  const [promoPreview, setPromoPreview] = useState<PromoCaptureResult | null>(null);
   const defaultListNameRef = useRef('');
+  const skipTypeParseRef = useRef(false);
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
 
@@ -1311,7 +1324,7 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
     onClose
   ]);
 
-  const handleTabChange = useCallback((tab: 'type' | 'voice') => {
+  const handleTabChange = useCallback((tab: 'type' | 'voice' | 'camera') => {
     setActiveTab(tab);
     trackEvent('create_sheet_tab_selected', { tab });
   }, []);
@@ -1508,6 +1521,88 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
       );
     }
   }, [region, voiceRecording]);
+
+  const handleCameraModeChange = useCallback(
+    (mode: CameraCaptureMode) => {
+      setCameraMode(mode);
+      setCameraWarnings([]);
+      setCameraPreviewUri(null);
+      setPromoPreview(null);
+      trackEvent('create_sheet_camera_mode_selected', { mode });
+    },
+    []
+  );
+
+  const handleCameraCapture = useCallback(async () => {
+    setCameraProcessing(true);
+    setCameraWarnings([]);
+    try {
+      if (cameraMode === 'list') {
+        const result = await captureListFromCamera();
+        setCameraPreviewUri(result.imageUri);
+        setPromoPreview(null);
+        const warnings = result.warnings ?? [];
+        setCameraWarnings(warnings);
+        const itemLines = result.items
+          .map((item) => {
+            const parts: string[] = [];
+            if (item.quantity && item.quantity > 0) {
+              parts.push(String(item.quantity));
+            }
+            if (item.unit) {
+              parts.push(item.unit);
+            }
+            if (item.label) {
+              parts.push(item.label);
+            }
+            return parts.join(' ').trim();
+          })
+          .filter(Boolean);
+        if (itemLines.length) {
+          const merged = itemLines.join('\n');
+          setTextValue((current) => {
+            const prefix = current.trim();
+            if (!prefix.length) {
+              return merged;
+            }
+            return `${prefix}\n${merged}`;
+          });
+          setActiveTab('type');
+          trackEvent('create_sheet_camera_list_success', {
+            confidence: result.confidence,
+            items: result.items.length,
+            warnings: warnings.length
+          });
+          Toast.show('Photo captured â€“ review the detected items.');
+        } else {
+          trackEvent('create_sheet_camera_list_empty', { warnings: warnings.length });
+        }
+      } else {
+        const result = await capturePromoFromCamera();
+        setCameraPreviewUri(result.imageUri);
+        setPromoPreview(result);
+        setCameraWarnings([]);
+        trackEvent('create_sheet_camera_promo_success', {
+          confidence: result.confidence,
+          hasPrice: Boolean(result.price),
+          hasDates: Boolean(result.validFrom || result.validTo)
+        });
+        Toast.show('Promo captured â€“ confirm the details.');
+      }
+    } catch (err) {
+      console.error('Camera capture failed', err);
+      Alert.alert(
+        'Camera capture failed',
+        err instanceof Error ? err.message : 'Try again with brighter lighting and a steady angle.'
+      );
+      setCameraPreviewUri(null);
+      setPromoPreview(null);
+      setCameraWarnings(['We could not process the photo. Try again with better lighting.']);
+      trackEvent('create_sheet_camera_capture_failed', { mode: cameraMode });
+    } finally {
+      setCameraProcessing(false);
+    }
+  }, [cameraMode, setActiveTab, region]);
 
   const storeChips = useMemo(() => {
     const chips: Array<StoreDefinition | null> = [null];

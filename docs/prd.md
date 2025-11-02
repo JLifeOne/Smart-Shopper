@@ -103,7 +103,11 @@ Groceries and household items fluctuate in price across stores and time. Shopper
 ### 5.3 Store & Price Tracking
 
 * Maintain **per-store catalogs** with synonyms (e.g., "Heinz Tomato Ketchup 567g" vs "Ketchup Heinz 20oz").
-* **Unit-price normalization:** compare **price_per_base_unit** (e.g., JMD per 100g/oz/L). Jamaica default base units: **g**/**L** (toggle to oz/fl oz per user preference).
+* **Unit-price normalization:** compare **price_per_base_unit** across stores (e.g., JMD per 100g/oz/L). Jamaica default base units: **g**/**L** (toggle to oz/fl oz per user preference).
+* **Brand-aware comparisons:**
+  * Maintain brand-level averages so users can see price differences between brands within a category.
+  * Surface per-brand deltas (e.g., “Grace +18% vs Caribbean Choice this week”) alongside store comparisons.
+  * When brand can’t be inferred, fall back to product-level pricing and flag the row for manual review.
 * **Min/Max highlighting (cheapest chip):**
 
   * **Green:** current store is **cheapest** (≤ baseline_min).
@@ -111,14 +115,14 @@ Groceries and household items fluctuate in price across stores and time. Shopper
   * **Red:** ≥ **10%** higher than cheapest.
   * **Gray:** insufficient data.
 * **Trend chip** on each item: ▲ (up X%) ▼ (down Y%) • (flat), window = last N weeks.
-* **Store compare sheet**: rows show **Store — Latest price — Unit price — Last updated — Source — Trust%**; cheapest pinned.
+* **Store compare sheet**: rows show **Store — Brand — Latest price — Unit price — Last updated — Source — Trust%**; cheapest pinned. Highlight brand deltas and allow toggling between “All brands” and a selected brand.
 
 ### 5.4 Receipt Ingestion
 
 * **Capture:** camera (multi-page), PDF/image import.
-* **Parsing:** detect store name, date, subtotal, tax, discounts, and each line item (name, qty, size, unit).
+* **Parsing:** detect store name, brand name, date, subtotal, tax, discounts, and each line item (name, qty, size, brand, unit). Unknown brands default to `brand_id = null` and prompt user confirmation.
 * **Validation UI:** quick confirm screen; tap to fix item or unit; **training updates** Library + price history.
-* **Storage:** item-level record with **store_id**, **timestamp**, **price**, **size/unit**, **discount_applied**.
+* **Storage:** item-level record with **store_id**, **brand_id** (nullable), **timestamp**, **price**, **size/unit**, **discount_applied**.
 
 ### 5.5 Calendar Heatmap (Insights)
 
@@ -173,8 +177,8 @@ Groceries and household items fluctuate in price across stores and time. Shopper
 * **User**(id, name, locale, currency, prefs)
 * **Store**(id, name, address, geo, brand)
 * **Product**(id, brand, name, category, size_value, size_unit, barcode?)
-* **ProductAlias**(product_id, raw_name, store_id)
-* **PricePoint**(id, product_id, store_id, price, currency, timestamp, source: receipt|user|import, discount)
+* **ProductAlias**(product_id, raw_name, brand_id, store_id)
+* **PricePoint**(id, product_id, brand_id, store_id, price, currency, timestamp, source: receipt|user|import, discount)
 * **List**(id, user_id, name, shared_flag)
 * **ListItem**(id, list_id, product_id, desired_qty, substitutions_ok, notes)
 * **Inventory**(user_id, product_id, qty_on_hand, last_purchase_at, est_days_left)
@@ -196,7 +200,7 @@ Groceries and household items fluctuate in price across stores and time. Shopper
 ## 9) Acceptance Criteria (MVP)
 
 * Uploading a **handwritten list photo** extracts ≥90% of clearly written items with editable review.
-* Receipt scan creates **item-level price records** with correct store/date ≥95% of the time (clear receipts).
+* Receipt scan creates **item-level price records** with correct store/brand/date ≥95% of the time (clear receipts).
 * Item detail shows **price history** and **store comparison** with unit-price normalization.
 * Heatmap calendar renders without noticeable lag; tap shows day details.
 * Non-food items can be added and behave identically to food items.
@@ -223,6 +227,7 @@ Groceries and household items fluctuate in price across stores and time. Shopper
 * **OCR:** Google ML Kit on-device; Cloud Vision/Tesseract fallback.
 * **Backend:** Firebase (Auth, Firestore, Cloud Functions, Storage) **or** Supabase/Postgres (Prisma).
 * **Search/fuzzy match:** mini index per store; server function for alias resolution.
+* **Data migrations:** enforce `brand_id` columns on `ProductAlias`/`PricePoint`, backfill from existing catalog seeds, and keep Supabase RLS/tests updated to cover brand scoping.
 * **Privacy:** images stored with user consent; PII minimized; delete/export self-service.
 
 ---
@@ -232,6 +237,7 @@ Groceries and household items fluctuate in price across stores and time. Shopper
 * **Messy receipts / alias hell:** human-in-the-loop correction + alias tables + learn from edits.
 * **Comparing non-equivalent sizes:** strict unit normalization + category base units + warning banners.
 * **Data sparsity by store:** accept crowdsourced updates with trust scoring and moderation.
+* **Brand inference gaps:** OCR misses or conflicting brands → default to product-level pricing, queue for manual confirmation, and feed corrections back into alias training.
 
 ---
 
@@ -254,7 +260,7 @@ Groceries and household items fluctuate in price across stores and time. Shopper
 ## 15) Open Questions
 
 1. Compare **prices with or without tax** by default? (set per region; show toggle)
-2. Preferred **base units** by category (g vs oz, ml vs fl oz) for Jamaica vs other locales?
+2. Preferred **base units** by category (lb vs kg, g vs oz, ml vs fl oz) for Jamaica vs other locales?
 3. What stores to seed first? (e.g., by parish/city)
 4. Minimum lookback window for “cheapest” (avoid stale specials)?
 5. Verification strictness for crowdsourced prices (photo required or optional)?

@@ -9,7 +9,7 @@ function Invoke-Step {
     )
     Write-Host "`n=== $Title ===" -ForegroundColor Cyan
     & $Action
-    $exit = $LASTEXITCODE
+    $exit = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
     if ($exit -ne 0) {
         throw "Step '$Title' failed with exit code $exit"
     }
