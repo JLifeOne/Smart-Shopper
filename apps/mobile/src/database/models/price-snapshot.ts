@@ -23,5 +23,9 @@ export class PriceSnapshot extends Model {
 
   @field('source') source!: string;
 
+  @field('brand_remote_id') brandRemoteId!: string | null;
+
+  @field('brand_confidence') brandConfidence!: number | null;
+
   @relation('products', 'product_remote_id') product!: Product;
 }

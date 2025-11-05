@@ -42,6 +42,12 @@ export class Product extends Model {
 
   @field('last_synced_at') lastSyncedAt!: number | null;
 
+  @field('brand_remote_id') brandRemoteId!: string | null;
+
+  @field('brand_confidence') brandConfidence!: number | null;
+
+  @field('brand_source') brandSource!: string | null;
+
   @children('list_items') listItems!: Collection<ListItem>;
 
   @children('price_snapshots') priceSnapshots!: Collection<PriceSnapshot>;

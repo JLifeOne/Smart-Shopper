@@ -21,6 +21,8 @@ export type ListItemSummary = {
   isChecked: boolean;
   updatedAt: number;
   priceSummary: LibraryPriceSummary | null;
+  brandRemoteId: string | null;
+  brandConfidence: number | null;
 };
 
 function parseTags(value: string | null | undefined) {
@@ -125,7 +127,9 @@ export function useListItems(listId: string | null | undefined) {
             category,
             categoryLabel: categoryLabel(category),
             tags,
-            priceSummary
+            priceSummary,
+            brandRemoteId: product?.brandRemoteId ?? record.brandRemoteId,
+            brandConfidence: product?.brandConfidence ?? record.brandConfidence
           });
         } catch (err) {
           console.warn('useListItems: hydrate product failed', err);
@@ -160,7 +164,9 @@ export function useListItems(listId: string | null | undefined) {
             'notes',
             'is_checked',
             'product_remote_id',
-            'updated_at'
+            'updated_at',
+            'brand_remote_id',
+            'brand_confidence'
           ])
         : query.observe();
 
@@ -186,7 +192,9 @@ export function useListItems(listId: string | null | undefined) {
                 notes: record.notes,
                 isChecked: !!record.isChecked,
                 updatedAt: record.updatedAt,
-                priceSummary: null
+                priceSummary: null,
+                brandRemoteId: record.brandRemoteId,
+                brandConfidence: record.brandConfidence
               };
               if (record.productRemoteId) {
                 hydrateProduct(record).catch(() => undefined);

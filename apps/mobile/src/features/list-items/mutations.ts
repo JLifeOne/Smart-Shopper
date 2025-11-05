@@ -58,6 +58,12 @@ export async function createListItem(listId: string, label: string, qty = 1, opt
         if (product && !item.productRemoteId) {
           item.productRemoteId = product.id;
         }
+        if (product) {
+          item.brandRemoteId = product.brandRemoteId ?? item.brandRemoteId ?? null;
+          if (product.brandConfidence !== undefined) {
+            item.brandConfidence = product.brandConfidence ?? item.brandConfidence ?? null;
+          }
+        }
         if (!item.isChecked) {
           item.isChecked = false;
         }
@@ -82,6 +88,8 @@ export async function createListItem(listId: string, label: string, qty = 1, opt
       item.isDeleted = false;
       item.isChecked = false;
       item.dirty = true;
+      item.brandRemoteId = product?.brandRemoteId ?? null;
+      item.brandConfidence = product?.brandConfidence ?? null;
       item.createdAt = timestamp;
       item.updatedAt = timestamp;
       item.lastSyncedAt = null;

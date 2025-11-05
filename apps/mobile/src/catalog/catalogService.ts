@@ -87,6 +87,9 @@ async function ensurePriceSnapshots(
 type UpsertMetadata = Partial<CatalogRecord> & {
   markDirty?: boolean;
   merchantCode?: string | null;
+  brandRemoteId?: string | null;
+  brandConfidence?: number | null;
+  brandSource?: string | null;
 };
 
 function shouldOverwrite<T>(current: T | null | undefined, next: T | null | undefined) {
@@ -135,6 +138,18 @@ export async function upsertProductFromName(name: string, metadata: UpsertMetada
         }
         if (metadata.brand && shouldOverwrite(record.brand, metadata.brand)) {
           record.brand = metadata.brand ?? null;
+          mutated = true;
+        }
+        if (metadata.brandRemoteId && shouldOverwrite(record.brandRemoteId, metadata.brandRemoteId)) {
+          record.brandRemoteId = metadata.brandRemoteId ?? null;
+          mutated = true;
+        }
+        if (metadata.brandConfidence !== undefined) {
+          record.brandConfidence = metadata.brandConfidence ?? null;
+          mutated = true;
+        }
+        if (metadata.brandSource && shouldOverwrite(record.brandSource, metadata.brandSource)) {
+          record.brandSource = metadata.brandSource ?? null;
           mutated = true;
         }
         if (metadata.variant && shouldOverwrite(record.variant, metadata.variant)) {
@@ -215,6 +230,9 @@ export async function upsertProductFromName(name: string, metadata: UpsertMetada
       product.sourceUrl = metadata.sourceUrl ?? null;
       product.imageUrl = metadata.imageUrl ?? null;
       product.searchKey = searchKey;
+      product.brandRemoteId = metadata.brandRemoteId ?? null;
+      product.brandConfidence = metadata.brandConfidence ?? null;
+      product.brandSource = metadata.brandSource ?? null;
       product.dirty = metadata.markDirty ?? true;
       product.lastSyncedAt = metadata.markDirty === false ? Date.now() : null;
       createdId = product.id;

@@ -59,6 +59,33 @@ export const migrations = schemaMigrations({
           ]
         })
       ]
+    },
+    {
+      toVersion: 6,
+      steps: [
+        addColumns({
+          table: 'products',
+          columns: [
+            { name: 'brand_remote_id', type: 'string', isOptional: true, isIndexed: true },
+            { name: 'brand_confidence', type: 'number', isOptional: true },
+            { name: 'brand_source', type: 'string', isOptional: true }
+          ]
+        }),
+        addColumns({
+          table: 'list_items',
+          columns: [
+            { name: 'brand_remote_id', type: 'string', isOptional: true, isIndexed: true },
+            { name: 'brand_confidence', type: 'number', isOptional: true }
+          ]
+        }),
+        addColumns({
+          table: 'price_snapshots',
+          columns: [
+            { name: 'brand_remote_id', type: 'string', isOptional: true, isIndexed: true },
+            { name: 'brand_confidence', type: 'number', isOptional: true }
+          ]
+        })
+      ]
     }
   ]
 });

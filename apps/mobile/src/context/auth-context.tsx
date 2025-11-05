@@ -4,6 +4,7 @@ import { getSupabaseClient } from '@/src/lib/supabase';
 import { supabaseEnv } from '@/src/lib/env';
 import { ensureCatalogSeeded } from '@/src/catalog';
 import { syncService } from '@/src/database/sync-service';
+import { refreshRuntimeConfig } from '@/src/lib/runtime-config';
 
 export interface AuthActionResult {
   success: boolean;
@@ -80,6 +81,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (session) {
       ensureCatalogSeeded().catch((error) => {
         console.warn('Catalog seeding failed', error);
+      });
+      refreshRuntimeConfig().catch((error) => {
+        console.warn('Runtime config refresh failed', error);
       });
     }
   }, [session]);

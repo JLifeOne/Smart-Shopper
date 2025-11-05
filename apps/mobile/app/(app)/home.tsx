@@ -40,12 +40,7 @@ import { useTopBar } from '@/src/providers/TopBarProvider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import { startVoiceCapture, cancelVoiceCapture, finalizeVoiceCapture } from '@/src/features/capture/voice-capture';
-import {
-  captureListFromCamera,
-  capturePromoFromCamera,
-  type CameraCaptureMode,
-  type PromoCaptureResult
-} from '@/src/features/capture/camera-capture';
+import { captureListFromCamera } from '@/src/features/capture/camera-capture';
 import { normalizeName } from '@/src/categorization';
 
 const NEXT_ACTIONS = [
@@ -329,7 +324,8 @@ function DashboardView({
           <Text style={newStyles.cardTitle}>Next actions</Text>
           {NEXT_ACTIONS.map((action) => (
             <Text key={action} style={newStyles.cardBody}>
-              • {action}
+              {'\u2022 '}
+              {action}
             </Text>
           ))}
         </View>
@@ -576,7 +572,7 @@ function CommandDrawer({
             label: 'Spend heatmap',
             meta: metricsError
               ? metricsError
-              : `${heatmap.monthLabel} · ${receiptsStat} receipt${receiptsStat === '1' ? '' : 's'}`
+              : `${heatmap.monthLabel} - ${receiptsStat} receipt${receiptsStat === '1' ? '' : 's'}`
           },
           {
             id: 'lists',
@@ -1022,7 +1018,7 @@ function PromosScreen() {
       <View style={newStyles.promosCard}>
         <Text style={newStyles.promosTitle}>Promos coming soon</Text>
         <Text style={newStyles.promosCopy}>
-          We’re curating deals from your favorite stores. Check back soon or enable notifications in Settings to be the
+          We're curating deals from your favorite stores. Check back soon or enable notifications in Settings to be the
           first to know.
         </Text>
       </View>
@@ -1138,13 +1134,13 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
   const [voiceRecording, setVoiceRecording] = useState<Audio.Recording | null>(null);
   const [voiceProcessing, setVoiceProcessing] = useState(false);
   const [voiceTranscript, setVoiceTranscript] = useState('');
-  const [cameraMode, setCameraMode] = useState<CameraCaptureMode>('list');
   const [cameraProcessing, setCameraProcessing] = useState(false);
   const [cameraWarnings, setCameraWarnings] = useState<string[]>([]);
   const [cameraPreviewUri, setCameraPreviewUri] = useState<string | null>(null);
-  const [promoPreview, setPromoPreview] = useState<PromoCaptureResult | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const defaultListNameRef = useRef('');
   const skipTypeParseRef = useRef(false);
+  const cameraAutoTriggerRef = useRef(false);
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
 
@@ -1306,23 +1302,15 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
     setCameraProcessing(false);
     setCameraWarnings([]);
     setCameraPreviewUri(null);
-    setPromoPreview(null);
-    setCameraMode('list');
+    setCameraError(null);
+    cameraAutoTriggerRef.current = false;
     skipTypeParseRef.current = false;
     setAddingCustomStore(false);
     setCustomStoreDraft('');
     setEditingCustomStoreId(null);
     trackEvent('create_sheet_closed', { fromTab: activeTab, typedItems: parsedEntries.length });
     onClose();
-  }, [
-    activeTab,
-    cameraMode,
-    creating,
-    parsedEntries.length,
-    persistDraft,
-    voiceRecording,
-    onClose
-  ]);
+  }, [activeTab, creating, parsedEntries.length, persistDraft, voiceRecording, onClose]);
 
   const handleTabChange = useCallback((tab: 'type' | 'voice' | 'camera') => {
     setActiveTab(tab);
@@ -1498,7 +1486,7 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
         if (result.transcript.trim().length) {
           setTextValue(result.transcript.trim());
           setActiveTab('type');
-          Toast.show('Voice captured – review your list.');
+          Toast.show('Voice captured - review your list.');
         }
       } catch (err) {
         console.error('Voice capture failed', err);
@@ -1522,72 +1510,59 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
     }
   }, [region, voiceRecording]);
 
-  const handleCameraModeChange = useCallback(
-    (mode: CameraCaptureMode) => {
-      setCameraMode(mode);
-      setCameraWarnings([]);
-      setCameraPreviewUri(null);
-      setPromoPreview(null);
-      trackEvent('create_sheet_camera_mode_selected', { mode });
-    },
-    []
-  );
-
   const handleCameraCapture = useCallback(async () => {
+    if (cameraProcessing) {
+      return;
+    }
     setCameraProcessing(true);
     setCameraWarnings([]);
+    setCameraError(null);
+    setCameraPreviewUri(null);
     try {
-      if (cameraMode === 'list') {
-        const result = await captureListFromCamera();
+      const result = await captureListFromCamera();
+      if (result.imageUri) {
         setCameraPreviewUri(result.imageUri);
-        setPromoPreview(null);
-        const warnings = result.warnings ?? [];
-        setCameraWarnings(warnings);
-        const itemLines = result.items
-          .map((item) => {
-            const parts: string[] = [];
-            if (item.quantity && item.quantity > 0) {
-              parts.push(String(item.quantity));
-            }
-            if (item.unit) {
-              parts.push(item.unit);
-            }
-            if (item.label) {
-              parts.push(item.label);
-            }
-            return parts.join(' ').trim();
-          })
-          .filter(Boolean);
-        if (itemLines.length) {
-          const merged = itemLines.join('\n');
-          setTextValue((current) => {
-            const prefix = current.trim();
-            if (!prefix.length) {
-              return merged;
-            }
-            return `${prefix}\n${merged}`;
-          });
-          setActiveTab('type');
-          trackEvent('create_sheet_camera_list_success', {
-            confidence: result.confidence,
-            items: result.items.length,
-            warnings: warnings.length
-          });
-          Toast.show('Photo captured â€“ review the detected items.');
-        } else {
-          trackEvent('create_sheet_camera_list_empty', { warnings: warnings.length });
-        }
-      } else {
-        const result = await capturePromoFromCamera();
-        setCameraPreviewUri(result.imageUri);
-        setPromoPreview(result);
-        setCameraWarnings([]);
-        trackEvent('create_sheet_camera_promo_success', {
-          confidence: result.confidence,
-          hasPrice: Boolean(result.price),
-          hasDates: Boolean(result.validFrom || result.validTo)
+      }
+      const warnings = result.warnings ?? [];
+      const items = result.items ?? [];
+      setCameraWarnings(warnings);
+      if (warnings.length) {
+        setCameraError('We could not read every item. Review and complete your list.');
+      }
+      const itemLines = items
+        .map((item) => {
+          const parts: string[] = [];
+          if (item.quantity && item.quantity > 0) {
+            parts.push(String(item.quantity));
+          }
+          if (item.unit) {
+            parts.push(item.unit);
+          }
+          if (item.label) {
+            parts.push(item.label);
+          }
+          return parts.join(' ').trim();
+        })
+        .filter(Boolean);
+      if (itemLines.length) {
+        const merged = itemLines.join('\n');
+        setTextValue((current) => {
+          const prefix = current.trim();
+          if (!prefix.length) {
+            return merged;
+          }
+          return `${prefix}\n${merged}`;
         });
-        Toast.show('Promo captured â€“ confirm the details.');
+        setActiveTab('type');
+        trackEvent('create_sheet_camera_list_success', {
+          confidence: result.confidence,
+          items: items.length,
+          warnings: warnings.length
+        });
+        Toast.show('Photo captured - review the detected items.');
+      } else {
+        trackEvent('create_sheet_camera_list_empty', { warnings: warnings.length });
+        setCameraError('We could not detect any items. Try again with clearer lighting.');
       }
     } catch (err) {
       console.error('Camera capture failed', err);
@@ -1595,14 +1570,23 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
         'Camera capture failed',
         err instanceof Error ? err.message : 'Try again with brighter lighting and a steady angle.'
       );
-      setCameraPreviewUri(null);
-      setPromoPreview(null);
-      setCameraWarnings(['We could not process the photo. Try again with better lighting.']);
-      trackEvent('create_sheet_camera_capture_failed', { mode: cameraMode });
+      setCameraError('We could not process the photo. Try again with better lighting.');
+      trackEvent('create_sheet_camera_capture_failed', { mode: 'list' });
     } finally {
       setCameraProcessing(false);
     }
-  }, [cameraMode, setActiveTab, region]);
+  }, [cameraProcessing, setActiveTab]);
+
+  useEffect(() => {
+    if (!visible || activeTab !== 'camera') {
+      cameraAutoTriggerRef.current = false;
+      return;
+    }
+    if (!cameraProcessing && !cameraAutoTriggerRef.current) {
+      cameraAutoTriggerRef.current = true;
+      handleCameraCapture();
+    }
+  }, [activeTab, visible, cameraProcessing, handleCameraCapture]);
 
   const storeChips = useMemo(() => {
     const chips: Array<StoreDefinition | null> = [null];
@@ -1656,8 +1640,8 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
     setCameraProcessing(false);
     setCameraWarnings([]);
     setCameraPreviewUri(null);
-    setPromoPreview(null);
-    setCameraMode('list');
+    setCameraError(null);
+    cameraAutoTriggerRef.current = false;
     skipTypeParseRef.current = false;
     draftHydratedRef.current = true;
   }, []);
@@ -1697,8 +1681,8 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
       setCameraProcessing(false);
       setCameraWarnings([]);
       setCameraPreviewUri(null);
-      setPromoPreview(null);
-      setCameraMode('list');
+      setCameraError(null);
+      cameraAutoTriggerRef.current = false;
       skipTypeParseRef.current = false;
       draftHydratedRef.current = true;
     },
@@ -1926,7 +1910,7 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
       <View style={newStyles.captureContainer}>
         <Text style={newStyles.captureTitle}>Speak your list</Text>
         <Text style={newStyles.captureBody}>
-          Dictate each item naturally—pause between items and we will build the list for you.
+          Dictate each item naturally - pause between items and we will build the list for you.
         </Text>
         <Pressable
           accessibilityRole="button"
@@ -1980,31 +1964,11 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
 
   const renderCameraTab = () => (
     <View style={newStyles.captureContainer}>
-      <Text style={newStyles.captureTitle}>Snap a list or flyer</Text>
+      <Text style={newStyles.captureTitle}>Snap your list</Text>
       <Text style={newStyles.captureBody}>
-        Aim your camera at a handwritten list or grocery flyer. We will detect items, prices, and metadata.
+        Take a clear photo of your handwritten or printed list. We will pull the items into the Type tab so you can
+        confirm and tweak them.
       </Text>
-      <View style={newStyles.captureSegment}>
-        {(['list', 'promo'] as const).map((mode) => (
-          <Pressable
-            key={mode}
-            onPress={() => handleCameraModeChange(mode)}
-            style={[
-              newStyles.captureSegmentButton,
-              cameraMode === mode && newStyles.captureSegmentButtonActive
-            ]}
-          >
-            <Text
-              style={[
-                newStyles.captureSegmentLabel,
-                cameraMode === mode && newStyles.captureSegmentLabelActive
-              ]}
-            >
-              {mode === 'list' ? 'Shopping list' : 'Promo / flyer'}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
       <Pressable
         accessibilityRole="button"
         style={[
@@ -2019,17 +1983,21 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
         ) : (
           <>
             <Ionicons name="camera" size={18} color="#FFFFFF" />
-            <Text style={newStyles.capturePrimaryLabel}>
-              {cameraMode === 'list' ? 'Capture list photo' : 'Capture promo photo'}
-            </Text>
+            <Text style={newStyles.capturePrimaryLabel}>Capture list photo</Text>
           </>
         )}
       </Pressable>
+      {cameraError ? (
+        <View style={newStyles.captureWarnings}>
+          <Text style={newStyles.captureWarningText}>{cameraError}</Text>
+        </View>
+      ) : null}
       {cameraWarnings.length ? (
         <View style={newStyles.captureWarnings}>
           {cameraWarnings.map((warning) => (
             <Text key={warning} style={newStyles.captureWarningText}>
-              • {warning}
+              {'\u2022 '}
+              {warning}
             </Text>
           ))}
         </View>
@@ -2037,43 +2005,8 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
       {cameraPreviewUri ? (
         <Image source={{ uri: cameraPreviewUri }} style={newStyles.capturePreviewImage} resizeMode="cover" />
       ) : null}
-      {promoPreview && cameraMode === 'promo' ? (
-        <View style={newStyles.promoPreviewCard}>
-          <Text style={newStyles.promoPreviewTitle}>{promoPreview.title}</Text>
-          {promoPreview.price ? (
-            <Text style={newStyles.promoPreviewPrice}>
-              {promoPreview.price.currency} {promoPreview.price.current.toFixed(2)}
-              {promoPreview.price.previous
-                ? ` · was ${promoPreview.price.currency} ${promoPreview.price.previous.toFixed(2)}`
-                : ''}
-            </Text>
-          ) : null}
-          {promoPreview.store ? (
-            <Text style={newStyles.promoPreviewMeta}>{promoPreview.store}</Text>
-          ) : null}
-          {promoPreview.validFrom || promoPreview.validTo ? (
-            <Text style={newStyles.promoPreviewMeta}>
-              {promoPreview.validFrom ? `From ${promoPreview.validFrom}` : ''}
-              {promoPreview.validTo ? ` · Until ${promoPreview.validTo}` : ''}
-            </Text>
-          ) : null}
-          {promoPreview.description ? (
-            <Text style={newStyles.promoPreviewDescription}>{promoPreview.description}</Text>
-          ) : null}
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              setActiveTab('type');
-              trackEvent('create_sheet_camera_review_in_type', { mode: 'promo' });
-            }}
-            style={newStyles.captureSecondaryButton}
-          >
-            <Text style={newStyles.captureSecondaryLabel}>Send to Promos builder</Text>
-          </Pressable>
-        </View>
-      ) : null}
       <Text style={newStyles.captureFootnote}>
-        Items and promos open in the Type tab or Promos center for final edits after capture.
+        Captured items open in the Type tab for final edits after capture.
       </Text>
     </View>
   );
@@ -3205,35 +3138,6 @@ const newStyles = StyleSheet.create({
     fontWeight: '600',
     color: '#0C1D37'
   },
-  captureSegment: {
-    flexDirection: 'row',
-    borderRadius: 16,
-    backgroundColor: '#E2E8F0',
-    padding: 4,
-    gap: 4
-  },
-  captureSegmentButton: {
-    flex: 1,
-    borderRadius: 12,
-    paddingVertical: 8,
-    alignItems: 'center'
-  },
-  captureSegmentButtonActive: {
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#101828',
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2
-  },
-  captureSegmentLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#4A576D'
-  },
-  captureSegmentLabelActive: {
-    color: '#0C1D37',
-    fontWeight: '700'
-  },
   captureWarnings: {
     borderRadius: 12,
     backgroundColor: '#FFF4DE',
@@ -3248,32 +3152,6 @@ const newStyles = StyleSheet.create({
     width: '100%',
     height: 160,
     borderRadius: 16
-  },
-  promoPreviewCard: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-    gap: 6
-  },
-  promoPreviewTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0C1D37'
-  },
-  promoPreviewPrice: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0F766E'
-  },
-  promoPreviewMeta: {
-    fontSize: 12,
-    color: '#4A576D'
-  },
-  promoPreviewDescription: {
-    fontSize: 12,
-    color: '#475569',
-    lineHeight: 18
   }
 });
+

@@ -23,6 +23,9 @@ export type LibraryItem = {
   id: string;
   name: string;
   brand: string | null;
+  brandRemoteId: string | null;
+  brandConfidence: number | null;
+  brandSource: string | null;
   category: string;
   categoryLabel: string;
   region: string | null;
@@ -111,6 +114,9 @@ export function useLibraryItems() {
                 id: product.id,
                 name: product.name,
                 brand: product.brand,
+                brandRemoteId: product.brandRemoteId,
+                brandConfidence: product.brandConfidence,
+                brandSource: product.brandSource,
                 category: product.category,
                 categoryLabel: categoryLabel(product.category),
                 region: product.region ?? null,

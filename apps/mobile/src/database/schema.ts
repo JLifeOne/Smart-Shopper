@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const schema = appSchema({
-  version: 5,
+  version: 6,
   tables: [
     tableSchema({
       name: 'lists',
@@ -35,6 +35,8 @@ export const schema = appSchema({
         { name: 'is_deleted', type: 'boolean' },
         { name: 'is_checked', type: 'boolean', isOptional: true },
         { name: 'dirty', type: 'boolean' },
+        { name: 'brand_remote_id', type: 'string', isIndexed: true, isOptional: true },
+        { name: 'brand_confidence', type: 'number', isOptional: true },
         { name: 'created_at', type: 'number' },
         { name: 'updated_at', type: 'number' },
         { name: 'last_synced_at', type: 'number', isOptional: true }
@@ -56,6 +58,9 @@ export const schema = appSchema({
         { name: 'source_url', type: 'string', isOptional: true },
         { name: 'image_url', type: 'string', isOptional: true },
         { name: 'search_key', type: 'string', isIndexed: true, isOptional: true },
+        { name: 'brand_remote_id', type: 'string', isIndexed: true, isOptional: true },
+        { name: 'brand_confidence', type: 'number', isOptional: true },
+        { name: 'brand_source', type: 'string', isOptional: true },
         { name: 'dirty', type: 'boolean' },
         { name: 'last_synced_at', type: 'number', isOptional: true }
       ]
@@ -81,7 +86,9 @@ export const schema = appSchema({
         { name: 'unit_price', type: 'number' },
         { name: 'currency', type: 'string' },
         { name: 'captured_at', type: 'number' },
-        { name: 'source', type: 'string' }
+        { name: 'source', type: 'string' },
+        { name: 'brand_remote_id', type: 'string', isIndexed: true, isOptional: true },
+        { name: 'brand_confidence', type: 'number', isOptional: true }
       ]
     }),
     tableSchema({

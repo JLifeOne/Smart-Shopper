@@ -32,6 +32,10 @@ export class ListItem extends Model {
 
   @field('dirty') dirty!: boolean;
 
+  @field('brand_remote_id') brandRemoteId!: string | null;
+
+  @field('brand_confidence') brandConfidence!: number | null;
+
   @field('created_at') createdAt!: number;
 
   @field('updated_at') updatedAt!: number;
