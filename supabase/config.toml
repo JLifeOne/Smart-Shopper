@@ -1,5 +1,1 @@
-project_id = "smart-shopper"
-api_url = "http://127.0.0.1:54321"
-service_role_key = ""  # populate when running Supabase locally
-anon_key = ""
-db_url = "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+
