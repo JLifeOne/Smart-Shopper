@@ -105,6 +105,8 @@ export async function createListItem(listId: string, label: string, qty = 1, opt
       desired_qty: qty,
       category: options.category ?? null,
       merchant_code: options.merchantCode ?? null,
+      brand_remote_id: record.brandRemoteId,
+      brand_confidence: record.brandConfidence,
       substitutions_ok: true,
       created_at: timestamp,
       updated_at: timestamp
@@ -139,6 +141,8 @@ export async function adjustListItemQuantity(itemId: string, delta: number) {
       local_id: item.id,
       remote_id: item.remoteId,
       desired_qty: nextQty,
+      brand_remote_id: item.brandRemoteId,
+      brand_confidence: item.brandConfidence,
       updated_at: timestamp
     });
   } catch (err) {
@@ -163,6 +167,8 @@ export async function setListItemChecked(itemId: string, checked: boolean) {
       local_id: item.id,
       remote_id: item.remoteId,
       is_checked: checked,
+      brand_remote_id: item.brandRemoteId,
+      brand_confidence: item.brandConfidence,
       updated_at: timestamp
     });
   } catch (err) {
@@ -200,6 +206,8 @@ export async function updateListItemDetails(
       remote_id: item.remoteId,
       desired_qty: nextQty,
       notes: updates.notes ?? null,
+      brand_remote_id: item.brandRemoteId,
+      brand_confidence: item.brandConfidence,
       updated_at: timestamp
     });
   } catch (err) {
@@ -223,6 +231,8 @@ export async function deleteListItem(itemId: string) {
     await syncService.enqueueMutation('LIST_ITEM_ARCHIVED', {
       local_id: item.id,
       remote_id: item.remoteId,
+      brand_remote_id: item.brandRemoteId,
+      brand_confidence: item.brandConfidence,
       updated_at: timestamp
     });
   } catch (err) {

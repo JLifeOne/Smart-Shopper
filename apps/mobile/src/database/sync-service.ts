@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js';
 import { database, resetDatabase } from './index';
 import { SyncEvent } from './models';
 import { getSupabaseClient } from '@/src/lib/supabase';
+import { recordBrandTelemetry } from '@/src/lib/brand-telemetry';
 
 export interface MutationPayload {
   [key: string]: unknown;
@@ -64,6 +65,7 @@ export class SyncService {
           await event.markSynced();
         } catch (error) {
           console.error('Failed to process sync event', error);
+          this.handleBrandError(error);
           await event.markFailed();
         }
       }
@@ -75,6 +77,29 @@ export class SyncService {
   async reset() {
     await resetDatabase();
     this.session = null;
+  }
+
+  private handleBrandError(error: unknown) {
+    const code = (error as { code?: string } | null | undefined)?.code;
+    if (!code) {
+      return;
+    }
+    const reasonMap: Record<string, 'conflict' | 'missing_alias' | 'low_confidence' | 'timeout'> = {
+      BRAND_MATCH_CONFLICT: 'conflict',
+      BRAND_ALIAS_MISSING: 'missing_alias',
+      BRAND_LOW_CONFIDENCE: 'low_confidence',
+      BRAND_TIMEOUT: 'timeout'
+    };
+    const reason = reasonMap[code];
+    if (!reason) {
+      return;
+    }
+    const confidence = (error as { meta?: { confidence?: number } } | null | undefined)?.meta?.confidence;
+    recordBrandTelemetry({
+      type: 'fallback',
+      reason,
+      confidence: typeof confidence === 'number' ? confidence : undefined
+    });
   }
 }
 

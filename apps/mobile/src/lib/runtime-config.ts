@@ -27,6 +27,8 @@ function parseBrandInsights(row: RuntimeConfigRow | null | undefined) {
   return DEFAULT_FLAGS.brandInsights;
 }
 
+const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : process.env.NODE_ENV !== 'production';
+
 export function getRuntimeFlags(): RuntimeFlags {
   return flags;
 }
@@ -68,7 +70,7 @@ export async function refreshRuntimeConfig(): Promise<RuntimeFlags> {
   }
   inFlight = fetchRuntimeConfig(client)
     .catch((error) => {
-      if (__DEV__) {
+      if (isDev) {
         console.warn('runtime-config: failed to refresh brand insights flag', error);
       }
       return flags;

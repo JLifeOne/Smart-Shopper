@@ -4,6 +4,7 @@ import { getSupabaseClient } from '@/src/lib/supabase';
 import { supabaseEnv } from '@/src/lib/env';
 import { ensureCatalogSeeded } from '@/src/catalog';
 import { syncService } from '@/src/database/sync-service';
+import { ensureBrandBackfillCompleted } from '@/src/database/backfill/brand-backfill';
 import { refreshRuntimeConfig } from '@/src/lib/runtime-config';
 
 export interface AuthActionResult {
@@ -81,6 +82,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (session) {
       ensureCatalogSeeded().catch((error) => {
         console.warn('Catalog seeding failed', error);
+      });
+      ensureBrandBackfillCompleted().catch((error) => {
+        console.warn('Brand backfill failed', error);
       });
       refreshRuntimeConfig().catch((error) => {
         console.warn('Runtime config refresh failed', error);
