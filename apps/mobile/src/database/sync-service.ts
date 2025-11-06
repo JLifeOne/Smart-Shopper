@@ -7,7 +7,6 @@ import type { ListItem } from '@/src/database/models/list-item';
 import { recordBrandTelemetry } from '@/src/lib/brand-telemetry';
 import { isBrandInsightsEnabled } from '@/src/lib/runtime-config';
 import { supabaseEnv } from '@/src/lib/env';
-import { recordBrandTelemetry } from '@/src/lib/brand-telemetry';
 
 export interface MutationPayload {
   [key: string]: unknown;
