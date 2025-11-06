@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
-import { levenshtein } from "https://deno.land/std@0.207.0/text/distance/levenshtein.ts";
+import { levenshtein } from "../_shared/levenshtein.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
 
@@ -11,12 +11,13 @@ const corsHeaders = {
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const supabaseKey = serviceRoleKey ?? anonKey;
 
-if (!supabaseUrl || !anonKey) {
-  console.error("Supabase environment variables are missing");
+if (!supabaseUrl || !supabaseKey) {
+  console.error("Supabase URL or API key missing for brand-resolve function");
 }
 
-const supabase = createClient(supabaseUrl ?? "", serviceRoleKey ?? anonKey ?? "", {
+const supabase = createClient(supabaseUrl ?? "", supabaseKey ?? "", {
   auth: { persistSession: false },
 });
 
@@ -256,7 +257,7 @@ serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  if (!supabaseUrl || !anonKey) {
+  if (!supabaseUrl || !supabaseKey) {
     return jsonResponse({ error: "supabase_credentials_missing" }, { status: 500 });
   }
 

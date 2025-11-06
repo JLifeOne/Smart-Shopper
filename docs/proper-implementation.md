@@ -1,5 +1,7 @@
 # Proper Implementation Protocol
 
+> Read me before every work session. Keep this open while building. Treat this as the non‑negotiable checklist for design, coding, testing, and rollout.
+
 You are a senior engineer tasked with PROPER IMPLEMENTATION (no shortcuts). 
 Goal: deliver production-ready code that remains stable under heavy, concurrent usage with clean rollbacks, precise error handling, and a clear debugging path.
 

@@ -1,5 +1,7 @@
 # Smart Shopper – Design Alignment (v0.1)
 
+> Working agreement: Before making changes, review `docs/proper-implementation.md` (Proper Implementation Protocol). Follow it throughout design and build.
+
 ## Visual Direction
 
 ### Palette
