@@ -42,6 +42,10 @@
 | BRAND-008 | Insight Storage & RPC | 2 | Create `brand_price_insights` table/view + RPC endpoint, load tests. | Backend/Data | BRAND-007 |
 | BRAND-009 | Observability & Dashboards | 2 | Configure metrics, alerts, dashboards covering ingestion + aggregation. | Analytics + Ops | BRAND-005, BRAND-007, BRAND-008 |
 | BRAND-010 | QA/Test Harness Setup | 0–2 | Supabase fixtures, Vitest suites, smoke tests for nightly job. | Mobile + Backend QA | BRAND-002, BRAND-003, BRAND-005 |
+| ESM-001 | Switch Vite Configs to ESM | Hardening | Rename Vite/ Vitest configs to `.mts`, ensure packages import `vite` via ESM entry points. | Platform | Step before Vite 6 |
+| ESM-002 | Update Tooling for ESM | Hardening | Review/adjust Jest, PostCSS, and scripts to work once `"type": "module"` is enabled. | Platform | ESM-001 |
+| ESM-003 | Enable `"type": "module"` or Equivalent | Hardening | Flip workspace package(s) to ESM or add `.mjs` entrypoints; run full test/build sweep. | Platform | ESM-001, ESM-002 |
+| ESM-004 | Clean Up Legacy CJS Shims | Hardening | Remove temporary flags (`VITE_CJS_TRACE`/`IGNORE_WARNING`), ensure docs/runbooks updated. | Platform | ESM-003 |
 
 ### Backlog Notes
 - Tickets will be broken down further during sprint planning (granular tasks per codebase).
@@ -53,4 +57,5 @@
 1. Share design doc (`docs/design/brand-aware-pricing-phases-0-2.md`) and this backlog with stakeholders for review.  
 2. Collect approvals/feedback, capture in project tracker (JIRA/Linear).  
 3. Sequence tickets into upcoming sprints; ensure capacity allocation across mobile/backend/data/analytics teams.  
-4. Prepare staging environment with kill switch defaulted to “off”, ready for Phase 0 migrations.
+4. Prepare staging environment with kill switch defaulted to “off”, ready for Phase 0 migrations.  
+5. Slot ESM migration tickets into the final hardening milestone ahead of the Vite 6 upgrade.
