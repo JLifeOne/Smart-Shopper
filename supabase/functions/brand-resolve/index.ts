@@ -282,6 +282,25 @@ serve(async (req) => {
   }
 
   try {
+    const requireAuth = (Deno.env.get("REQUIRE_AUTHENTICATED") ?? "false").toLowerCase() === "true";
+    if (requireAuth) {
+      const auth = req.headers.get("authorization") ?? "";
+      const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+      const parts = token.split(".");
+      if (parts.length < 2) {
+        return jsonResponse({ error: "auth_required" }, { status: 401 });
+      }
+      try {
+        const json = new TextDecoder().decode(Uint8Array.from(atob(parts[1]), c => c.charCodeAt(0)));
+        const claims = JSON.parse(json);
+        const role = String(claims?.role ?? "");
+        if (role !== "authenticated" && role !== "service_role") {
+          return jsonResponse({ error: "auth_required" }, { status: 401 });
+        }
+      } catch {
+        return jsonResponse({ error: "auth_required" }, { status: 401 });
+      }
+    }
     const payload = (await req.json()) as ResolveRequest;
     const result = await resolveBrand(supabase, payload);
     return jsonResponse(result.response, { status: result.httpStatus });

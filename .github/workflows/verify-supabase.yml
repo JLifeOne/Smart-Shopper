@@ -1,0 +1,41 @@
+name: Verify Supabase
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+
+      - name: Supabase CLI version
+        run: supabase --version
+
+      - name: Lint database (static)
+        run: supabase db lint
+
+      - name: Ping Edge Functions
+        env:
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ANON: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -e
+          if [ -z "$PROJECT_REF" ] || [ -z "$ANON" ]; then
+            echo "Secrets missing; skipping function pings" && exit 0
+          fi
+          base="https://$PROJECT_REF.supabase.co/functions/v1"
+          echo "Ping brand-insights-job"
+          st=$(curl -s -o /tmp/out1 -w "%{http_code}" -H "Authorization: Bearer $ANON" -H "apikey: $ANON" -H "Content-Type: application/json" -d '{}' "$base/brand-insights-job")
+          cat /tmp/out1; echo
+          test "$st" -eq 200
+          echo "Ping brand-resolve"
+          st2=$(curl -s -o /tmp/out2 -w "%{http_code}" -H "Authorization: Bearer $ANON" -H "apikey: $ANON" -H "Content-Type: application/json" -d '{"rawName":"Grace Baked Beans 300g","storeId":null}' "$base/brand-resolve")
+          cat /tmp/out2; echo
+          test "$st2" -eq 200
+
