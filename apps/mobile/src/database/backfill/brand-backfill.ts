@@ -7,7 +7,9 @@ import { recordBrandTelemetry } from '@/src/lib/brand-telemetry';
 
 const BACKFILL_FLAG = '@smart-shopper:brand-backfill-v1';
 
-const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : process.env.NODE_ENV !== 'production';
+const isDev = typeof __DEV__ !== 'undefined'
+  ? __DEV__
+  : typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
 
 async function backfillListItems() {
   const collection = database.get<ListItem>('list_items');
