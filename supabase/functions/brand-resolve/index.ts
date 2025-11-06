@@ -156,26 +156,43 @@ export async function resolveBrand(
   const selectColumns =
     "alias, brand_id, confidence, source, store_id, brands ( id, name )";
 
+  // Build a permissive OR filter so short aliases can match longer raw names
+  const tokens = normalised.split(" ").filter((t) => t.length >= 3 && !/^[0-9]+$/.test(t)).slice(0, 3);
+  const orFilter = tokens.length
+    ? tokens.map((t) => `alias.ilike.%${t}%`).join(",")
+    : `alias.ilike.%${normalised.split(" ").slice(0, 2).join(" ")}%`;
+
   let storeMatches: AliasRow[] = [];
   if (storeId) {
-    const { data, error } = await client
+    let query = client
       .from("brand_aliases")
       .select(selectColumns)
       .eq("store_id", storeId)
-      .ilike("alias", `%${normalised}%`)
-      .limit(10);
+      .limit(15);
+    // use OR filter across important tokens so shorter aliases match
+    if (tokens.length) {
+      query = query.or(orFilter);
+    } else {
+      query = query.ilike("alias", `%${normalised}%`);
+    }
+    const { data, error } = await query;
     if (error) {
       throw new Error(`alias_lookup_failed:${error.message}`);
     }
     storeMatches = (data ?? []) as AliasRow[];
   }
 
-  const { data: genericMatches, error: genericError } = await client
+  let genericQuery = client
     .from("brand_aliases")
     .select(selectColumns)
     .is("store_id", null)
-    .ilike("alias", `%${normalised}%`)
-    .limit(10);
+    .limit(15);
+  if (tokens.length) {
+    genericQuery = genericQuery.or(orFilter);
+  } else {
+    genericQuery = genericQuery.ilike("alias", `%${normalised}%`);
+  }
+  const { data: genericMatches, error: genericError } = await genericQuery;
 
   if (genericError) {
     throw new Error(`alias_lookup_failed:${genericError.message}`);
