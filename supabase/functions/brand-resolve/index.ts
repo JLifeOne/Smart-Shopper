@@ -156,15 +156,18 @@ export async function resolveBrand(
   const selectColumns =
     "alias, brand_id, confidence, source, store_id, brands ( id, name )";
 
-  const { data: storeMatches, error: storeError } = await client
-    .from("brand_aliases")
-    .select(selectColumns)
-    .eq("store_id", storeId)
-    .ilike("alias", `%${normalised}%`)
-    .limit(10);
-
-  if (storeError) {
-    throw new Error(`alias_lookup_failed:${storeError.message}`);
+  let storeMatches: AliasRow[] = [];
+  if (storeId) {
+    const { data, error } = await client
+      .from("brand_aliases")
+      .select(selectColumns)
+      .eq("store_id", storeId)
+      .ilike("alias", `%${normalised}%`)
+      .limit(10);
+    if (error) {
+      throw new Error(`alias_lookup_failed:${error.message}`);
+    }
+    storeMatches = (data ?? []) as AliasRow[];
   }
 
   const { data: genericMatches, error: genericError } = await client
@@ -267,6 +270,7 @@ serve(async (req) => {
     return jsonResponse(result.response, { status: result.httpStatus });
   } catch (error) {
     console.error('brand-resolve: unexpected error', error);
-    return jsonResponse({ error: "invalid_request" }, { status: 400 });
+    const msg = (error as Error)?.message ?? 'unknown';
+    return jsonResponse({ error: "invalid_request", code: msg }, { status: 400 });
   }
 });
