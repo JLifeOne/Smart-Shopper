@@ -2,7 +2,7 @@
   // Formatting & linting defaults
   "editor.formatOnSave": true,
   "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": true
+    "source.fixAll.eslint": "explicit"
   },
 
   // Use Prettier where applicable; Deno formats TypeScript in supabase/functions
