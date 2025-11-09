@@ -1,83 +1,93 @@
--- Fails if core Phase 0 objects are not present or are missing required columns.
+select plan(9);
 
-do $$
-begin
-  if not exists (
+select ok(
+  exists (
     select 1
     from pg_tables
     where schemaname = 'public'
       and tablename = 'brands'
-  ) then
-    raise exception 'brands table missing';
-  end if;
+  ),
+  'brands table exists'
+);
 
-  if not exists (
+select ok(
+  exists (
     select 1
     from pg_tables
     where schemaname = 'public'
       and tablename = 'brand_aliases'
-  ) then
-    raise exception 'brand_aliases table missing';
-  end if;
+  ),
+  'brand_aliases table exists'
+);
 
-  if not exists (
+select ok(
+  exists (
     select 1
     from pg_tables
     where schemaname = 'public'
       and tablename = 'app_runtime_config'
-  ) then
-    raise exception 'app_runtime_config table missing';
-  end if;
-end;
-$$;
+  ),
+  'app_runtime_config table exists'
+);
 
--- Verify new columns on products, list_items, price_snapshots.
-do $$
-begin
-  perform 1 from information_schema.columns
-   where table_schema = 'public'
-     and table_name = 'products'
-     and column_name = 'brand_id';
-  if not found then
-    raise exception 'products.brand_id missing';
-  end if;
+select ok(
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'products'
+      and column_name = 'brand_id'
+  ),
+  'products.brand_id present'
+);
 
-  perform 1 from information_schema.columns
-   where table_schema = 'public'
-     and table_name = 'products'
-     and column_name = 'brand_confidence';
-  if not found then
-    raise exception 'products.brand_confidence missing';
-  end if;
+select ok(
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'products'
+      and column_name = 'brand_confidence'
+  ),
+  'products.brand_confidence present'
+);
 
-  perform 1 from information_schema.columns
-   where table_schema = 'public'
-     and table_name = 'list_items'
-     and column_name = 'brand_remote_id';
-  if not found then
-    raise exception 'list_items.brand_remote_id missing';
-  end if;
+select ok(
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'list_items'
+      and column_name = 'brand_remote_id'
+  ),
+  'list_items.brand_remote_id present'
+);
 
-  perform 1 from information_schema.columns
-   where table_schema = 'public'
-     and table_name = 'price_points'
-     and column_name = 'brand_id';
-  if not found then
-    raise exception 'price_points.brand_id missing';
-  end if;
-end;
-$$;
+select ok(
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'list_items'
+      and column_name = 'brand_confidence'
+  ),
+  'list_items.brand_confidence present'
+);
 
--- Ensure runtime config helper exists.
-do $$
-begin
-  perform 1
-  from pg_proc
-  where proname = 'get_runtime_config'
-    and pg_function_is_visible(oid);
-  if not found then
-    raise exception 'get_runtime_config function missing';
-  end if;
-end;
-$$;
+select ok(
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'price_points'
+      and column_name = 'brand_id'
+  ),
+  'price_points.brand_id present'
+);
 
+select ok(
+  exists (
+    select 1
+    from pg_proc
+    where proname = 'get_runtime_config'
+      and pg_function_is_visible(oid)
+  ),
+  'get_runtime_config function exists'
+);
+
+select * from finish();
