@@ -1,4 +1,4 @@
-select plan(9);
+select plan(14);
 
 select ok(
   exists (
@@ -68,6 +68,56 @@ select ok(
       and column_name = 'brand_confidence'
   ),
   'list_items.brand_confidence present'
+);
+
+select ok(
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'list_items'
+      and column_name = 'category_id'
+  ),
+  'list_items.category_id present'
+);
+
+select ok(
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'list_items'
+      and column_name = 'category_confidence'
+  ),
+  'list_items.category_confidence present'
+);
+
+select ok(
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'list_items'
+      and column_name = 'category_band'
+  ),
+  'list_items.category_band present'
+);
+
+select ok(
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'list_items'
+      and column_name = 'category_source'
+  ),
+  'list_items.category_source present'
+);
+
+select ok(
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'list_items'
+      and column_name = 'category_canonical'
+  ),
+  'list_items.category_canonical present'
 );
 
 select ok(
