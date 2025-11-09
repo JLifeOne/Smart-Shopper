@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Modal, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/src/context/auth-context';
-import { useLibraryItems, type LibraryItem } from './use-library-items';
+import { useLibraryItems, type LibraryItem, type BestPriceTier } from './use-library-items';
 import { usePinnedProducts } from './pinned-store';
 import { useLists, type ListSummary } from '@/src/features/lists/use-lists';
 import { createListItem } from '@/src/features/list-items/mutations';
@@ -256,6 +256,31 @@ function LibraryRow({
             ) : null}
           </View>
         ) : null}
+        {item.bestPriceTiers.length ? (
+          <View style={styles.bestPriceRow}>
+            {item.bestPriceTiers.slice(0, 3).map((tier) => (
+              <View
+                key={`${tier.tier}-${tier.storeId ?? 'na'}-${tier.packaging ?? 'pack'}`}
+                style={[
+                  styles.bestChip,
+                  tier.tier === 'lowest'
+                    ? styles.bestChipBest
+                    : tier.tier === 'mid'
+                      ? styles.bestChipMid
+                      : styles.bestChipHigh
+                ]}
+              >
+                <Text style={styles.bestChipLabel}>{formatTierLabel(tier, item)}</Text>
+                <Text style={styles.bestChipValue}>
+                  {formatTierPrice(tier)}
+                  {tier.deltaPct != null && tier.tier !== 'lowest'
+                    ? ` (+${tier.deltaPct.toFixed(1)}%)`
+                    : ''}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </View>
       <View style={styles.rowActions}>
         <Pressable style={[styles.iconButton, pinned && styles.iconButtonActive]} onPress={onTogglePin}>
@@ -330,6 +355,26 @@ function formatRelative(timestamp: number | null | undefined) {
   }
   const months = Math.round(days / 30);
   return `${months}mo ago`;
+}
+
+function formatTierLabel(tier: BestPriceTier, fallback: LibraryItem) {
+  const parts = [tier.brandName ?? fallback.brand ?? fallback.name, tier.storeName, tier.packaging ? capitalize(tier.packaging) : null];
+  return parts.filter(Boolean).join(' · ');
+}
+
+function formatTierPrice(tier: BestPriceTier) {
+  const value = tier.unitPrice ?? tier.effectiveUnitPrice;
+  if (value == null || !tier.currency) {
+    return 'N/A';
+  }
+  return formatPrice(value, tier.currency);
+}
+
+function capitalize(value?: string | null) {
+  if (!value) {
+    return '';
+  }
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 const styles = StyleSheet.create({
@@ -450,6 +495,34 @@ const styles = StyleSheet.create({
   priceSection: {
     gap: 4,
     marginTop: 6
+  },
+  bestPriceRow: {
+    marginTop: 8,
+    gap: 6
+  },
+  bestChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    backgroundColor: '#E2E8F0'
+  },
+  bestChipBest: {
+    backgroundColor: '#DCFCE7'
+  },
+  bestChipMid: {
+    backgroundColor: '#FEF3C7'
+  },
+  bestChipHigh: {
+    backgroundColor: '#FEE2E2'
+  },
+  bestChipLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: palette.accentDark
+  },
+  bestChipValue: {
+    fontSize: 12,
+    color: palette.subtitle
   },
   priceRow: {
     flexDirection: 'row',

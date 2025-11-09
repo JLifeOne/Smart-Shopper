@@ -35,20 +35,31 @@ serve(async (req) => {
 
   try {
     const started = Date.now();
-    const { error } = await supabase.rpc('refresh_brand_price_insights');
-    if (error) {
-      console.error('brand-insights-job: refresh failed', error);
-      return jsonResponse({ error: error.message, code: error.code ?? 'refresh_failed' }, { status: 500 });
+    const [brandRefresh, tierRefresh] = await Promise.all([
+      supabase.rpc('refresh_brand_price_insights'),
+      supabase.rpc('refresh_product_price_tiers')
+    ]);
+
+    if (brandRefresh.error) {
+      console.error('brand-insights-job: brand refresh failed', brandRefresh.error);
+      return jsonResponse({ error: brandRefresh.error.message, code: brandRefresh.error.code ?? 'refresh_failed' }, { status: 500 });
     }
 
-    const { count } = await supabase
-      .from('brand_price_insights')
-      .select('*', { count: 'exact', head: true });
+    if (tierRefresh.error) {
+      console.error('brand-insights-job: tier refresh failed', tierRefresh.error);
+      return jsonResponse({ error: tierRefresh.error.message, code: tierRefresh.error.code ?? 'tier_refresh_failed' }, { status: 500 });
+    }
+
+    const [{ count: brandCount }, { count: tierCount }] = await Promise.all([
+      supabase.from('brand_price_insights').select('*', { count: 'exact', head: true }),
+      supabase.from('product_price_tiers').select('*', { count: 'exact', head: true })
+    ]);
 
     return jsonResponse({
       status: 'ok',
       durationMs: Date.now() - started,
-      records: count ?? 0,
+      brandRecords: brandCount ?? 0,
+      tierRecords: tierCount ?? 0,
     });
   } catch (error) {
     console.error('brand-insights-job: unexpected error', error);

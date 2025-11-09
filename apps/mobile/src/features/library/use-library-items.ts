@@ -5,6 +5,7 @@ import type { Product } from '@/src/database/models/product';
 import type { ListItem } from '@/src/database/models/list-item';
 import type { PriceSnapshot } from '@/src/database/models/price-snapshot';
 import { categoryLabel } from '@/src/categorization';
+import { getSupabaseClient } from '@/src/lib/supabase';
 
 export type LibraryPricePoint = {
   store: string | null;
@@ -19,8 +20,28 @@ export type LibraryPriceSummary = {
   difference?: number;
 };
 
+export type BestPriceTier = {
+  productId: string;
+  productName: string;
+  brandId: string | null;
+  brandName: string | null;
+  storeId: string | null;
+  storeName: string | null;
+  packaging: string | null;
+  variant: string | null;
+  tier: 'lowest' | 'mid' | 'highest';
+  unitPrice: number | null;
+  effectiveUnitPrice: number | null;
+  deltaPct: number | null;
+  sampleCount: number;
+  confidence: number | null;
+  currency: string | null;
+  lastSampleAt: string | null;
+};
+
 export type LibraryItem = {
   id: string;
+  remoteId: string | null;
   name: string;
   brand: string | null;
   brandRemoteId: string | null;
@@ -35,6 +56,7 @@ export type LibraryItem = {
   sizeUnit: string;
   lastUsedAt: number | null;
   priceSummary: LibraryPriceSummary | null;
+  bestPriceTiers: BestPriceTier[];
 };
 
 function parseTags(value: string | null) {
@@ -112,6 +134,7 @@ export function useLibraryItems() {
 
               return {
                 id: product.id,
+                remoteId: product.remoteId,
                 name: product.name,
                 brand: product.brand,
                 brandRemoteId: product.brandRemoteId,
@@ -125,11 +148,59 @@ export function useLibraryItems() {
                 sizeValue: product.sizeValue,
                 sizeUnit: product.sizeUnit,
                 lastUsedAt: (latestListItem[0]?.updatedAt ?? priceSummary?.latest?.capturedAt) ?? null,
-                priceSummary
+                priceSummary,
+                bestPriceTiers: []
               } satisfies LibraryItem;
             })
           );
-          setItems(summaries);
+          const remoteIds = Array.from(new Set(summaries.map((item) => item.remoteId).filter((id): id is string => Boolean(id))));
+          const supabase = getSupabaseClient();
+          let tierMap: Record<string, BestPriceTier[]> = {};
+          if (supabase && remoteIds.length) {
+            try {
+              const { data, error } = await supabase.rpc('best_price_tiers_for_products', {
+                product_ids: remoteIds,
+                limit_results: remoteIds.length * 3
+              });
+              if (error) {
+                console.warn('useLibraryItems: tier lookup failed', error);
+              } else if (data) {
+                tierMap = data.reduce<Record<string, BestPriceTier[]>>((acc, row) => {
+                  const productId = row.product_id as string;
+                  const tierList = acc[productId] ?? [];
+                  tierList.push({
+                    productId,
+                    productName: (row.product_name as string) ?? '',
+                    brandId: (row.brand_id as string) ?? null,
+                    brandName: (row.brand_name as string) ?? null,
+                    storeId: (row.store_id as string) ?? null,
+                    storeName: (row.store_name as string) ?? null,
+                    packaging: (row.packaging as string) ?? null,
+                    variant: row.variant && row.variant !== 'default' ? (row.variant as string) : null,
+                    tier: (row.tier as BestPriceTier['tier']) ?? 'lowest',
+                    unitPrice: row.unit_price as number | null,
+                    effectiveUnitPrice: row.effective_unit_price as number | null,
+                    deltaPct: row.delta_pct as number | null,
+                    sampleCount: (row.sample_count as number) ?? 0,
+                    confidence: row.confidence as number | null,
+                    currency: (row.currency as string) ?? null,
+                    lastSampleAt: row.last_sample_at as string | null
+                  });
+                  acc[productId] = tierList;
+                  return acc;
+                }, {});
+              }
+            } catch (tierErr) {
+              console.warn('useLibraryItems: unable to fetch tier data', tierErr);
+            }
+          }
+
+          const enriched = summaries.map((item) => ({
+            ...item,
+            bestPriceTiers: item.remoteId ? tierMap[item.remoteId] ?? [] : []
+          }));
+
+          setItems(enriched);
           setLoading(false);
           setError(null);
         } catch (err) {
