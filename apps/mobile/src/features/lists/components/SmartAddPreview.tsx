@@ -46,7 +46,25 @@ export function SmartAddPreview({ entries, loading, onCategoryChange, theme }: S
       {entries.map((entry, index) => (
         <View key={`${entry.normalized}-${index}`} style={styles.previewCard}>
           <View style={styles.previewHeader}>
-            <Text style={styles.previewItemLabel}>{entry.label}</Text>
+            <View style={styles.previewItemLabelWrap}>
+              <Text style={styles.previewItemLabel}>{entry.label}</Text>
+              <Text
+                style={[
+                  styles.previewAssignment,
+                  entry.assignment === 'auto'
+                    ? styles.assignmentAuto
+                    : entry.assignment === 'needs_review'
+                      ? styles.assignmentReview
+                      : styles.assignmentNeedsInput
+                ]}
+              >
+                {entry.assignment === 'auto'
+                  ? 'Auto'
+                  : entry.assignment === 'needs_review'
+                    ? 'Needs review'
+                    : 'Needs input'}
+              </Text>
+            </View>
             <Text style={styles.previewBadge}>
               Qty {entry.quantity}
               {entry.unit ? ` ${entry.unit}` : ''}
@@ -67,9 +85,11 @@ export function SmartAddPreview({ entries, loading, onCategoryChange, theme }: S
               <Text style={styles.previewCategoryChipLabel}>{entry.categoryLabel}</Text>
             </Pressable>
           </View>
-          {entry.confidence < 0.6 && entry.suggestions.length ? (
+          {entry.assignment !== 'auto' && entry.suggestions.length ? (
             <View style={styles.previewChips}>
-              <Text style={styles.previewSuggestLabel}>Likely:</Text>
+              <Text style={styles.previewSuggestLabel}>
+                {entry.assignment === 'needs_review' ? 'Likely:' : 'Try:'}
+              </Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -135,14 +155,39 @@ function createStyles(theme: SmartAddPreviewProps['theme']) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between'
-    },
-    previewItemLabel: {
-      fontSize: 15,
-      fontWeight: '600',
-      color: theme.accentDark,
-      flexShrink: 1,
-      marginRight: 12
-    },
+  },
+  previewItemLabelWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center'
+  },
+  previewItemLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.accentDark,
+    flexShrink: 1
+  },
+  previewAssignment: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999
+  },
+  assignmentAuto: {
+    backgroundColor: '#DCFCE7',
+    color: '#0F9D58'
+  },
+  assignmentReview: {
+    backgroundColor: '#FEF9C3',
+    color: '#A16207'
+  },
+  assignmentNeedsInput: {
+    backgroundColor: '#FFE4E6',
+    color: '#B91C1C'
+  },
     previewBadge: {
       fontSize: 12,
       fontWeight: '600',
@@ -205,4 +250,3 @@ function createStyles(theme: SmartAddPreviewProps['theme']) {
     }
   });
 }
-

@@ -14,8 +14,8 @@
     "lint": "echo \"Linting configured per package\"",
     "test": "echo \"Add test runner once packages are initialized\"",
     "typecheck": "pnpm --filter @smart-shopper/mobile typecheck",
-    "sanity": "python scripts/jsx_sanity_check.py",
-    "verify": "pnpm -r typecheck && python scripts/jsx_sanity_check.py"
+    "sanity": "node scripts/run_jsx_sanity_check.mjs",
+    "verify": "pnpm -r typecheck && node scripts/run_jsx_sanity_check.mjs"
   },
   "repository": {
     "type": "git",

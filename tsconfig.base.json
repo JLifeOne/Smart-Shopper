@@ -21,6 +21,7 @@
       "@smart-shopper/theming/*": ["packages/theme/src/*"],
       "@smart-shopper/ui": ["packages/ui/src/index.tsx"],
       "@smart-shopper/ui/*": ["packages/ui/src/*"]
-    }
+    },
+    "allowImportingTsExtensions": true
   }
 }

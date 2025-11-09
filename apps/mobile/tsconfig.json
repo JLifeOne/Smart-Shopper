@@ -5,6 +5,7 @@
     "jsx": "react-jsx",
     "strict": true,
     "experimentalDecorators": true,
+    "allowImportingTsExtensions": true,
     "types": [
       "jest",
       "node"

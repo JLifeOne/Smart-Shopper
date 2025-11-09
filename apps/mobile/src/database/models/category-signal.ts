@@ -5,6 +5,7 @@ type SignalPayload = {
   merchantCode?: string | null;
   sample?: string;
   hits?: number;
+  canonicalName?: string | null;
 };
 
 export class CategorySignal extends Model {

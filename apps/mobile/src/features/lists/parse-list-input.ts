@@ -1,4 +1,8 @@
-import { categoryService, normalizeName } from '@/src/categorization';
+import {
+  categoryService,
+  normalizeName,
+  type CategoryConfidenceBand
+} from '@/src/categorization';
 
 export type ParsedListEntry = {
   label: string;
@@ -11,7 +15,13 @@ export type EnrichedListEntry = ParsedListEntry & {
   category: string;
   categoryLabel: string;
   confidence: number;
-  suggestions: Array<{ category: string; label: string; confidence: number }>;
+  assignment: CategoryConfidenceBand;
+  suggestions: Array<{
+    category: string;
+    label: string;
+    confidence: number;
+    band: CategoryConfidenceBand;
+  }>;
 };
 
 const MULTIPLIER_REGEX = /^(?<qty>\d+(?:[.,]\d+)?)\s*(?<unit>kg|g|lb|lbs|oz|ml|l|ltrs|litre|liters|pack|packs|pkg|pk|bag|bags|btl|bottle|bot|jar|case|dozen|dz|x)\b/i;
@@ -98,10 +108,12 @@ export async function enrichParsedEntries(
     entries.map(async (entry) => {
       const ranked = await categoryService.rank(entry.label, { merchantCode: opts.merchantCode });
       const [best, ...alternatives] = ranked;
-      const suggestions = (alternatives.length ? alternatives : ranked.slice(0, 3)).map((alt) => ({
+      const picks = alternatives.length ? alternatives : ranked.slice(0, 3);
+      const suggestions = picks.map((alt) => ({
         category: alt.category,
         label: alt.label,
-        confidence: alt.confidence
+        confidence: alt.confidence,
+        band: alt.band
       }));
 
       return {
@@ -109,9 +121,9 @@ export async function enrichParsedEntries(
         category: best.category,
         categoryLabel: best.label,
         confidence: best.confidence,
+        assignment: best.band,
         suggestions
       };
     })
   );
 }
-

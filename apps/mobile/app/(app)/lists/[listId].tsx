@@ -176,7 +176,8 @@ export default function ListDetailScreen() {
               category: 'pantry',
               categoryLabel: 'Pantry',
               confidence: 0.2,
-              suggestions: []
+              assignment: 'suggestion',
+              suggestions: [] as EnrichedListEntry['suggestions']
             }))
           );
           setParsing(false);
