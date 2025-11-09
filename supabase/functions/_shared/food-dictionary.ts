@@ -1154,7 +1154,8 @@ const meat_seafoodSeeds: ExpandableSeed[] = [
     brand: 'Rainforest',
     variants: ['Small', 'Large'],
     packaging: ['tray'],
-    tags: ['snapper'],
+    tags: ['snapper', 'fish'],
+    aliases: ['snapper', 'red snapper']
   },
   {
     category: 'meat_seafood',

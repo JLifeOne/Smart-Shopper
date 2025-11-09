@@ -1885,7 +1885,10 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
                     ...entry,
                     category: suggestion.category,
                     categoryLabel: suggestion.label,
-                    confidence: suggestion.confidence
+                    confidence: suggestion.confidence,
+                    assignment: suggestion.band,
+                    categorySource: suggestion.source ?? null,
+                    categoryCanonical: suggestion.canonicalName ?? null
                   }
                 : entry
             )

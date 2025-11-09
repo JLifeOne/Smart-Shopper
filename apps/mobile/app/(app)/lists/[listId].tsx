@@ -54,17 +54,7 @@ type SectionRow = {
 };
 
 function compareItems(a: ListItemSummary, b: ListItemSummary) {
-  const baseCompare = a.baseName.localeCompare(b.baseName);
-  if (baseCompare !== 0) {
-    return baseCompare;
-  }
-  const variantA = a.variant ?? '';
-  const variantB = b.variant ?? '';
-  const variantCompare = variantA.localeCompare(variantB);
-  if (variantCompare !== 0) {
-    return variantCompare;
-  }
-  return a.label.localeCompare(b.label);
+  return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
 }
 
 function formatPrice(value: number, currency: string) {
@@ -94,10 +84,7 @@ function formatRelative(timestamp: number | null | undefined) {
 }
 
 function formatItemTitle(item: ListItemSummary) {
-  if (item.variant) {
-    return `${item.baseName} ${item.variant}`;
-  }
-  return item.baseName;
+  return item.label;
 }
 
 function parseAisleOrder(list: List | null | undefined) {
@@ -115,6 +102,53 @@ function parseAisleOrder(list: List | null | undefined) {
     }
   }
   return defaultAisleOrderFor(list.storeId);
+}
+
+function calculateCostEstimate(items: ListItemSummary[]) {
+  const buckets = new Map<
+    string,
+    { total: number; itemCount: number; quantity: number }
+  >();
+
+  items.forEach((item) => {
+    const latest = item.priceSummary?.latest;
+    if (!latest || typeof latest.unitPrice !== 'number' || !latest.currency) {
+      return;
+    }
+    const bucket = buckets.get(latest.currency) ?? {
+      total: 0,
+      itemCount: 0,
+      quantity: 0
+    };
+    bucket.total += latest.unitPrice * item.desiredQty;
+    bucket.itemCount += 1;
+    bucket.quantity += item.desiredQty;
+    buckets.set(latest.currency, bucket);
+  });
+
+  if (!buckets.size) {
+    return null;
+  }
+
+  let best: [string, { total: number; itemCount: number; quantity: number }] | null =
+    null;
+
+  for (const entry of buckets.entries()) {
+    if (!best || entry[1].itemCount > best[1].itemCount) {
+      best = entry;
+    }
+  }
+
+  if (!best) {
+    return null;
+  }
+
+  return {
+    currency: best[0],
+    total: best[1].total,
+    itemCount: best[1].itemCount,
+    quantity: best[1].quantity
+  };
 }
 
 function sectionSortOrder(categoryId: string, aisleOrder: string[] | null | undefined): number {
@@ -216,6 +250,8 @@ export default function ListDetailScreen() {
     () => items.reduce((total, item) => total + item.desiredQty, 0),
     [items]
   );
+
+  const costEstimate = useMemo(() => calculateCostEstimate(items), [items]);
 
   const { activeSections, completedItems } = useMemo(() => {
     if (!items.length) {
@@ -410,7 +446,10 @@ export default function ListDetailScreen() {
   }, [items, listId, removeItem, restoreItem]);
 
   const handleDraftCategoryChange = useCallback(
-    (entryIndex: number, suggestion: { category: string; label: string; confidence: number }) => {
+    (
+      entryIndex: number,
+      suggestion: EnrichedListEntry['suggestions'][number]
+    ) => {
       setParsedEntries((entries) =>
         entries.map((entry, idx) =>
           idx === entryIndex
@@ -418,7 +457,10 @@ export default function ListDetailScreen() {
                 ...entry,
                 category: suggestion.category,
                 categoryLabel: suggestion.label,
-                confidence: suggestion.confidence
+                confidence: suggestion.confidence,
+                assignment: suggestion.band,
+                categorySource: suggestion.source ?? null,
+                categoryCanonical: suggestion.canonicalName ?? null
               }
             : entry
         )
@@ -568,6 +610,16 @@ export default function ListDetailScreen() {
                   {showCompleted ? 'Hide done' : 'Show done'} ({doneCount})
                 </Text>
               </Pressable>
+            ) : null}
+            {costEstimate ? (
+              <View style={styles.estimatePill}>
+                <Ionicons name="pricetag-outline" size={14} color={palette.accentDark} />
+                <Text style={styles.estimatePillLabel}>
+                  Estimated cost = {formatPrice(costEstimate.total, costEstimate.currency)} (
+                  {costEstimate.itemCount === 1 ? '1 item' : `${costEstimate.itemCount} items`}, qty{' '}
+                  {costEstimate.quantity})
+                </Text>
+              </View>
             ) : null}
           </View>
         </View>
@@ -852,7 +904,9 @@ function ListItemRow({
   const metaParts = [`Qty ${item.desiredQty}`];
 
   if (latest) {
-    metaParts.push(formatPrice(latest.unitPrice, latest.currency));
+    const subtotal = latest.unitPrice * item.desiredQty;
+    metaParts.push(`${formatPrice(latest.unitPrice, latest.currency)} each`);
+    metaParts.push(`Total ${formatPrice(subtotal, latest.currency)}`);
   }
   if (lowest && savings && savings > 0) {
     metaParts.push(`Best ${formatPrice(lowest.unitPrice, lowest.currency)}`);
@@ -1006,6 +1060,20 @@ const styles = StyleSheet.create({
     borderColor: palette.border
   },
   doneToggleLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: palette.accentDark
+  },
+  estimatePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#EEF2FF'
+  },
+  estimatePillLabel: {
     fontSize: 12,
     fontWeight: '600',
     color: palette.accentDark

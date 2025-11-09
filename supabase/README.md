@@ -30,3 +30,8 @@ supabase functions serve     # run edge functions locally
 ```
 
 Refer to `docs/next-steps.md` for the authoritative onboarding checklist.
+
+## Recent Schema Changes
+- **0014_list_items_category_fields** — Adds classifier metadata (`category_id`, `category_confidence`, `category_band`, `category_source`, `category_canonical`) to `public.list_items`. These columns are now returned by the receipt-normalize edge function and synced by the mobile app.
+
+  Follow-up: run the backfill described in `docs/runbooks/list-items-category-backfill.md` to hydrate historical rows so analytics and insights have consistent data.

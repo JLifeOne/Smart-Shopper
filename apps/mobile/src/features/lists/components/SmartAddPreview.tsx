@@ -14,7 +14,7 @@ export type SmartAddPreviewProps = {
   loading: boolean;
   onCategoryChange: (
     index: number,
-    suggestion: { category: string; label: string; confidence: number }
+    suggestion: EnrichedListEntry['suggestions'][number]
   ) => void;
   theme: {
     accent: string;
@@ -78,7 +78,10 @@ export function SmartAddPreview({ entries, loading, onCategoryChange, theme }: S
                 onCategoryChange(index, {
                   category: entry.category,
                   label: entry.categoryLabel,
-                  confidence: entry.confidence
+                  confidence: entry.confidence,
+                  band: entry.assignment,
+                  source: entry.categorySource ?? null,
+                  canonicalName: entry.categoryCanonical ?? null
                 })
               }
             >
@@ -95,9 +98,9 @@ export function SmartAddPreview({ entries, loading, onCategoryChange, theme }: S
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.previewChipsScroll}
               >
-                {entry.suggestions.map((suggestion) => (
+                {entry.suggestions.map((suggestion, idx) => (
                   <Pressable
-                    key={`${entry.normalized}-${suggestion.category}`}
+                    key={`${entry.normalized}-${suggestion.category}-${idx}`}
                     style={[
                       styles.previewChip,
                       suggestion.category === entry.category && styles.previewChipActive
