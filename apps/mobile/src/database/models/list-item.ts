@@ -36,6 +36,16 @@ export class ListItem extends Model {
 
   @field('brand_confidence') brandConfidence!: number | null;
 
+  @field('category_id') categoryId!: string | null;
+
+  @field('category_confidence') categoryConfidence!: number | null;
+
+  @field('category_band') categoryBand!: string | null;
+
+  @field('category_source') categorySource!: string | null;
+
+  @field('category_canonical') categoryCanonical!: string | null;
+
   @field('created_at') createdAt!: number;
 
   @field('updated_at') updatedAt!: number;

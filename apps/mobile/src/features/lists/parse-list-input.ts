@@ -1,7 +1,8 @@
 import {
   categoryService,
   normalizeName,
-  type CategoryConfidenceBand
+  type CategoryConfidenceBand,
+  type CategoryMatch
 } from '@/src/categorization';
 import { recordCategoryTelemetry } from '@/src/lib/category-telemetry';
 
@@ -17,11 +18,15 @@ export type EnrichedListEntry = ParsedListEntry & {
   categoryLabel: string;
   confidence: number;
   assignment: CategoryConfidenceBand;
+  categorySource: CategoryMatch['source'] | null;
+  categoryCanonical: string | null;
   suggestions: Array<{
     category: string;
     label: string;
     confidence: number;
     band: CategoryConfidenceBand;
+    source: CategoryMatch['source'] | null;
+    canonicalName: string | null;
   }>;
 };
 
@@ -114,7 +119,9 @@ export async function enrichParsedEntries(
         category: alt.category,
         label: alt.label,
         confidence: alt.confidence,
-        band: alt.band
+        band: alt.band,
+        source: alt.source ?? null,
+        canonicalName: alt.canonicalName ?? null
       }));
 
       return {
@@ -123,6 +130,8 @@ export async function enrichParsedEntries(
         categoryLabel: best.label,
         confidence: best.confidence,
         assignment: best.band,
+        categorySource: best.source ?? null,
+        categoryCanonical: best.canonicalName ?? null,
         suggestions
       };
     })

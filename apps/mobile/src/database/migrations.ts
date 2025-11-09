@@ -86,6 +86,21 @@ export const migrations = schemaMigrations({
           ]
         })
       ]
+    },
+    {
+      toVersion: 7,
+      steps: [
+        addColumns({
+          table: 'list_items',
+          columns: [
+            { name: 'category_id', type: 'string', isOptional: true },
+            { name: 'category_confidence', type: 'number', isOptional: true },
+            { name: 'category_band', type: 'string', isOptional: true },
+            { name: 'category_source', type: 'string', isOptional: true },
+            { name: 'category_canonical', type: 'string', isOptional: true }
+          ]
+        })
+      ]
     }
   ]
 });

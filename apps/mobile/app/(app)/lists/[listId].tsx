@@ -177,6 +177,8 @@ export default function ListDetailScreen() {
             categoryLabel: 'Pantry',
             confidence: 0.2,
             assignment: 'suggestion' as const,
+            categorySource: null,
+            categoryCanonical: null,
             suggestions: [] as EnrichedListEntry['suggestions']
           }));
           recordCategoryTelemetry(
@@ -291,7 +293,10 @@ export default function ListDetailScreen() {
           category: 'pantry',
           categoryLabel: 'Pantry',
           confidence: 0.2,
-          suggestions: []
+          assignment: 'suggestion' as const,
+          categorySource: null,
+          categoryCanonical: null,
+          suggestions: [] as EnrichedListEntry['suggestions']
         }));
 
     if (!sourceEntries.length) {
@@ -303,6 +308,10 @@ export default function ListDetailScreen() {
         await createListItem(listId, entry.label, entry.quantity, {
           unit: entry.unit,
           category: entry.category,
+          categoryConfidence: entry.confidence,
+          categoryBand: entry.assignment,
+          categorySource: entry.categorySource,
+          categoryCanonical: entry.categoryCanonical,
           merchantCode: list?.storeId ?? null
         });
       }

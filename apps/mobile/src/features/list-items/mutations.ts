@@ -4,6 +4,7 @@ import { upsertProductFromName } from '@/src/catalog';
 import type { List } from '@/src/database/models/list';
 import type { ListItem } from '@/src/database/models/list-item';
 import { syncService } from '@/src/database/sync-service';
+import type { CategoryConfidenceBand } from '@/src/categorization';
 
 function now() {
   return Date.now();
@@ -23,6 +24,10 @@ async function findExistingListItems(listId: string) {
 export type CreateListItemOptions = {
   unit?: string | null;
   category?: string | null;
+  categoryConfidence?: number | null;
+  categoryBand?: CategoryConfidenceBand | null;
+  categorySource?: string | null;
+  categoryCanonical?: string | null;
   tags?: string[];
   note?: string | null;
   merchantCode?: string | null;
@@ -50,6 +55,13 @@ export async function createListItem(listId: string, label: string, qty = 1, opt
     merchantCode: options.merchantCode ?? undefined
   });
 
+  const hasExplicitCategory = options.category !== undefined;
+  const resolvedCategoryId = hasExplicitCategory ? options.category ?? null : product?.category ?? null;
+  const categoryConfidence = options.categoryConfidence;
+  const categoryBand = options.categoryBand;
+  const categorySource = options.categorySource;
+  const categoryCanonical = options.categoryCanonical;
+
   if (existingMatch) {
     await database.write(async () => {
       await existingMatch.update((item) => {
@@ -66,6 +78,23 @@ export async function createListItem(listId: string, label: string, qty = 1, opt
         }
         if (!item.isChecked) {
           item.isChecked = false;
+        }
+        if (hasExplicitCategory) {
+          item.categoryId = options.category ?? null;
+        } else if (!item.categoryId && product?.category) {
+          item.categoryId = product.category;
+        }
+        if (categoryConfidence !== undefined) {
+          item.categoryConfidence = categoryConfidence;
+        }
+        if (categoryBand !== undefined) {
+          item.categoryBand = categoryBand ?? null;
+        }
+        if (categorySource !== undefined) {
+          item.categorySource = categorySource ?? null;
+        }
+        if (categoryCanonical !== undefined) {
+          item.categoryCanonical = categoryCanonical ?? null;
         }
         item.dirty = true;
         if (options.note !== undefined) {
@@ -90,6 +119,11 @@ export async function createListItem(listId: string, label: string, qty = 1, opt
       item.dirty = true;
       item.brandRemoteId = product?.brandRemoteId ?? null;
       item.brandConfidence = product?.brandConfidence ?? null;
+      item.categoryId = resolvedCategoryId ?? null;
+      item.categoryConfidence = categoryConfidence ?? null;
+      item.categoryBand = categoryBand ?? null;
+      item.categorySource = categorySource ?? null;
+      item.categoryCanonical = categoryCanonical ?? null;
       item.createdAt = timestamp;
       item.updatedAt = timestamp;
       item.lastSyncedAt = null;
@@ -107,6 +141,11 @@ export async function createListItem(listId: string, label: string, qty = 1, opt
       merchant_code: options.merchantCode ?? null,
       brand_remote_id: record.brandRemoteId,
       brand_confidence: record.brandConfidence,
+      category_id: record.categoryId,
+      category_confidence: record.categoryConfidence,
+      category_band: record.categoryBand,
+      category_source: record.categorySource,
+      category_canonical: record.categoryCanonical,
       substitutions_ok: true,
       created_at: timestamp,
       updated_at: timestamp
@@ -143,6 +182,11 @@ export async function adjustListItemQuantity(itemId: string, delta: number) {
       desired_qty: nextQty,
       brand_remote_id: item.brandRemoteId,
       brand_confidence: item.brandConfidence,
+      category_id: item.categoryId,
+      category_confidence: item.categoryConfidence,
+      category_band: item.categoryBand,
+      category_source: item.categorySource,
+      category_canonical: item.categoryCanonical,
       updated_at: timestamp
     });
   } catch (err) {
@@ -169,6 +213,11 @@ export async function setListItemChecked(itemId: string, checked: boolean) {
       is_checked: checked,
       brand_remote_id: item.brandRemoteId,
       brand_confidence: item.brandConfidence,
+      category_id: item.categoryId,
+      category_confidence: item.categoryConfidence,
+      category_band: item.categoryBand,
+      category_source: item.categorySource,
+      category_canonical: item.categoryCanonical,
       updated_at: timestamp
     });
   } catch (err) {
@@ -208,6 +257,11 @@ export async function updateListItemDetails(
       notes: updates.notes ?? null,
       brand_remote_id: item.brandRemoteId,
       brand_confidence: item.brandConfidence,
+      category_id: item.categoryId,
+      category_confidence: item.categoryConfidence,
+      category_band: item.categoryBand,
+      category_source: item.categorySource,
+      category_canonical: item.categoryCanonical,
       updated_at: timestamp
     });
   } catch (err) {
@@ -233,6 +287,11 @@ export async function deleteListItem(itemId: string) {
       remote_id: item.remoteId,
       brand_remote_id: item.brandRemoteId,
       brand_confidence: item.brandConfidence,
+      category_id: item.categoryId,
+      category_confidence: item.categoryConfidence,
+      category_band: item.categoryBand,
+      category_source: item.categorySource,
+      category_canonical: item.categoryCanonical,
       updated_at: timestamp
     });
   } catch (err) {

@@ -4,6 +4,7 @@ import { database } from '@/src/database';
 import type { ListItem } from '@/src/database/models/list-item';
 import type { PriceSnapshot } from '@/src/database/models/price-snapshot';
 import { categoryLabel } from '@/src/categorization';
+import type { CategoryConfidenceBand } from '@/src/categorization';
 import type { LibraryPriceSummary } from '@/src/features/library/use-library-items';
 
 export type ListItemSummary = {
@@ -14,6 +15,10 @@ export type ListItemSummary = {
   region: string | null;
   category: string;
   categoryLabel: string;
+  categoryConfidence: number | null;
+  categoryBand: CategoryConfidenceBand | null;
+  categorySource: string | null;
+  categoryCanonical: string | null;
   tags: string[];
   desiredQty: number;
   substitutionsOk: boolean;
@@ -109,12 +114,12 @@ export function useListItems(listId: string | null | undefined) {
       }
       const task = (async () => {
         try {
-          const product = await record.product.fetch();
-          const name = product?.name ?? record.label;
-          const { base, variant } = splitBaseAndVariant(name);
-          const tags = parseTags(product?.tags ?? null);
-          const category = product?.category ?? 'uncategorized';
-          let priceSummary: LibraryPriceSummary | null = null;
+            const product = await record.product.fetch();
+            const name = product?.name ?? record.label;
+            const { base, variant } = splitBaseAndVariant(name);
+            const tags = parseTags(product?.tags ?? null);
+            const resolvedCategory = record.categoryId ?? product?.category ?? 'uncategorized';
+            let priceSummary: LibraryPriceSummary | null = null;
           if (product && 'priceSnapshots' in product && typeof (product.priceSnapshots as any)?.fetch === 'function') {
             const snapshots = await (product.priceSnapshots as any).fetch();
             priceSummary = buildPriceSummary(Array.isArray(snapshots) ? snapshots : []);
@@ -124,8 +129,8 @@ export function useListItems(listId: string | null | undefined) {
             baseName: base,
             variant: product?.variant ?? variant,
             region: product?.region ?? null,
-            category,
-            categoryLabel: categoryLabel(category),
+            category: resolvedCategory,
+            categoryLabel: categoryLabel(resolvedCategory),
             tags,
             priceSummary,
             brandRemoteId: product?.brandRemoteId ?? record.brandRemoteId,
@@ -166,7 +171,12 @@ export function useListItems(listId: string | null | undefined) {
             'product_remote_id',
             'updated_at',
             'brand_remote_id',
-            'brand_confidence'
+            'brand_confidence',
+            'category_id',
+            'category_confidence',
+            'category_band',
+            'category_source',
+            'category_canonical'
           ])
         : query.observe();
 
@@ -178,14 +188,19 @@ export function useListItems(listId: string | null | undefined) {
             const summaries = records.map((record) => {
               activeIds.add(record.id);
               const { base, variant } = splitBaseAndVariant(record.label);
+              const recordCategory = record.categoryId ?? 'uncategorized';
               const summary: ListItemSummary = {
                 id: record.id,
                 label: record.label,
                 baseName: base,
                 variant,
                 region: null,
-                category: 'uncategorized',
-                categoryLabel: categoryLabel('uncategorized'),
+                category: recordCategory,
+                categoryLabel: categoryLabel(recordCategory),
+                categoryConfidence: record.categoryConfidence ?? null,
+                categoryBand: (record.categoryBand as CategoryConfidenceBand | null) ?? null,
+                categorySource: record.categorySource ?? null,
+                categoryCanonical: record.categoryCanonical ?? null,
                 tags: [],
                 desiredQty: record.desiredQty,
                 substitutionsOk: record.substitutionsOk,

@@ -1248,6 +1248,8 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
             categoryLabel: 'Pantry',
             confidence: 0.2,
             assignment: 'suggestion' as const,
+            categorySource: null,
+            categoryCanonical: null,
             suggestions: [] as EnrichedListEntry['suggestions']
           }));
           recordCategoryTelemetry(
@@ -1442,7 +1444,10 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
           category: 'pantry',
           categoryLabel: 'Pantry',
           confidence: 0.2,
-          suggestions: []
+          assignment: 'suggestion' as const,
+          categorySource: null,
+          categoryCanonical: null,
+          suggestions: [] as EnrichedListEntry['suggestions']
         }));
 
     setCreating(true);
@@ -1455,6 +1460,10 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
         await createListItem(list.id, entry.label, entry.quantity, {
           unit: entry.unit,
           category: entry.category,
+          categoryConfidence: entry.confidence,
+          categoryBand: entry.assignment,
+          categorySource: entry.categorySource,
+          categoryCanonical: entry.categoryCanonical,
           merchantCode: selectedStore?.id ?? null
         });
       }
