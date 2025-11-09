@@ -226,6 +226,19 @@ function LibraryRow({
   const latest = item.priceSummary?.latest;
   const lowest = item.priceSummary?.lowest;
   const savings = item.priceSummary?.difference ? Math.abs(item.priceSummary.difference) : null;
+  const tierLowest = item.bestPriceTiers.find((tier) => tier.tier === 'lowest');
+  const tierAlternatives = item.bestPriceTiers.filter((tier) => tier.tier !== 'lowest');
+  const primaryChips: { key: string; label: string }[] = [];
+  if (tierLowest) {
+    primaryChips.push({ key: 'brand', label: tierLowest.brandName ?? item.brand ?? item.name });
+    if (tierLowest.storeName) {
+      primaryChips.push({ key: 'store', label: tierLowest.storeName });
+    }
+    const packLabel = tierLowest.packaging ?? null;
+    if (packLabel) {
+      primaryChips.push({ key: 'pack', label: capitalize(packLabel) });
+    }
+  }
 
   return (
     <View style={styles.row}>
@@ -256,26 +269,26 @@ function LibraryRow({
             ) : null}
           </View>
         ) : null}
-        {item.bestPriceTiers.length ? (
+        {tierLowest ? (
           <View style={styles.bestPriceRow}>
-            {item.bestPriceTiers.slice(0, 3).map((tier) => (
-              <View
-                key={`${tier.tier}-${tier.storeId ?? 'na'}-${tier.packaging ?? 'pack'}`}
-                style={[
-                  styles.bestChip,
-                  tier.tier === 'lowest'
-                    ? styles.bestChipBest
-                    : tier.tier === 'mid'
-                      ? styles.bestChipMid
-                      : styles.bestChipHigh
-                ]}
-              >
-                <Text style={styles.bestChipLabel}>{formatTierLabel(tier, item)}</Text>
-                <Text style={styles.bestChipValue}>
+            <View style={styles.bestChipGroup}>
+              {primaryChips.map((chip) => (
+                <View key={chip.key} style={[styles.bestChip, styles.bestChipBest]}>
+                  <Text style={styles.bestChipLabel}>{chip.label}</Text>
+                </View>
+              ))}
+            </View>
+            <Text style={styles.bestChipValue}>{formatTierPrice(tierLowest)}</Text>
+          </View>
+        ) : null}
+        {tierAlternatives.length ? (
+          <View style={styles.altTiersRow}>
+            {tierAlternatives.slice(0, 2).map((tier) => (
+              <View key={`${tier.tier}-${tier.storeId ?? 'na'}-${tier.packaging ?? 'pack'}`} style={styles.altTierChip}>
+                <Text style={styles.altTierLabel}>{formatTierLabel(tier, item)}</Text>
+                <Text style={styles.altTierValue}>
                   {formatTierPrice(tier)}
-                  {tier.deltaPct != null && tier.tier !== 'lowest'
-                    ? ` (+${tier.deltaPct.toFixed(1)}%)`
-                    : ''}
+                  {tier.deltaPct != null ? formatDelta(tier.deltaPct) : ''}
                 </Text>
               </View>
             ))}
@@ -375,6 +388,14 @@ function capitalize(value?: string | null) {
     return '';
   }
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function formatDelta(delta: number) {
+  if (Number.isNaN(delta)) {
+    return '';
+  }
+  const sign = delta >= 0 ? '+' : '';
+  return ` (${sign}${delta.toFixed(1)}%)`;
 }
 
 const styles = StyleSheet.create({
@@ -498,6 +519,15 @@ const styles = StyleSheet.create({
   },
   bestPriceRow: {
     marginTop: 8,
+    gap: 6,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap'
+  },
+  bestChipGroup: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 6
   },
   bestChip: {
@@ -523,6 +553,25 @@ const styles = StyleSheet.create({
   bestChipValue: {
     fontSize: 12,
     color: palette.subtitle
+  },
+  altTiersRow: {
+    marginTop: 6,
+    gap: 6
+  },
+  altTierChip: {
+    borderRadius: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#E0E7FF'
+  },
+  altTierLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: palette.accentDark
+  },
+  altTierValue: {
+    fontSize: 12,
+    color: '#374151'
   },
   priceRow: {
     flexDirection: 'row',
