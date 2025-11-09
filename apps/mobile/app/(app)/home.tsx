@@ -42,6 +42,7 @@ import { Audio } from 'expo-av';
 import { startVoiceCapture, cancelVoiceCapture, finalizeVoiceCapture } from '@/src/features/capture/voice-capture';
 import { captureListFromCamera } from '@/src/features/capture/camera-capture';
 import { normalizeName } from '@/src/categorization';
+import { recordCategoryTelemetry } from '@/src/lib/category-telemetry';
 
 const NEXT_ACTIONS = [
   'Create a list via text, voice, or photo capture.',
@@ -1241,16 +1242,19 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
       .catch((err: unknown) => {
         console.warn('create-sheet: enrich failed', err);
         if (!cancelled) {
-          setParsedEntries(
-            parsed.map((entry) => ({
-              ...entry,
-              category: 'pantry',
-              categoryLabel: 'Pantry',
-              confidence: 0.2,
-              assignment: 'suggestion',
-              suggestions: [] as EnrichedListEntry['suggestions']
-            }))
+          const fallbackEntries = parsed.map((entry) => ({
+            ...entry,
+            category: 'pantry',
+            categoryLabel: 'Pantry',
+            confidence: 0.2,
+            assignment: 'suggestion' as const,
+            suggestions: [] as EnrichedListEntry['suggestions']
+          }));
+          recordCategoryTelemetry(
+            fallbackEntries.map((entry) => ({ band: entry.assignment, confidence: entry.confidence })),
+            { context: 'list_input_fallback' }
           );
+          setParsedEntries(fallbackEntries);
         }
       })
       .finally(() => {

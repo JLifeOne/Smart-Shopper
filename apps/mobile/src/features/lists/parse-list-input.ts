@@ -3,6 +3,7 @@ import {
   normalizeName,
   type CategoryConfidenceBand
 } from '@/src/categorization';
+import { recordCategoryTelemetry } from '@/src/lib/category-telemetry';
 
 export type ParsedListEntry = {
   label: string;
@@ -104,7 +105,7 @@ export async function enrichParsedEntries(
   entries: ParsedListEntry[],
   opts: { merchantCode?: string | null } = {}
 ): Promise<EnrichedListEntry[]> {
-  return Promise.all(
+  const enriched = await Promise.all(
     entries.map(async (entry) => {
       const ranked = await categoryService.rank(entry.label, { merchantCode: opts.merchantCode });
       const [best, ...alternatives] = ranked;
@@ -126,4 +127,14 @@ export async function enrichParsedEntries(
       };
     })
   );
+
+  recordCategoryTelemetry(
+    enriched.map((entry) => ({
+      band: entry.assignment,
+      confidence: entry.confidence
+    })),
+    { context: 'list_input' }
+  );
+
+  return enriched;
 }

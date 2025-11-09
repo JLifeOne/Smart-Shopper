@@ -1,6 +1,10 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
+import {
+  classifyProductName,
+  confidenceBand,
+} from "../_shared/hybrid-classifier.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,7 +17,18 @@ const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SU
 const supabase = createClient(supabaseUrl ?? "", serviceKey ?? "", { auth: { persistSession: false } });
 
 type Item = { rawName: string; storeId?: string | null; brandId?: string | null };
-type Out = Item & { status: "matched"|"alias_created"|"fallback"; brandId?: string|null; brandName?: string|null; confidence?: number; reason?: string };
+type Out = Item & {
+  status: "matched" | "alias_created" | "fallback";
+  brandId?: string | null;
+  brandName?: string | null;
+  confidence?: number;
+  reason?: string;
+  category?: string | null;
+  categoryConfidence?: number | null;
+  categoryBand?: string | null;
+  categorySource?: string | null;
+  categoryCanonical?: string | null;
+};
 
 function normalise(value: string) {
   return value.toLowerCase().normalize("NFKD").replace(/\p{Diacritic}/gu, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
@@ -21,9 +36,25 @@ function normalise(value: string) {
 
 async function resolveOne(client: SupabaseClient, it: Item): Promise<Out> {
   const norm = normalise(it.rawName);
+  const classifier = classifyProductName(it.rawName, { limit: 1 })[0] ?? null;
   const tokens = norm.split(" ").filter((t) => t.length >= 3 && !/^[0-9]+$/.test(t)).slice(0, 3);
   const orFilter = tokens.length ? tokens.map((t) => `alias.ilike.%${t}%`).join(",") : `alias.ilike.%${norm.split(" ").slice(0,2).join(" ")}%`;
   const selectCols = "alias, brand_id, confidence, source, store_id, brands ( id, name )";
+  const classifyFields = classifier
+    ? {
+        category: classifier.category,
+        categoryConfidence: Number(classifier.confidence.toFixed(3)),
+        categoryBand: confidenceBand(classifier.confidence),
+        categorySource: classifier.source,
+        categoryCanonical: classifier.canonicalName,
+      }
+    : {
+        category: null,
+        categoryConfidence: null,
+        categoryBand: null,
+        categorySource: null,
+        categoryCanonical: null,
+      };
 
   // store-specific first
   let candidates: any[] = [];
@@ -46,18 +77,40 @@ async function resolveOne(client: SupabaseClient, it: Item): Promise<Out> {
     if (it.brandId) {
       const { data, error } = await client.from('brand_aliases').insert({ brand_id: it.brandId, alias: norm, store_id: it.storeId ?? null, confidence: 0.45, source: 'auto' }).select('brand_id, brands ( id, name ), confidence').single();
       if (!error && data) {
-        return { ...it, status: 'alias_created', brandId: data.brand_id, brandName: data.brands?.name ?? null, confidence: data.confidence ?? 0.45 };
+        return {
+          ...it,
+          ...classifyFields,
+          status: 'alias_created',
+          brandId: data.brand_id,
+          brandName: data.brands?.name ?? null,
+          confidence: data.confidence ?? 0.45
+        };
       }
     }
-    return { ...it, status: 'fallback', reason: 'missing_alias' };
+    return { ...it, ...classifyFields, status: 'fallback', reason: 'missing_alias' };
   }
 
   // pick highest confidence; basic scoring already in table
   candidates.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
   const best = candidates[0];
   const conf = best?.confidence ?? 0.5;
-  if (conf < 0.55) return { ...it, status: 'fallback', reason: 'low_confidence', confidence: conf };
-  return { ...it, status: 'matched', brandId: best.brand_id ?? null, brandName: best.brands?.name ?? null, confidence: conf };
+  if (conf < 0.55) {
+    return {
+      ...it,
+      ...classifyFields,
+      status: 'fallback',
+      reason: 'low_confidence',
+      confidence: conf
+    };
+  }
+  return {
+    ...it,
+    ...classifyFields,
+    status: 'matched',
+    brandId: best.brand_id ?? null,
+    brandName: best.brands?.name ?? null,
+    confidence: conf
+  };
 }
 
 serve(async (req) => {
@@ -77,4 +130,3 @@ serve(async (req) => {
     return new Response(JSON.stringify({ error: 'invalid_request' }), { status: 400, headers: { 'content-type': 'application/json', ...corsHeaders } });
   }
 });
-

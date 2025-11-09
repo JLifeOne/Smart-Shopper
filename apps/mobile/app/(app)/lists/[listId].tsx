@@ -31,6 +31,7 @@ import { setListStore } from '@/src/features/lists/mutations';
 import { useSearchOverlay } from '@/src/providers/SearchOverlayProvider';
 import { trackEvent } from '@/src/lib/analytics';
 import { parseListInput, enrichParsedEntries, type EnrichedListEntry } from '@/src/features/lists/parse-list-input';
+import { recordCategoryTelemetry } from '@/src/lib/category-telemetry';
 import { defaultAisleOrderFor, storeSuggestionsFor, stores, type StoreDefinition } from '@/src/data/stores';
 import { SmartAddPreview } from '@/src/features/lists/components/SmartAddPreview';
 import { Toast } from '@/src/components/search/Toast';
@@ -170,16 +171,19 @@ export default function ListDetailScreen() {
       .catch((err) => {
         console.error('Failed to enrich parsed entries', err);
         if (!cancelled) {
-          setParsedEntries(
-            parsed.map((entry) => ({
-              ...entry,
-              category: 'pantry',
-              categoryLabel: 'Pantry',
-              confidence: 0.2,
-              assignment: 'suggestion',
-              suggestions: [] as EnrichedListEntry['suggestions']
-            }))
+          const fallbackEntries = parsed.map((entry) => ({
+            ...entry,
+            category: 'pantry',
+            categoryLabel: 'Pantry',
+            confidence: 0.2,
+            assignment: 'suggestion' as const,
+            suggestions: [] as EnrichedListEntry['suggestions']
+          }));
+          recordCategoryTelemetry(
+            fallbackEntries.map((entry) => ({ band: entry.assignment, confidence: entry.confidence })),
+            { context: 'list_input_fallback' }
           );
+          setParsedEntries(fallbackEntries);
           setParsing(false);
         }
       });
