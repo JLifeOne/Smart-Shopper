@@ -5,7 +5,7 @@ import type { Product } from '@/src/database/models/product';
 import type { ListItem } from '@/src/database/models/list-item';
 import type { PriceSnapshot } from '@/src/database/models/price-snapshot';
 import { categoryLabel } from '@/src/categorization';
-import { getSupabaseClient } from '@/src/lib/supabase';
+import { getSupabaseClient, type Database } from '@/src/lib/supabase';
 
 export type LibraryPricePoint = {
   store: string | null;
@@ -104,6 +104,29 @@ function buildPriceSummary(snapshots: PriceSnapshot[]): LibraryPriceSummary | nu
   return summary;
 }
 
+type BestPriceTierRow = Database['public']['Functions']['best_price_tiers_for_products']['Returns'][number];
+
+function mapTierRow(row: BestPriceTierRow): BestPriceTier {
+  return {
+    productId: row.product_id,
+    productName: row.product_name ?? '',
+    brandId: row.brand_id ?? null,
+    brandName: row.brand_name ?? null,
+    storeId: row.store_id ?? null,
+    storeName: row.store_name ?? null,
+    packaging: row.packaging ?? null,
+    variant: row.variant && row.variant !== 'default' ? row.variant : null,
+    tier: row.tier ?? 'lowest',
+    unitPrice: row.unit_price ?? null,
+    effectiveUnitPrice: row.effective_unit_price ?? null,
+    deltaPct: row.delta_pct ?? null,
+    sampleCount: row.sample_count ?? 0,
+    confidence: row.confidence ?? null,
+    currency: row.currency ?? null,
+    lastSampleAt: row.last_sample_at ?? null
+  } satisfies BestPriceTier;
+}
+
 export function useLibraryItems() {
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,32 +183,18 @@ export function useLibraryItems() {
             try {
               const { data, error } = await supabase.rpc('best_price_tiers_for_products', {
                 product_ids: remoteIds,
-                limit_results: remoteIds.length * 3
+                limit_results: remoteIds.length ? remoteIds.length * 3 : null
               });
               if (error) {
                 console.warn('useLibraryItems: tier lookup failed', error);
               } else if (data) {
                 tierMap = data.reduce<Record<string, BestPriceTier[]>>((acc, row) => {
-                  const productId = row.product_id as string;
+                  if (!row?.product_id) {
+                    return acc;
+                  }
+                  const productId = row.product_id;
                   const tierList = acc[productId] ?? [];
-                  tierList.push({
-                    productId,
-                    productName: (row.product_name as string) ?? '',
-                    brandId: (row.brand_id as string) ?? null,
-                    brandName: (row.brand_name as string) ?? null,
-                    storeId: (row.store_id as string) ?? null,
-                    storeName: (row.store_name as string) ?? null,
-                    packaging: (row.packaging as string) ?? null,
-                    variant: row.variant && row.variant !== 'default' ? (row.variant as string) : null,
-                    tier: (row.tier as BestPriceTier['tier']) ?? 'lowest',
-                    unitPrice: row.unit_price as number | null,
-                    effectiveUnitPrice: row.effective_unit_price as number | null,
-                    deltaPct: row.delta_pct as number | null,
-                    sampleCount: (row.sample_count as number) ?? 0,
-                    confidence: row.confidence as number | null,
-                    currency: (row.currency as string) ?? null,
-                    lastSampleAt: row.last_sample_at as string | null
-                  });
+                  tierList.push(mapTierRow(row));
                   acc[productId] = tierList;
                   return acc;
                 }, {});

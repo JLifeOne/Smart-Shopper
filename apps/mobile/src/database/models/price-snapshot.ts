@@ -1,5 +1,6 @@
 ﻿import { Model } from '@nozbe/watermelondb';
 import { field, relation } from '@nozbe/watermelondb/decorators';
+import type Relation from '@nozbe/watermelondb/Relation';
 import type { Product } from './product';
 
 export class PriceSnapshot extends Model {
@@ -27,5 +28,5 @@ export class PriceSnapshot extends Model {
 
   @field('brand_confidence') brandConfidence!: number | null;
 
-  @relation('products', 'product_remote_id') product!: Product;
+  @relation('products', 'product_remote_id') product!: Relation<Product>;
 }

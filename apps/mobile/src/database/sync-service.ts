@@ -5,8 +5,32 @@ import { SyncEvent } from './models';
 import { getSupabaseClient } from '@/src/lib/supabase';
 import type { ListItem } from '@/src/database/models/list-item';
 import { recordBrandTelemetry } from '@/src/lib/brand-telemetry';
+import type { BrandTelemetryEvent } from '@/src/lib/brand-telemetry';
+
+type MatchTelemetrySource = Extract<BrandTelemetryEvent, { type: 'match' }>['source'];
 import { isBrandInsightsEnabled } from '@/src/lib/runtime-config';
 import { supabaseEnv } from '@/src/lib/env';
+
+type BrandResolveMatched = {
+  status: 'matched' | 'alias_created';
+  brandId?: string | null;
+  brand?: { id: string; name: string } | null;
+  confidence?: number;
+  source?: 'alias' | 'auto' | 'manual' | 'unknown' | null;
+};
+
+type BrandResolveFallback = {
+  status: 'fallback';
+  reason?: 'missing_alias' | 'low_confidence' | 'conflict' | 'timeout';
+  confidence?: number;
+};
+
+type BrandResolveResponse = BrandResolveMatched | BrandResolveFallback;
+
+type BrandResolveError = Error & {
+  code?: string;
+  meta?: { confidence?: number };
+};
 
 export interface MutationPayload {
   [key: string]: unknown;
@@ -83,7 +107,8 @@ export class SyncService {
   }
 
   private handleBrandError(error: unknown) {
-    const code = (error as { code?: string } | null | undefined)?.code;
+    const brandError = error as BrandResolveError | null | undefined;
+    const code = brandError?.code;
     if (!code) {
       return;
     }
@@ -97,7 +122,7 @@ export class SyncService {
     if (!reason) {
       return;
     }
-    const confidence = (error as { meta?: { confidence?: number } } | null | undefined)?.meta?.confidence;
+    const confidence = brandError?.meta?.confidence;
     recordBrandTelemetry({
       type: 'fallback',
       reason,
@@ -165,12 +190,17 @@ export class SyncService {
       })
     });
 
-    const data = await response.json().catch(() => null);
+    const data = (await response.json().catch(() => null)) as BrandResolveResponse | null;
 
     if (response.status >= 500) {
-      throw Object.assign(new Error('brand_resolve_failed'), {
-        code: (data && data.code) || 'BRAND_RESOLVE_FAILED'
-      });
+      const err = new Error('brand_resolve_failed') as BrandResolveError;
+      if (data && typeof (data as any).code === 'string') {
+        err.code = (data as any).code;
+      }
+      if (!err.code) {
+        err.code = 'BRAND_RESOLVE_FAILED';
+      }
+      throw err;
     }
 
     const listItem = await database.get<ListItem>('list_items').find(localId).catch(() => null);
@@ -178,12 +208,11 @@ export class SyncService {
       return;
     }
 
-    if (!data || typeof data.status !== 'string') {
+    if (!data) {
       return;
     }
 
-    const statusValue = data.status as string;
-    if (statusValue === 'matched' || statusValue === 'alias_created') {
+    if (isBrandMatchResponse(data)) {
       await database.write(async () => {
         await listItem.update((record) => {
           record.brandRemoteId = data.brandId ?? record.brandRemoteId ?? null;
@@ -194,9 +223,12 @@ export class SyncService {
       recordBrandTelemetry({
         type: 'match',
         confidence: typeof data.confidence === 'number' ? data.confidence : 0.6,
-        source: data.source ?? 'alias'
+        source: mapBrandTelemetrySource(data.source)
       });
-    } else if (statusValue === 'fallback') {
+      return;
+    }
+
+    if (data.status === 'fallback') {
       recordBrandTelemetry({
         type: 'fallback',
         reason: data.reason ?? 'missing_alias',
@@ -206,6 +238,23 @@ export class SyncService {
         return;
       }
     }
+  }
+}
+
+function isBrandMatchResponse(response: BrandResolveResponse): response is BrandResolveMatched {
+  return response.status === 'matched' || response.status === 'alias_created';
+}
+
+function mapBrandTelemetrySource(source?: string | null): MatchTelemetrySource {
+  switch (source) {
+    case 'alias':
+      return 'alias';
+    case 'auto':
+      return 'heuristic';
+    case 'manual':
+      return 'manual';
+    default:
+      return 'unknown';
   }
 }
 

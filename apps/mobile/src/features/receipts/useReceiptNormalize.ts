@@ -1,4 +1,4 @@
-import { safeFetch } from '@/lib/safeFetch';
+import { safeFetch } from '@/src/lib/safeFetch';
 
 export type ReceiptLine = { rawName: string; storeId?: string | null; brandId?: string | null };
 export type NormalizedLine = ReceiptLine & { status: 'matched'|'alias_created'|'fallback'; brandId?: string|null; brandName?: string|null; confidence?: number; reason?: string };
@@ -12,4 +12,3 @@ export async function normalizeReceiptItems(lines: ReceiptLine[]): Promise<Norma
   });
   return res.items;
 }
-
