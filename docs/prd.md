@@ -73,6 +73,7 @@ Groceries and household items fluctuate in price across stores and time. Shopper
 4. *As a user*, I can **see price history** for any item by store and **get a rise/fall indicator**.
 5. *As a user*, I can view a **calendar heatmap** showing spend, savings, and volatility.
 6. *As a user*, I can track **non-food items** (e.g., detergent, batteries) the same way.
+7. *As a premium user*, I can access my **saved Menu/Recipe cards** directly from Home or a List, smart-edit them, and add ingredients back into a list.
 
 ---
 
@@ -156,7 +157,18 @@ Groceries and household items fluctuate in price across stores and time. Shopper
 * **Deals & coupons feed** matched to Library/List items; highlight true savings after normalization.
 * **Meal plan → list**: generate list from meals; suggest **substitutions** by unit price.
 
-### 5.11 Offline-First
+### 5.11 Recipe Hub & Menu Sessions (Premium)
+
+* **Menu parser integration:** Photo ingestion automatically creates Menu Sessions with rotating dish cards, portion/appetite chips, ingredient lists, and method steps.
+* **Auto-save + resume:** Sessions persist server-side; edits sync in near real time; offline edits queue until online.
+* **Smart edit:** Users can adjust servings, swap ingredients, or tweak methods; math trail and list needs update instantly.
+* **Access points:** 
+  * **Home screen** Recipes rail sits beneath hero KPIs (before promos). Shows pinned/recent Menu Cards with subtle autoplay rotation and CTA “Open Recipe Hub”.
+  * **Lists tab:** Add “Recipes & Menus” pill adjacent to `Library` / `New list`; from within a list, “Attach Menu Session” surfaces saved cards for quick add.
+* **Organization:** Cards grouped by category (Breakfast, Dinner, Desserts, etc.) with pinning, search, and filters (occasion, cuisine).
+* **Permissions:** Non-premium users see locked cards + upsell; premium required to view/ edit full cards.
+
+### 5.12 Offline-First
 
 * Local cache for lists, last prices, catalogs; **background sync** when online; queue edits; show status banner.
 
