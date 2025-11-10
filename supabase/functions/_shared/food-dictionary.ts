@@ -1,36 +1,10 @@
-export type FoodCategoryId =
-  | 'produce'
-  | 'dairy'
-  | 'meat_seafood'
-  | 'bakery'
-  | 'pantry'
-  | 'beverages'
-  | 'frozen'
-  | 'snacks'
-  | 'household'
-  | 'personal_care'
-  | 'baby'
-  | 'pet';
-
-export type FoodDictionaryEntry = {
-  canonicalName: string;
-  category: FoodCategoryId;
-  aliases: string[];
-  tags: string[];
-  packaging: string[];
-};
-
-type SeedConfig = {
-  product: string;
-  brand?: string;
-  variants?: string[];
-  sizes?: string[];
-  tags?: string[];
-  packaging?: string[];
-  aliases?: string[];
-};
-
-type ExpandableSeed = SeedConfig & { category: FoodCategoryId };
+import type {
+  ExpandableSeed,
+  FoodCategoryId,
+  FoodDictionaryEntry,
+  SeedConfig
+} from './food-dictionary-types.ts';
+import { westernPart1Seeds } from './food-dictionary-western-part1.ts';
 
 const STOP_WORDS = new Set(['pack', 'pkt', 'pkg', 'original', 'brand', 'fresh', 'jamaican']);
 
@@ -1650,11 +1624,12 @@ const dictionarySeeds: ExpandableSeed[] = [
   ...householdSeeds,
   ...personal_careSeeds,
   ...babySeeds,
-  ...petSeeds
+  ...petSeeds,
+  ...westernPart1Seeds
 ];
 
 export const foodDictionary = expandSeeds(dictionarySeeds);
-export const FOOD_DICTIONARY_VERSION = '2025.11.09';
+export const FOOD_DICTIONARY_VERSION = '2025.11.12';
 export const FOOD_DICTIONARY_COUNT = foodDictionary.length;
 
 if (FOOD_DICTIONARY_COUNT < 200) {

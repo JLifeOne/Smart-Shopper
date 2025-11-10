@@ -1,5 +1,6 @@
 import { levenshtein } from './levenshtein.ts';
-import { foodDictionary, type FoodDictionaryEntry } from './food-dictionary.ts';
+import { foodDictionary } from './food-dictionary.ts';
+import type { FoodDictionaryEntry } from './food-dictionary-types.ts';
 
 export type HybridClassificationSource = 'dictionary' | 'fuzzy' | 'ml' | 'fallback';
 

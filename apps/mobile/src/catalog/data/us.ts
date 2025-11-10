@@ -1,10 +1,7 @@
-import type { CatalogBundle } from '../types';
+import type { CatalogBundle, CatalogRecord } from '../types';
+import { westernSharedCatalog, WESTERN_SHARED_VERSION } from './western-shared';
 
-export const unitedStatesCatalog: CatalogBundle = {
-  region: 'US',
-  version: '2025.04.01',
-  updatedAt: Date.UTC(2025, 3, 1),
-  products: [
+const legacyProducts: CatalogRecord[] = [
     {
       name: 'Organic Gala Apples',
       category: 'produce',
@@ -137,5 +134,11 @@ export const unitedStatesCatalog: CatalogBundle = {
         { store: 'Whole Foods', unitPrice: 6.49, currency: 'USD' }
       ]
     }
-  ]
+  ];
+
+export const unitedStatesCatalog: CatalogBundle = {
+  region: 'US',
+  version: `2025.11.10-${WESTERN_SHARED_VERSION}`,
+  updatedAt: Date.UTC(2025, 10, 10),
+  products: [...westernSharedCatalog.us, ...legacyProducts]
 };

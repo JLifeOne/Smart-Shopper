@@ -1,10 +1,7 @@
-import type { CatalogBundle } from '../types';
+import type { CatalogBundle, CatalogRecord } from '../types';
+import { westernSharedCatalog, WESTERN_SHARED_VERSION } from './western-shared';
 
-export const chinaCatalog: CatalogBundle = {
-  region: 'CN',
-  version: '2025.04.01',
-  updatedAt: Date.UTC(2025, 3, 1),
-  products: [
+const legacyProducts: CatalogRecord[] = [
     {
       name: '豆浆粉 Soy Milk Powder',
       category: 'pantry',
@@ -119,5 +116,11 @@ export const chinaCatalog: CatalogBundle = {
         { store: '盒马鲜生', unitPrice: 58, currency: 'CNY' }
       ]
     }
-  ]
+  ];
+
+export const chinaCatalog: CatalogBundle = {
+  region: 'CN',
+  version: `2025.11.10-${WESTERN_SHARED_VERSION}`,
+  updatedAt: Date.UTC(2025, 10, 10),
+  products: [...westernSharedCatalog.cn, ...legacyProducts]
 };
