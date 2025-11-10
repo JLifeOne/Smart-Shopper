@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { getDefaultConfig } = require('expo/metro-config');
+const MetroResolver = require('metro-resolver');
 
 const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, '../..');
@@ -22,9 +23,7 @@ const virtualStoreDir = resolveVirtualStoreDir();
 
 const config = getDefaultConfig(projectRoot);
 
-config.watchFolders = Array.from(
-  new Set([...config.watchFolders, workspaceRoot, virtualStoreDir])
-);
+config.watchFolders = Array.from(new Set([...config.watchFolders, workspaceRoot, virtualStoreDir]));
 
 config.resolver.nodeModulesPaths = Array.from(
   new Set([
@@ -34,5 +33,20 @@ config.resolver.nodeModulesPaths = Array.from(
     virtualStoreDir
   ])
 );
+
+const defaultResolve = config.resolver.resolveRequest;
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  const attemptResolve = (specifier) =>
+    (defaultResolve ?? MetroResolver.resolve)(context, specifier, platform);
+
+  try {
+    return attemptResolve(moduleName);
+  } catch (error) {
+    if (moduleName.endsWith('.ts')) {
+      return attemptResolve(moduleName.replace(/\.ts$/, ''));
+    }
+    throw error;
+  }
+};
 
 module.exports = config;

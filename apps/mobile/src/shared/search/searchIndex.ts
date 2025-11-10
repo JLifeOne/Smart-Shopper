@@ -1,4 +1,4 @@
-import Fuse from 'fuse.js/dist/fuse.js';
+import Fuse from 'fuse.js';
 import type { SearchEntity } from './types';
 
 export class SearchIndex {
