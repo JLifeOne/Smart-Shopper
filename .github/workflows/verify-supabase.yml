@@ -13,6 +13,8 @@ jobs:
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
+        with:
+          version: latest
 
       - name: Supabase CLI version
         run: supabase --version
@@ -38,4 +40,3 @@ jobs:
           st2=$(curl -s -o /tmp/out2 -w "%{http_code}" -H "Authorization: Bearer $ANON" -H "apikey: $ANON" -H "Content-Type: application/json" -d '{"rawName":"Grace Baked Beans 300g","storeId":null}' "$base/brand-resolve")
           cat /tmp/out2; echo
           test "$st2" -eq 200
-
