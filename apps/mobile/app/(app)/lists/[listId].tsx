@@ -15,6 +15,7 @@ import {
   View
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useList } from '@/src/features/lists/use-list';
@@ -46,6 +47,7 @@ const palette = {
 };
 
 const OTHER_CATEGORY = 'OTHER';
+const CUSTOM_STORE_STORAGE_KEY = '@smart-shopper:custom-stores';
 
 type SectionRow = {
   title: string;
@@ -169,6 +171,7 @@ export default function ListDetailScreen() {
   const [parsing, setParsing] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [storePickerVisible, setStorePickerVisible] = useState(false);
+  const [customStores, setCustomStores] = useState<StoreDefinition[]>([]);
   const [editorItem, setEditorItem] = useState<ListItemSummary | null>(null);
   const [editorNote, setEditorNote] = useState('');
   const [editorQty, setEditorQty] = useState(1);
@@ -213,6 +216,7 @@ export default function ListDetailScreen() {
             assignment: 'suggestion' as const,
             categorySource: null,
             categoryCanonical: null,
+            unit: entry.unit ?? 'qty',
             suggestions: [] as EnrichedListEntry['suggestions']
           }));
           recordCategoryTelemetry(
@@ -227,6 +231,29 @@ export default function ListDetailScreen() {
       cancelled = true;
     };
   }, [draft, list?.storeId]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(CUSTOM_STORE_STORAGE_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as Partial<StoreDefinition>[];
+        if (Array.isArray(parsed)) {
+          setCustomStores(
+            parsed.map((store) => ({
+              id: store.id ?? `custom:${Date.now()}`,
+              label: store.label ?? 'Custom store',
+              region: store.region ?? 'Custom',
+              aisles: Array.isArray(store.aisles) ? store.aisles : []
+            }))
+          );
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.setItem(CUSTOM_STORE_STORAGE_KEY, JSON.stringify(customStores)).catch(() => undefined);
+  }, [customStores]);
 
   useEffect(() => {
     if (!editorItem) {
@@ -244,6 +271,14 @@ export default function ListDetailScreen() {
   const storeOptions = useMemo(
     () => storeSuggestionsFor(list?.storeRegion ?? currentStore?.region ?? undefined),
     [list?.storeRegion, currentStore?.region]
+  );
+
+  const combinedStoreOptions = useMemo(
+    () => {
+      const base = storeOptions.length ? storeOptions : stores;
+      return [...customStores, ...base];
+    },
+    [customStores, storeOptions]
   );
 
   const totalQuantity = useMemo(
@@ -332,6 +367,7 @@ export default function ListDetailScreen() {
           assignment: 'suggestion' as const,
           categorySource: null,
           categoryCanonical: null,
+          unit: entry.unit ?? 'qty',
           suggestions: [] as EnrichedListEntry['suggestions']
         }));
 
@@ -469,6 +505,19 @@ export default function ListDetailScreen() {
     []
   );
 
+  const handleDraftUnitChange = useCallback((entryIndex: number, unit: string) => {
+    setParsedEntries((entries) =>
+      entries.map((entry, idx) =>
+        idx === entryIndex
+          ? {
+              ...entry,
+              unit
+            }
+          : entry
+      )
+    );
+  }, []);
+
   const handleStoreSelect = useCallback(
     async (store: StoreDefinition | null) => {
       if (!listId) {
@@ -484,6 +533,28 @@ export default function ListDetailScreen() {
       }
     },
     [listId]
+  );
+
+  const handleAddCustomStore = useCallback(
+    (label: string) => {
+      const trimmed = label.trim();
+      if (!trimmed) {
+        return;
+      }
+      const id = `custom:${trimmed.toLowerCase().replace(/\s+/g, '-')}`;
+      const existing = customStores.find((store) => store.id === id);
+      const store: StoreDefinition = existing ?? {
+        id,
+        label: trimmed,
+        region: currentStore?.region ?? list?.storeRegion ?? 'Custom',
+        aisles: []
+      };
+      if (!existing) {
+        setCustomStores((prev) => [store, ...prev]);
+      }
+      handleStoreSelect(store).catch(() => undefined);
+    },
+    [customStores, currentStore?.region, handleStoreSelect, list?.storeRegion]
   );
 
   const handleListItemLongPress = useCallback((item: ListItemSummary) => {
@@ -666,15 +737,16 @@ export default function ListDetailScreen() {
       </View>
 
       {parsedEntries.length ? (
-        <SmartAddPreview
-          entries={parsedEntries}
-          loading={parsing}
-          onCategoryChange={handleDraftCategoryChange}
-          theme={{
-            accent: palette.accent,
-            accentDark: palette.accentDark,
-            subtitle: palette.subtitle,
-            border: palette.border,
+      <SmartAddPreview
+        entries={parsedEntries}
+        loading={parsing}
+        onCategoryChange={handleDraftCategoryChange}
+        onUnitChange={handleDraftUnitChange}
+        theme={{
+          accent: palette.accent,
+          accentDark: palette.accentDark,
+          subtitle: palette.subtitle,
+          border: palette.border,
             card: palette.card
           }}
         />
@@ -722,10 +794,11 @@ export default function ListDetailScreen() {
 
       <StorePickerSheet
         visible={storePickerVisible}
-        options={storeOptions.length ? storeOptions : stores}
+        options={combinedStoreOptions}
         currentStoreId={list.storeId}
         onClose={() => setStorePickerVisible(false)}
         onSelect={handleStoreSelect}
+        onAddCustom={handleAddCustomStore}
       />
 
       <ListItemEditorModal
@@ -750,14 +823,26 @@ function StorePickerSheet({
   options,
   currentStoreId,
   onClose,
-  onSelect
+  onSelect,
+  onAddCustom
 }: {
   visible: boolean;
   options: StoreDefinition[];
   currentStoreId: string | null;
   onClose: () => void;
   onSelect: (store: StoreDefinition | null) => void;
+  onAddCustom: (label: string) => void;
 }) {
+  const [customLabel, setCustomLabel] = useState('');
+
+  const handleSave = () => {
+    if (!customLabel.trim()) {
+      return;
+    }
+    onAddCustom(customLabel.trim());
+    setCustomLabel('');
+  };
+
   return (
     <Modal transparent animationType="slide" visible={visible} onRequestClose={onClose}>
       <View style={styles.storeSheetBackdrop}>
@@ -801,6 +886,20 @@ function StorePickerSheet({
               </Pressable>
             ))}
           </ScrollView>
+          <View style={styles.customStoreBlock}>
+            <Text style={styles.customStoreTitle}>Add custom store</Text>
+            <View style={styles.customStoreRow}>
+              <TextInput
+                style={styles.customStoreInput}
+                placeholder="e.g. Neighborhood Market"
+                value={customLabel}
+                onChangeText={setCustomLabel}
+              />
+              <Pressable style={styles.customStoreButton} onPress={handleSave}>
+                <Text style={styles.customStoreButtonLabel}>Save</Text>
+              </Pressable>
+            </View>
+          </View>
         </View>
       </View>
     </Modal>
@@ -1263,7 +1362,42 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9'
   },
   storeList: {
+    gap: 8,
+    paddingBottom: 12
+  },
+  customStoreBlock: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: palette.border,
+    paddingTop: 16,
     gap: 8
+  },
+  customStoreTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: palette.subtitle
+  },
+  customStoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  customStoreInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  customStoreButton: {
+    backgroundColor: palette.accentDark,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12
+  },
+  customStoreButtonLabel: {
+    color: '#FFFFFF',
+    fontWeight: '600'
   },
   storeOption: {
     flexDirection: 'row',

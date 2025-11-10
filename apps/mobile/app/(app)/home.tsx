@@ -1248,6 +1248,7 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
             categoryLabel: 'Pantry',
             confidence: 0.2,
             assignment: 'suggestion' as const,
+            unit: entry.unit ?? 'qty',
             categorySource: null,
             categoryCanonical: null,
             suggestions: [] as EnrichedListEntry['suggestions']
@@ -1445,6 +1446,7 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
           categoryLabel: 'Pantry',
           confidence: 0.2,
           assignment: 'suggestion' as const,
+          unit: entry.unit ?? 'qty',
           categorySource: null,
           categoryCanonical: null,
           suggestions: [] as EnrichedListEntry['suggestions']
@@ -1892,6 +1894,11 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
                   }
                 : entry
             )
+          )
+        }
+        onUnitChange={(entryIndex, unit) =>
+          setParsedEntries((current) =>
+            current.map((entry, idx) => (idx === entryIndex ? { ...entry, unit } : entry))
           )
         }
         theme={{
