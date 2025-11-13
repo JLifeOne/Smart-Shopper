@@ -690,11 +690,15 @@ export default function ListDetailScreen() {
       Alert.alert('Sharing disabled', 'Enable feature_list_sharing in your build to test collaboration.');
       return;
     }
-    if (listId) {
-      trackEvent('list_share_open', { list_id: listId });
+    if (!list?.remoteId) {
+      Alert.alert('Sync required', 'This list has not synced yet. Try again after it finishes syncing.');
+      return;
+    }
+    if (list?.remoteId) {
+      trackEvent('list_share_open', { list_id: list.remoteId });
     }
     setShareSheetVisible(true);
-  }, [sharingEnabled]);
+  }, [sharingEnabled, list?.remoteId]);
 
   const handleCloseShare = useCallback(() => setShareSheetVisible(false), []);
 
@@ -964,6 +968,7 @@ export default function ListDetailScreen() {
         <ManageCollaboratorsSheet
           visible={shareSheetVisible}
           listId={list.id}
+          listRemoteId={list.remoteId}
           listName={list.name}
           onClose={handleCloseShare}
           onUpdated={({ collaborators }) => {

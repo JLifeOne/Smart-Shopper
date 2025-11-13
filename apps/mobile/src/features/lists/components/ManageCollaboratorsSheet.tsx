@@ -36,27 +36,32 @@ const INVITE_BASE_URL = 'https://smartshop.app/l';
 
 type Props = {
   visible: boolean;
-  listId: string | null;
+  listId: string | null; // local id for snapshot persistence
+  listRemoteId: string | null;
   listName: string;
   onClose: () => void;
   onUpdated?: (payload: { collaborators: Collaborator[]; invites: ListInvite[] }) => void;
 };
 
-export function ManageCollaboratorsSheet({ visible, listId, listName, onClose, onUpdated }: Props) {
+export function ManageCollaboratorsSheet({ visible, listId, listRemoteId, listName, onClose, onUpdated }: Props) {
   const { user } = useAuth();
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [invites, setInvites] = useState<ListInvite[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const canInvite = Boolean(listRemoteId);
 
   const loadData = useCallback(async () => {
-    if (!listId) {
+    if (!listRemoteId) {
+      setCollaborators([]);
+      setInvites([]);
+      setError('Sync this list before sharing.');
       return;
     }
     setLoading(true);
     try {
-      const [members, inviteRows] = await Promise.all([fetchCollaborators(listId), fetchInvites(listId)]);
+      const [members, inviteRows] = await Promise.all([fetchCollaborators(listRemoteId), fetchInvites(listRemoteId)]);
       setCollaborators(members);
       setInvites(inviteRows);
       setError(null);
@@ -73,7 +78,7 @@ export function ManageCollaboratorsSheet({ visible, listId, listName, onClose, o
     } finally {
       setLoading(false);
     }
-  }, [listId, onUpdated]);
+  }, [listRemoteId, onUpdated]);
 
   useEffect(() => {
     if (visible) {
@@ -82,13 +87,14 @@ export function ManageCollaboratorsSheet({ visible, listId, listName, onClose, o
   }, [visible, loadData]);
 
   const handleInvite = useCallback(async () => {
-    if (!listId) {
+    if (!listRemoteId) {
+      Alert.alert('Sync required', 'Connect this list to the cloud before sharing.');
       return;
     }
     setActionLoading(true);
     try {
       const invite = await generateInvite({
-        listId,
+        listId: listRemoteId,
         role: 'editor',
         expiresInHours: 24 * 7,
         singleUse: false
@@ -103,7 +109,7 @@ export function ManageCollaboratorsSheet({ visible, listId, listName, onClose, o
         message: `Join my Smart Shopper list "${listName}": ${url}`
       });
       trackEvent('collab_invite_generated', {
-        list_id: listId,
+        list_id: listRemoteId,
         role: invite.role,
         single_use: invite.single_use
       });
@@ -113,7 +119,7 @@ export function ManageCollaboratorsSheet({ visible, listId, listName, onClose, o
     } finally {
       setActionLoading(false);
     }
-  }, [listId, listName]);
+  }, [listId, listRemoteId, listName, collaborators, onUpdated]);
 
   const handleRevoke = useCallback(async (inviteId: string) => {
     setActionLoading(true);
@@ -124,7 +130,7 @@ export function ManageCollaboratorsSheet({ visible, listId, listName, onClose, o
         onUpdated?.({ collaborators, invites: next });
         return next;
       });
-      trackEvent('collab_invite_revoked', { list_id: listId, invite_id: inviteId });
+      trackEvent('collab_invite_revoked', { list_id: listRemoteId, invite_id: inviteId });
     } catch (err) {
       console.error('ManageCollaboratorsSheet: revoke failed', err);
       Alert.alert('Unable to revoke', err instanceof Error ? err.message : 'Try again.');
@@ -234,13 +240,16 @@ export function ManageCollaboratorsSheet({ visible, listId, listName, onClose, o
 
         <View style={styles.sheetFooter}>
           <Pressable
-            style={[styles.primaryButton, actionLoading ? styles.primaryButtonDisabled : null]}
-            disabled={actionLoading}
+            style={[
+              styles.primaryButton,
+              (!canInvite || actionLoading) && styles.primaryButtonDisabled
+            ]}
+            disabled={!canInvite || actionLoading}
             onPress={handleInvite}
           >
             <Ionicons name="share-social" size={16} color={palette.accent} />
             <Text style={styles.primaryButtonLabel}>
-              {actionLoading ? 'Generating…' : 'Generate invite link'}
+              {!canInvite ? 'Sync list to share' : actionLoading ? 'Generating…' : 'Generate invite link'}
             </Text>
           </Pressable>
         </View>

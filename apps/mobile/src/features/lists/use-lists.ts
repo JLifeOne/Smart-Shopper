@@ -7,6 +7,7 @@ import { parseCollaboratorSnapshot } from './collaborator-snapshot';
 
 export type ListSummary = {
   id: string;
+  remoteId: string | null;
   name: string;
   itemCount: number;
   updatedAt: number;
@@ -39,6 +40,7 @@ export function useLists(options: UseListsOptions = {}) {
           const summaries = await Promise.all(
             records.map(async (record) => ({
               id: record.id,
+              remoteId: record.remoteId,
               name: record.name,
               isShared: record.isShared,
               updatedAt: record.updatedAt,

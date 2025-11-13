@@ -133,7 +133,11 @@ export const ListsScreen = forwardRef<ListsScreenHandle, { searchQuery?: string 
         Alert.alert('Sharing disabled', 'Enable feature_list_sharing in your build to test collaboration.');
         return;
       }
-      trackEvent('list_share_open', { list_id: list.id });
+      if (!list.remoteId) {
+        Alert.alert('Sync required', 'Open this list to sync it before sharing.');
+        return;
+      }
+      trackEvent('list_share_open', { list_id: list.remoteId });
       setShareTarget(list);
     },
     [sharingEnabled]
@@ -277,6 +281,7 @@ export const ListsScreen = forwardRef<ListsScreenHandle, { searchQuery?: string 
         <ManageCollaboratorsSheet
           visible={Boolean(shareTarget)}
           listId={shareTarget?.id ?? null}
+          listRemoteId={shareTarget?.remoteId ?? null}
           listName={shareTarget?.name ?? 'Shared list'}
           onClose={closeShareModal}
           onUpdated={({ collaborators }) => {
