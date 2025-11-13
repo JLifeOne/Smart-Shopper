@@ -181,14 +181,20 @@ export function useLibraryItems() {
           let tierMap: Record<string, BestPriceTier[]> = {};
           if (supabase && remoteIds.length) {
             try {
-              const { data, error } = await supabase.rpc('best_price_tiers_for_products', {
+              const tierArgs = {
                 product_ids: remoteIds,
                 limit_results: remoteIds.length ? remoteIds.length * 3 : null
-              });
+              } as Database['public']['Functions']['best_price_tiers_for_products']['Args'];
+
+              const { data, error } = await supabase.rpc(
+                'best_price_tiers_for_products',
+                tierArgs as never
+              );
               if (error) {
                 console.warn('useLibraryItems: tier lookup failed', error);
               } else if (data) {
-                tierMap = data.reduce<Record<string, BestPriceTier[]>>((acc, row) => {
+                const tierRows = (data ?? []) as BestPriceTierRow[];
+                tierMap = tierRows.reduce<Record<string, BestPriceTier[]>>((acc, row) => {
                   if (!row?.product_id) {
                     return acc;
                   }
