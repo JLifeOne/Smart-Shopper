@@ -131,11 +131,25 @@ Groceries and household items fluctuate in price across stores and time. Shopper
 * Toggle layers: **savings vs historical avg**, **# items below average**, **price change count** (volatility).
 * Tap a day → detail sheet: stores visited, items, biggest movers, total saved vs baseline.
 
-### 5.6 Lists, Sharing & Non-Food Support
+### 5.6 Lists, Collaboration & Non-Food Support
 
-* Multiple lists (Groceries, Hardware, Pharmacy).
-* **Share list** (invite link) with real-time check-offs; per-assignee items.
-* Category set includes household, personal care, pets, baby, auto, etc.
+* Multiple lists (Groceries, Hardware, Pharmacy) spanning household, personal care, pets, baby, auto, etc.
+* **Collaboration entry points:** persistent “Share” pill by the list title + overflow action “Manage collaborators”; onboarding hint “Shopping together? Share this list.”
+* **Invite modal:** tabs for **Secure Link** (short link + optional QR, expiry 24 h / 7 d / Never, single-use toggle, revoke/rotate) and **People** (search contacts/email/phone).
+* **Roles (per list):**
+
+  | Role        | Create/Edit Items | Check/Uncheck | Delegate Items | Send Invites | Remove Members | Delete List |
+  | ----------- | ----------------- | ------------- | -------------- | ------------ | -------------- | ----------- |
+  | **Owner**   | ✅                 | ✅             | ✅              | ✅            | ✅              | ✅           |
+  | **Editor**  | ✅                 | ✅             | ✅              | Optional¹    | ❌              | ❌           |
+  | **Checker** | Notes only        | ✅             | ❌              | ❌            | ❌              | ❌           |
+  | **Observer**| ❌                 | ❌             | ❌              | ❌            | ❌              | ❌           |
+
+  ¹Per-list toggle “Editors can invite”.
+
+* **Delegate experience:** each item displays a delegate pill (avatar or “Open”). Long-press reveals Claim, Delegate…, add note, or mention (future). Filter chips: **All · Delegated to me · Open · Completed**.
+* **Realtime feedback:** avatar row shows collaborator presence; tapping opens collaborator panel + recent activity. Conflict banner appears if a newer update overwrites a local action; different-field edits auto-merge with confirmation toast.
+* **Trip comfort:** optional “Trip Mode” enlarges checkboxes, collapses categories, and pins “Delegated to me” at top for quick errands.
 
 ### 5.7 Budget & Trip Summary (MVP-Plus)
 
@@ -192,7 +206,9 @@ Groceries and household items fluctuate in price across stores and time. Shopper
 * **ProductAlias**(product_id, raw_name, brand_id, store_id)
 * **PricePoint**(id, product_id, brand_id, store_id, price, currency, timestamp, source: receipt|user|import, discount)
 * **List**(id, user_id, name, shared_flag)
-* **ListItem**(id, list_id, product_id, desired_qty, substitutions_ok, notes)
+* **ListMember**(list_id, user_id, role, joined_at, invited_by, last_seen_at)
+* **ListInvite**(list_id, token, role, expires_at, single_use, status, created_by)
+* **ListItem**(id, list_id, product_id, desired_qty, substitutions_ok, notes, delegate_user_id, last_updated_by, last_updated_at)
 * **Inventory**(user_id, product_id, qty_on_hand, last_purchase_at, est_days_left)
 * **Alert**(user_id, product_id, rule_type, threshold)
 
@@ -219,6 +235,7 @@ Groceries and household items fluctuate in price across stores and time. Shopper
 * **Library quick-add**: when a search yields no results, a toast appears with both **Add** and **Add & Add to List** actions; floating **+** is visible.
 * **Pinned/Recent** tabs function as described; pin/unpin provides **Undo** window.
 * **Bundles** can be created from multiselect and listed under the **Bundles** tab.
+* **Collaboration**: Share pill launches invite modal; owner can issue Secure Link w/ expiry controls and add collaborators with roles. Delegates can filter to “Delegated to me” in ≤2 taps. Concurrent edits resolve gracefully (latest update applied; banner shown within 1 s). Offline edits sync within 5 s of reconnection without data loss.
 
 ---
 
