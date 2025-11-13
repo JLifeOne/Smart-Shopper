@@ -4,8 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/src/context/auth-context';
 import { trackEvent } from '@/src/lib/analytics';
+import { featureFlags } from '@/src/lib/env';
 import { useLists, type ListSummary } from './use-lists';
 import { archiveList, createList, renameList } from './mutations';
+import { ManageCollaboratorsSheet } from './components/ManageCollaboratorsSheet';
 
 export type ListsScreenHandle = {
   openCreatePrompt: () => void;
@@ -30,6 +32,8 @@ export const ListsScreen = forwardRef<ListsScreenHandle, { searchQuery?: string 
   const { lists, loading, error } = useLists({ ownerId: user?.id });
   const [prompt, setPrompt] = useState<PromptState | null>(null);
   const [nameDraft, setNameDraft] = useState('');
+  const [shareTarget, setShareTarget] = useState<ListSummary | null>(null);
+  const sharingEnabled = featureFlags.listSharing;
 
   const dismissPrompt = useCallback(() => {
     setPrompt(null);
@@ -113,6 +117,20 @@ export const ListsScreen = forwardRef<ListsScreenHandle, { searchQuery?: string 
     );
   }, []);
 
+  const handleShare = useCallback(
+    (list: ListSummary) => {
+      if (!sharingEnabled) {
+        Alert.alert('Sharing disabled', 'Enable feature_list_sharing in your build to test collaboration.');
+        return;
+      }
+      trackEvent('list_share_open', { list_id: list.id });
+      setShareTarget(list);
+    },
+    [sharingEnabled]
+  );
+
+  const closeShareModal = useCallback(() => setShareTarget(null), []);
+
   const filteredLists = useMemo(() => {
     const term = (searchQuery ?? "").trim().toLowerCase();
     if (!term) {
@@ -128,9 +146,10 @@ export const ListsScreen = forwardRef<ListsScreenHandle, { searchQuery?: string 
         onOpen={() => router.push(`/lists/${item.id}` as never)}
         onRename={() => startRenamePrompt(item)}
         onArchive={() => confirmArchive(item)}
+        onShare={sharingEnabled ? () => handleShare(item) : undefined}
       />
     ),
-    [router, startRenamePrompt, confirmArchive]
+    [router, startRenamePrompt, confirmArchive, handleShare, sharingEnabled]
   );
 
   const renderContent = () => {
@@ -244,6 +263,14 @@ export const ListsScreen = forwardRef<ListsScreenHandle, { searchQuery?: string 
 
       {renderContent()}
       {renderPrompt()}
+      {sharingEnabled ? (
+        <ManageCollaboratorsSheet
+          visible={Boolean(shareTarget)}
+          listId={shareTarget?.id ?? null}
+          listName={shareTarget?.name ?? 'Shared list'}
+          onClose={closeShareModal}
+        />
+      ) : null}
     </View>
   );
 });
@@ -252,22 +279,34 @@ function ListCard({
   summary,
   onOpen,
   onRename,
-  onArchive
+  onArchive,
+  onShare
 }: {
   summary: ListSummary;
   onOpen: () => void;
   onRename: () => void;
   onArchive: () => void;
+  onShare?: () => void;
 }) {
+  const showShareChip = typeof onShare === 'function';
+
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>{summary.name}</Text>
-        {summary.isShared ? (
-          <View style={styles.sharedBadge}>
-            <Ionicons name="people-outline" size={12} color={palette.accentDark} />
-            <Text style={styles.sharedBadgeLabel}>Shared</Text>
-          </View>
+        <View style={styles.cardHeaderLeft}>
+          <Text style={styles.cardTitle}>{summary.name}</Text>
+          {summary.isShared ? (
+            <View style={styles.sharedBadge}>
+              <Ionicons name="people-outline" size={12} color={palette.accentDark} />
+              <Text style={styles.sharedBadgeLabel}>Shared</Text>
+            </View>
+          ) : null}
+        </View>
+        {showShareChip ? (
+          <Pressable style={styles.shareChip} onPress={onShare}>
+            <Ionicons name="share-social-outline" size={14} color={palette.accentDark} />
+            <Text style={styles.shareChipLabel}>Share</Text>
+          </Pressable>
         ) : null}
       </View>
       <Text style={styles.cardMeta}>
@@ -380,6 +419,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between'
   },
+  cardHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 1
+  },
   cardTitle: {
     fontSize: 17,
     fontWeight: '700',
@@ -424,6 +469,20 @@ const styles = StyleSheet.create({
   sharedBadgeLabel: {
     color: palette.accentDark,
     fontSize: 11,
+    fontWeight: '600'
+  },
+  shareChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#E6F3FF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999
+  },
+  shareChipLabel: {
+    color: palette.accentDark,
+    fontSize: 12,
     fontWeight: '600'
   },
   promptOverlay: {

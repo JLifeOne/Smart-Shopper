@@ -35,7 +35,11 @@ import { parseListInput, enrichParsedEntries, type EnrichedListEntry } from '@/s
 import { recordCategoryTelemetry } from '@/src/lib/category-telemetry';
 import { defaultAisleOrderFor, storeSuggestionsFor, stores, type StoreDefinition } from '@/src/data/stores';
 import { SmartAddPreview } from '@/src/features/lists/components/SmartAddPreview';
+import { ManageCollaboratorsSheet } from '@/src/features/lists/components/ManageCollaboratorsSheet';
+import { fetchCollaborators, type Collaborator } from '@/src/features/lists/collaboration-api';
+import { featureFlags } from '@/src/lib/env';
 import { Toast } from '@/src/components/search/Toast';
+import { useAuth } from '@/src/context/auth-context';
 
 const palette = {
   background: '#F5F7FA',
@@ -87,6 +91,16 @@ function formatRelative(timestamp: number | null | undefined) {
 
 function formatItemTitle(item: ListItemSummary) {
   return item.label;
+}
+
+function formatCollaboratorInitials(member: Collaborator, currentUserId: string | null | undefined) {
+  if (currentUserId && member.user_id === currentUserId) {
+    return 'You';
+  }
+  if (!member.user_id) {
+    return '??';
+  }
+  return member.user_id.slice(0, 2).toUpperCase();
 }
 
 function parseAisleOrder(list: List | null | undefined) {
@@ -175,6 +189,10 @@ export default function ListDetailScreen() {
   const [editorItem, setEditorItem] = useState<ListItemSummary | null>(null);
   const [editorNote, setEditorNote] = useState('');
   const [editorQty, setEditorQty] = useState(1);
+  const sharingEnabled = featureFlags.listSharing;
+  const { user } = useAuth();
+  const [collaboratorPreview, setCollaboratorPreview] = useState<Collaborator[]>([]);
+  const [shareSheetVisible, setShareSheetVisible] = useState(false);
   const { setActiveListId } = useSearchOverlay();
 
   useEffect(() => {
@@ -287,6 +305,16 @@ export default function ListDetailScreen() {
   );
 
   const costEstimate = useMemo(() => calculateCostEstimate(items), [items]);
+  const collaboratorDisplay = useMemo(
+    () =>
+      collaboratorPreview.map((member) => ({
+        id: member.user_id,
+        initials: formatCollaboratorInitials(member, user?.id ?? null)
+      })),
+    [collaboratorPreview, user?.id]
+  );
+  const previewAvatars = collaboratorDisplay.slice(0, 3);
+  const extraCollaborators = Math.max(collaboratorDisplay.length - previewAvatars.length, 0);
 
   const { activeSections, completedItems } = useMemo(() => {
     if (!items.length) {
@@ -618,6 +646,16 @@ export default function ListDetailScreen() {
     setShowCompleted((prev) => !prev);
   }, []);
 
+  const handleOpenShare = useCallback(() => {
+    if (!sharingEnabled) {
+      Alert.alert('Sharing disabled', 'Enable feature_list_sharing in your build to test collaboration.');
+      return;
+    }
+    setShareSheetVisible(true);
+  }, [sharingEnabled]);
+
+  const handleCloseShare = useCallback(() => setShareSheetVisible(false), []);
+
   if (loading) {
     return (
       <SafeAreaView style={styles.center}>
@@ -693,6 +731,31 @@ export default function ListDetailScreen() {
               </View>
             ) : null}
           </View>
+          {sharingEnabled ? (
+            <View style={styles.collabRow}>
+              <View style={styles.avatarStack}>
+                {previewAvatars.length ? (
+                  previewAvatars.map((avatar) => (
+                    <View key={avatar.id} style={styles.avatarBubble}>
+                      <Text style={styles.avatarBubbleLabel}>{avatar.initials}</Text>
+                      <View style={styles.presenceDot} />
+                    </View>
+                  ))
+                ) : (
+                  <Text style={styles.collabPlaceholder}>Only you</Text>
+                )}
+                {extraCollaborators > 0 ? (
+                  <View style={styles.avatarOverflow}>
+                    <Text style={styles.avatarOverflowLabel}>+{extraCollaborators}</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Pressable style={styles.shareSecondaryChip} onPress={handleOpenShare}>
+                <Ionicons name="share-social-outline" size={14} color={palette.accentDark} />
+                <Text style={styles.shareSecondaryChipLabel}>Share</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
       </View>
 
@@ -814,6 +877,15 @@ export default function ListDetailScreen() {
       />
 
       <Toast.Host />
+      {sharingEnabled ? (
+        <ManageCollaboratorsSheet
+          visible={shareSheetVisible}
+          listId={list.id}
+          listName={list.name}
+          onClose={handleCloseShare}
+          onUpdated={({ collaborators }) => setCollaboratorPreview(collaborators)}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -1130,6 +1202,77 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 8,
     flexWrap: 'wrap'
+  },
+  collabRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 12
+  },
+  avatarStack: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  avatarBubble: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#E0F2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative'
+  },
+  avatarBubbleLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: palette.accentDark
+  },
+  presenceDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#34D399',
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    borderWidth: 1,
+    borderColor: '#fff'
+  },
+  avatarOverflow: {
+    minWidth: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: palette.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6
+  },
+  avatarOverflowLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: palette.accentDark
+  },
+  collabPlaceholder: {
+    fontSize: 12,
+    color: palette.subtitle
+  },
+  shareSecondaryChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.card
+  },
+  shareSecondaryChipLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: palette.accentDark
   },
   storePill: {
     flexDirection: 'row',
