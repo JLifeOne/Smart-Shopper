@@ -20,6 +20,7 @@ import {
   type Collaborator,
   type ListInvite
 } from '../collaboration-api';
+import { trackEvent } from '@/src/lib/analytics';
 
 const palette = {
   background: '#EFF3F8',
@@ -101,6 +102,11 @@ export function ManageCollaboratorsSheet({ visible, listId, listName, onClose, o
       await Share.share({
         message: `Join my Smart Shopper list "${listName}": ${url}`
       });
+      trackEvent('collab_invite_generated', {
+        list_id: listId,
+        role: invite.role,
+        single_use: invite.single_use
+      });
     } catch (err) {
       console.error('ManageCollaboratorsSheet: invite failed', err);
       Alert.alert('Invite failed', err instanceof Error ? err.message : 'Unable to generate invite. Try again.');
@@ -118,6 +124,7 @@ export function ManageCollaboratorsSheet({ visible, listId, listName, onClose, o
         onUpdated?.({ collaborators, invites: next });
         return next;
       });
+      trackEvent('collab_invite_revoked', { list_id: listId, invite_id: inviteId });
     } catch (err) {
       console.error('ManageCollaboratorsSheet: revoke failed', err);
       Alert.alert('Unable to revoke', err instanceof Error ? err.message : 'Try again.');

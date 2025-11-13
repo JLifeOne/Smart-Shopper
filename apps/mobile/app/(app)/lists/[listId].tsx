@@ -40,6 +40,7 @@ import { fetchCollaborators, type Collaborator } from '@/src/features/lists/coll
 import { featureFlags } from '@/src/lib/env';
 import { Toast } from '@/src/components/search/Toast';
 import { useAuth } from '@/src/context/auth-context';
+import { parseCollaboratorSnapshot, persistCollaboratorSnapshot } from '@/src/features/lists/collaborator-snapshot';
 
 const palette = {
   background: '#F5F7FA',
@@ -52,6 +53,13 @@ const palette = {
 
 const OTHER_CATEGORY = 'OTHER';
 const CUSTOM_STORE_STORAGE_KEY = '@smart-shopper:custom-stores';
+const DELEGATE_FILTERS = [
+  { key: 'all', label: 'All items' },
+  { key: 'mine', label: 'Assigned to me' },
+  { key: 'open', label: 'Open' }
+] as const;
+
+type DelegateFilterKey = (typeof DELEGATE_FILTERS)[number]['key'];
 
 type SectionRow = {
   title: string;
@@ -93,14 +101,14 @@ function formatItemTitle(item: ListItemSummary) {
   return item.label;
 }
 
-function formatCollaboratorInitials(member: Collaborator, currentUserId: string | null | undefined) {
-  if (currentUserId && member.user_id === currentUserId) {
+function formatCollaboratorInitials(userId: string | null | undefined, currentUserId: string | null | undefined) {
+  if (currentUserId && userId === currentUserId) {
     return 'You';
   }
-  if (!member.user_id) {
+  if (!userId) {
     return '??';
   }
-  return member.user_id.slice(0, 2).toUpperCase();
+  return userId.slice(0, 2).toUpperCase();
 }
 
 function parseAisleOrder(list: List | null | undefined) {
@@ -191,8 +199,9 @@ export default function ListDetailScreen() {
   const [editorQty, setEditorQty] = useState(1);
   const sharingEnabled = featureFlags.listSharing;
   const { user } = useAuth();
-  const [collaboratorPreview, setCollaboratorPreview] = useState<Collaborator[]>([]);
+  const [collaboratorIds, setCollaboratorIds] = useState<string[]>([]);
   const [shareSheetVisible, setShareSheetVisible] = useState(false);
+  const [delegateFilter, setDelegateFilter] = useState<DelegateFilterKey>('all');
   const { setActiveListId } = useSearchOverlay();
 
   useEffect(() => {
@@ -201,6 +210,10 @@ export default function ListDetailScreen() {
     }
     return () => setActiveListId(null);
   }, [listId, setActiveListId]);
+
+  useEffect(() => {
+    setCollaboratorIds(parseCollaboratorSnapshot(list?.collaboratorSnapshot ?? null));
+  }, [list?.collaboratorSnapshot]);
 
   useEffect(() => {
     if (!draft.trim()) {
@@ -305,13 +318,28 @@ export default function ListDetailScreen() {
   );
 
   const costEstimate = useMemo(() => calculateCostEstimate(items), [items]);
+  const matchesDelegateFilter = useCallback(
+    (item: ListItemSummary) => {
+      if (delegateFilter === 'mine') {
+        if (!user?.id) {
+          return false;
+        }
+        return item.delegateUserId === user.id;
+      }
+      if (delegateFilter === 'open') {
+        return !item.delegateUserId;
+      }
+      return true;
+    },
+    [delegateFilter, user?.id]
+  );
   const collaboratorDisplay = useMemo(
     () =>
-      collaboratorPreview.map((member) => ({
-        id: member.user_id,
-        initials: formatCollaboratorInitials(member, user?.id ?? null)
+      collaboratorIds.map((id) => ({
+        id,
+        initials: formatCollaboratorInitials(id, user?.id ?? null)
       })),
-    [collaboratorPreview, user?.id]
+    [collaboratorIds, user?.id]
   );
   const previewAvatars = collaboratorDisplay.slice(0, 3);
   const extraCollaborators = Math.max(collaboratorDisplay.length - previewAvatars.length, 0);
@@ -331,6 +359,9 @@ export default function ListDetailScreen() {
     const doneItems: ListItemSummary[] = [];
 
     items.forEach((item) => {
+      if (!matchesDelegateFilter(item)) {
+        return;
+      }
       if (item.isChecked) {
         doneItems.push(item);
         return;
@@ -367,7 +398,7 @@ export default function ListDetailScreen() {
     const sortedDone = doneItems.slice().sort(compareItems);
 
     return { activeSections: sortedActive, completedItems: sortedDone };
-  }, [aisleOrder, items]);
+  }, [aisleOrder, items, matchesDelegateFilter]);
 
   const doneCount = completedItems.length;
   const visibleSections = showCompleted && doneCount
@@ -646,15 +677,49 @@ export default function ListDetailScreen() {
     setShowCompleted((prev) => !prev);
   }, []);
 
+  const handleDelegateFilterChange = useCallback(
+    (next: DelegateFilterKey) => {
+      setDelegateFilter(next);
+      trackEvent('delegate_filter_change', { filter: next });
+    },
+    []
+  );
+
   const handleOpenShare = useCallback(() => {
     if (!sharingEnabled) {
       Alert.alert('Sharing disabled', 'Enable feature_list_sharing in your build to test collaboration.');
       return;
     }
+    if (listId) {
+      trackEvent('list_share_open', { list_id: listId });
+    }
     setShareSheetVisible(true);
   }, [sharingEnabled]);
 
   const handleCloseShare = useCallback(() => setShareSheetVisible(false), []);
+
+  const refreshCollaborators = useCallback(async () => {
+    if (!sharingEnabled || !listId) {
+      setCollaboratorIds([]);
+      return;
+    }
+    try {
+      const members = await fetchCollaborators(listId);
+      const ids = members
+        .map((member) => member.user_id)
+        .filter((id): id is string => typeof id === 'string' && Boolean(id));
+      setCollaboratorIds(ids);
+      await persistCollaboratorSnapshot(listId, members);
+    } catch (err) {
+      console.warn('list-detail: collaborator fetch failed', err);
+    }
+  }, [listId, sharingEnabled]);
+
+  useEffect(() => {
+    if (sharingEnabled) {
+      refreshCollaborators();
+    }
+  }, [refreshCollaborators, sharingEnabled]);
 
   if (loading) {
     return (
@@ -730,6 +795,24 @@ export default function ListDetailScreen() {
                 </Text>
               </View>
             ) : null}
+          </View>
+          <View style={styles.delegateFilterRow}>
+            {DELEGATE_FILTERS.map((option) => {
+              const active = delegateFilter === option.key;
+              return (
+                <Pressable
+                  key={option.key}
+                  style={[styles.delegateChip, active && styles.delegateChipActive]}
+                  onPress={() => handleDelegateFilterChange(option.key)}
+                >
+                  <Text
+                    style={[styles.delegateChipLabel, active && styles.delegateChipLabelActive]}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
           {sharingEnabled ? (
             <View style={styles.collabRow}>
@@ -883,7 +966,13 @@ export default function ListDetailScreen() {
           listId={list.id}
           listName={list.name}
           onClose={handleCloseShare}
-          onUpdated={({ collaborators }) => setCollaboratorPreview(collaborators)}
+          onUpdated={({ collaborators }) => {
+            const ids = collaborators
+              .map((member) => member.user_id)
+              .filter((id): id is string => typeof id === 'string' && Boolean(id));
+            setCollaboratorIds(ids);
+            persistCollaboratorSnapshot(list.id, collaborators);
+          }}
         />
       ) : null}
     </SafeAreaView>
@@ -1202,6 +1291,33 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 8,
     flexWrap: 'wrap'
+  },
+  delegateFilterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12
+  },
+  delegateChip: {
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#FFFFFF'
+  },
+  delegateChipActive: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#22C55E'
+  },
+  delegateChipLabel: {
+    fontSize: 12,
+    color: palette.subtitle,
+    fontWeight: '500'
+  },
+  delegateChipLabelActive: {
+    color: '#065F46',
+    fontWeight: '700'
   },
   collabRow: {
     flexDirection: 'row',

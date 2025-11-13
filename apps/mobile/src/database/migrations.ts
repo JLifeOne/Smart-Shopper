@@ -101,6 +101,24 @@ export const migrations = schemaMigrations({
           ]
         })
       ]
+    },
+    {
+      toVersion: 8,
+      steps: [
+        addColumns({
+          table: 'list_items',
+          columns: [
+            { name: 'delegate_user_id', type: 'string', isOptional: true, isIndexed: true },
+            { name: 'checked_by', type: 'string', isOptional: true },
+            { name: 'last_updated_by', type: 'string', isOptional: true },
+            { name: 'version', type: 'number', isOptional: true }
+          ]
+        }),
+        addColumns({
+          table: 'lists',
+          columns: [{ name: 'collaborator_snapshot', type: 'string', isOptional: true }]
+        })
+      ]
     }
   ]
 });

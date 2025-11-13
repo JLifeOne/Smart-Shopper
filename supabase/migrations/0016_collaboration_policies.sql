@@ -3,7 +3,7 @@
 
 begin;
 
-create extension if not exists pgcrypto;
+create extension if not exists pgcrypto with schema extensions;
 
 -- Helper function to determine invite capability
 create or replace function public.can_manage_list_invites(_list_id uuid, _user_id uuid)
@@ -135,7 +135,7 @@ create policy "Checkers update list items"
 
 -- Default token value
 alter table public.list_invites
-  alter column token set default encode(gen_random_bytes(12), 'hex');
+  alter column token set default encode(extensions.gen_random_bytes(12), 'hex');
 
 -- Invite helper functions
 create or replace function public.generate_list_invite(

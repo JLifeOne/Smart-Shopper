@@ -24,6 +24,9 @@ export type ListItemSummary = {
   substitutionsOk: boolean;
   notes: string | null;
   isChecked: boolean;
+  delegateUserId: string | null;
+  checkedBy: string | null;
+  lastUpdatedBy: string | null;
   updatedAt: number;
   priceSummary: LibraryPriceSummary | null;
   brandRemoteId: string | null;
@@ -168,6 +171,9 @@ export function useListItems(listId: string | null | undefined) {
             'substitutions_ok',
             'notes',
             'is_checked',
+            'delegate_user_id',
+            'checked_by',
+            'last_updated_by',
             'product_remote_id',
             'updated_at',
             'brand_remote_id',
@@ -206,6 +212,9 @@ export function useListItems(listId: string | null | undefined) {
                 substitutionsOk: record.substitutionsOk,
                 notes: record.notes,
                 isChecked: !!record.isChecked,
+                delegateUserId: record.delegateUserId ?? null,
+                checkedBy: record.checkedBy ?? null,
+                lastUpdatedBy: record.lastUpdatedBy ?? null,
                 updatedAt: record.updatedAt,
                 priceSummary: null,
                 brandRemoteId: record.brandRemoteId,

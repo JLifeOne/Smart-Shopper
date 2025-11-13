@@ -31,6 +31,8 @@ export class List extends Model {
 
   @field('aisle_order') aisleOrder!: string | null;
 
+  @field('collaborator_snapshot') collaboratorSnapshot!: string | null;
+
   @field('created_at') createdAt!: number;
 
   @field('updated_at') updatedAt!: number;

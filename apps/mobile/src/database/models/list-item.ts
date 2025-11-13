@@ -46,6 +46,14 @@ export class ListItem extends Model {
 
   @field('category_canonical') categoryCanonical!: string | null;
 
+  @field('delegate_user_id') delegateUserId!: string | null;
+
+  @field('checked_by') checkedBy!: string | null;
+
+  @field('last_updated_by') lastUpdatedBy!: string | null;
+
+  @field('version') version!: number | null;
+
   @field('created_at') createdAt!: number;
 
   @field('updated_at') updatedAt!: number;

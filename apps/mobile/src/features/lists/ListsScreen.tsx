@@ -8,6 +8,8 @@ import { featureFlags } from '@/src/lib/env';
 import { useLists, type ListSummary } from './use-lists';
 import { archiveList, createList, renameList } from './mutations';
 import { ManageCollaboratorsSheet } from './components/ManageCollaboratorsSheet';
+import type { Collaborator } from './collaboration-api';
+import { persistCollaboratorSnapshot } from './collaborator-snapshot';
 
 export type ListsScreenHandle = {
   openCreatePrompt: () => void;
@@ -34,6 +36,14 @@ export const ListsScreen = forwardRef<ListsScreenHandle, { searchQuery?: string 
   const [nameDraft, setNameDraft] = useState('');
   const [shareTarget, setShareTarget] = useState<ListSummary | null>(null);
   const sharingEnabled = featureFlags.listSharing;
+  const persistCollaborators = useCallback(
+    (listId: string, collaborators: Collaborator[]) => {
+      persistCollaboratorSnapshot(listId, collaborators).catch((err) =>
+        console.warn('ListsScreen: failed to persist collaborators', err)
+      );
+    },
+    []
+  );
 
   const dismissPrompt = useCallback(() => {
     setPrompt(null);
@@ -269,6 +279,11 @@ export const ListsScreen = forwardRef<ListsScreenHandle, { searchQuery?: string 
           listId={shareTarget?.id ?? null}
           listName={shareTarget?.name ?? 'Shared list'}
           onClose={closeShareModal}
+          onUpdated={({ collaborators }) => {
+            if (shareTarget?.id) {
+              persistCollaborators(shareTarget.id, collaborators);
+            }
+          }}
         />
       ) : null}
     </View>
@@ -289,6 +304,11 @@ function ListCard({
   onShare?: () => void;
 }) {
   const showShareChip = typeof onShare === 'function';
+  const collaboratorPreview = summary.collaboratorIds?.slice(0, 3) ?? [];
+  const extraCollaborators =
+    summary.collaboratorIds && summary.collaboratorIds.length > collaboratorPreview.length
+      ? summary.collaboratorIds.length - collaboratorPreview.length
+      : 0;
 
   return (
     <View style={styles.card}>
@@ -312,6 +332,30 @@ function ListCard({
       <Text style={styles.cardMeta}>
         {summary.itemCount} items \u2022 Updated {formatRelative(summary.updatedAt)}
       </Text>
+      <View style={styles.cardCollaboratorRow}>
+        <View style={styles.cardAvatarStack}>
+          {collaboratorPreview.length ? (
+            collaboratorPreview.map((id) => (
+              <View key={id} style={styles.cardAvatarBubble}>
+                <Text style={styles.cardAvatarLabel}>{id.slice(0, 2).toUpperCase()}</Text>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.cardCollaboratorHint}>Only you</Text>
+          )}
+          {extraCollaborators > 0 ? (
+            <View style={styles.cardAvatarOverflow}>
+              <Text style={styles.cardAvatarOverflowLabel}>+{extraCollaborators}</Text>
+            </View>
+          ) : null}
+        </View>
+        {showShareChip ? (
+          <Pressable style={styles.cardShareChip} onPress={onShare}>
+            <Ionicons name="share-social-outline" size={12} color={palette.accentDark} />
+            <Text style={styles.cardShareChipLabel}>Share</Text>
+          </Pressable>
+        ) : null}
+      </View>
       <View style={styles.cardActions}>
         <Pressable style={styles.cardButton} onPress={onOpen}>
           <Text style={styles.cardButtonLabel}>Open</Text>
@@ -470,6 +514,63 @@ const styles = StyleSheet.create({
     color: palette.accentDark,
     fontSize: 11,
     fontWeight: '600'
+  },
+  cardCollaboratorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  cardAvatarStack: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6
+  },
+  cardAvatarBubble: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#E0F2FF',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  cardAvatarLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: palette.accentDark
+  },
+  cardCollaboratorHint: {
+    fontSize: 12,
+    color: palette.subtitle
+  },
+  cardAvatarOverflow: {
+    minWidth: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6
+  },
+  cardAvatarOverflowLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: palette.accentDark
+  },
+  cardShareChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4
+  },
+  cardShareChipLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: palette.accentDark
   },
   shareChip: {
     flexDirection: 'row',

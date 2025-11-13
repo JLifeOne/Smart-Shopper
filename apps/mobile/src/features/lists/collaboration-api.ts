@@ -1,4 +1,5 @@
 import { ensureSupabaseClient, type Database } from '@/src/lib/supabase';
+import { trackEvent } from '@/src/lib/analytics';
 
 export type CollaboratorRole = Database['public']['Tables']['list_members']['Row']['role'];
 export type InviteStatus = Database['public']['Tables']['list_invites']['Row']['status'];
@@ -85,7 +86,9 @@ export async function acceptInvite(token: string) {
   if (error) {
     throw new Error(normalizeError(error.message));
   }
-  return data as Collaborator;
+  const membership = data as Collaborator;
+  trackEvent('collab_invite_accepted', { list_id: membership.list_id, role: membership.role });
+  return membership;
 }
 
 export async function revokeInvite(inviteId: string) {

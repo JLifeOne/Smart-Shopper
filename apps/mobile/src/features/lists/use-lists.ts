@@ -3,6 +3,7 @@ import { Q } from '@nozbe/watermelondb';
 import { database } from '@/src/database';
 import type { List } from '@/src/database/models/list';
 import type { ListItem } from '@/src/database/models/list-item';
+import { parseCollaboratorSnapshot } from './collaborator-snapshot';
 
 export type ListSummary = {
   id: string;
@@ -10,6 +11,7 @@ export type ListSummary = {
   itemCount: number;
   updatedAt: number;
   isShared: boolean;
+  collaboratorIds: string[];
 };
 
 export type UseListsOptions = {
@@ -40,6 +42,7 @@ export function useLists(options: UseListsOptions = {}) {
               name: record.name,
               isShared: record.isShared,
               updatedAt: record.updatedAt,
+              collaboratorIds: parseCollaboratorSnapshot(record.collaboratorSnapshot),
               itemCount: await database
                 .get<ListItem>('list_items')
                 .query(Q.where('list_id', record.id), Q.where('is_deleted', false))

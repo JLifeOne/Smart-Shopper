@@ -3,6 +3,8 @@
 
 begin;
 
+create extension if not exists pgcrypto with schema extensions;
+
 alter table public.lists
   add column if not exists allow_editor_invites boolean not null default false;
 
@@ -21,7 +23,7 @@ alter table public.list_members
     check (role in ('owner', 'editor', 'checker', 'observer'));
 
 create table if not exists public.list_invites (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default extensions.gen_random_uuid(),
   list_id uuid not null references public.lists(id) on delete cascade,
   token text not null unique,
   role text not null check (role in ('owner', 'editor', 'checker', 'observer')),
