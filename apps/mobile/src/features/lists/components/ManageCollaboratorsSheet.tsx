@@ -18,7 +18,8 @@ import {
   generateInvite,
   revokeInvite,
   type Collaborator,
-  type ListInvite
+  type ListInvite,
+  type GenerateInviteOptions
 } from '../collaboration-api';
 import { trackEvent } from '@/src/lib/analytics';
 
@@ -33,6 +34,12 @@ const palette = {
 };
 
 const INVITE_BASE_URL = 'https://smartshop.app/l';
+const SHARE_MESSAGE_PREFIX = 'Join my Smart Shopper list';
+
+function formatShareMessage(listName: string, token: string) {
+  const url = `${INVITE_BASE_URL}/${token}`;
+  return `${SHARE_MESSAGE_PREFIX} "${listName}": ${url}`;
+}
 
 type Props = {
   visible: boolean;
@@ -50,7 +57,9 @@ export function ManageCollaboratorsSheet({ visible, listId, listRemoteId, listNa
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const canInvite = Boolean(listRemoteId);
+  const QUEUED_MSG = 'Invite pending sync. We will generate the link once your list finishes syncing.';
+  const [queuedInvite, setQueuedInvite] = useState<GenerateInviteOptions | null>(null);
+  const canInvite = Boolean(listRemoteId) || Boolean(queuedInvite);
 
   const loadData = useCallback(async () => {
     if (!listRemoteId) {
@@ -86,42 +95,69 @@ export function ManageCollaboratorsSheet({ visible, listId, listRemoteId, listNa
     }
   }, [visible, loadData]);
 
+
+  const sendInvite = useCallback(
+    async (targetListId: string, payload: GenerateInviteOptions) => {
+      setActionLoading(true);
+      try {
+        const invite = await generateInvite({
+          ...payload,
+          listId: targetListId
+        });
+        setInvites((prev) => {
+          const next = [invite, ...(prev ?? [])];
+          onUpdated?.({ collaborators, invites: next });
+          return next;
+        });
+        await Share.share({
+          message: formatShareMessage(listName, invite.token)
+        });
+        setError(null);
+        trackEvent('collab_invite_generated', {
+          list_id: targetListId,
+          role: invite.role,
+          single_use: invite.single_use
+        });
+      } catch (err) {
+        console.error('ManageCollaboratorsSheet: invite failed', err);
+        Alert.alert('Invite failed', err instanceof Error ? err.message : 'Unable to generate invite. Try again.');
+        if (!(err instanceof Error) || err.message.toLowerCase().includes('network')) {
+          setQueuedInvite(payload);
+          setError(QUEUED_MSG);
+        }
+      } finally {
+        setActionLoading(false);
+      }
+    },
+    [collaborators, listName, onUpdated]
+  );
+
   const handleInvite = useCallback(async () => {
+    const request: GenerateInviteOptions = {
+      listId: listRemoteId ?? '',
+      role: 'editor',
+      expiresInHours: 24 * 7,
+      singleUse: false
+    };
     if (!listRemoteId) {
-      Alert.alert('Sync required', 'Connect this list to the cloud before sharing.');
+      setQueuedInvite(request);
+      setError(QUEUED_MSG);
       return;
     }
-    setActionLoading(true);
-    try {
-      const invite = await generateInvite({
-        listId: listRemoteId,
-        role: 'editor',
-        expiresInHours: 24 * 7,
-        singleUse: false
-      });
-      setInvites((prev) => {
-        const next = [invite, ...(prev ?? [])];
-        onUpdated?.({ collaborators, invites: next });
-        return next;
-      });
-      const url = `${INVITE_BASE_URL}/${invite.token}`;
-      await Share.share({
-        message: `Join my Smart Shopper list "${listName}": ${url}`
-      });
-      trackEvent('collab_invite_generated', {
-        list_id: listRemoteId,
-        role: invite.role,
-        single_use: invite.single_use
-      });
-    } catch (err) {
-      console.error('ManageCollaboratorsSheet: invite failed', err);
-      Alert.alert('Invite failed', err instanceof Error ? err.message : 'Unable to generate invite. Try again.');
-    } finally {
-      setActionLoading(false);
+    await sendInvite(listRemoteId, request);
+  }, [listRemoteId, sendInvite]);
+
+  useEffect(() => {
+    if (queuedInvite && listRemoteId) {
+      sendInvite(listRemoteId, queuedInvite).then(() => setQueuedInvite(null));
     }
-  }, [listId, listRemoteId, listName, collaborators, onUpdated]);
+  }, [queuedInvite, listRemoteId, sendInvite]);
 
   const handleRevoke = useCallback(async (inviteId: string) => {
+    if (!listRemoteId) {
+      Alert.alert('Sync required', 'Connect this list to your account before sharing.');
+      return;
+    }
     setActionLoading(true);
     try {
       const updated = await revokeInvite(inviteId);
@@ -137,7 +173,7 @@ export function ManageCollaboratorsSheet({ visible, listId, listRemoteId, listNa
     } finally {
       setActionLoading(false);
     }
-  }, []);
+  }, [collaborators, listRemoteId, onUpdated]);
 
   const collaboratorList = useMemo(() => {
     return collaborators.map((member) => {
@@ -151,6 +187,16 @@ export function ManageCollaboratorsSheet({ visible, listId, listRemoteId, listNa
       };
     });
   }, [collaborators, user?.id]);
+
+  const latestInviteToken = useMemo(() => invites.find((invite) => invite.token)?.token ?? null, [invites]);
+
+  const handleShareExisting = useCallback(
+    async (token: string) => {
+      await Share.share({ message: formatShareMessage(listName, token) });
+    },
+    [listName]
+  );
+
 
   return (
     <Modal
@@ -171,6 +217,11 @@ export function ManageCollaboratorsSheet({ visible, listId, listRemoteId, listNa
         </View>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        {!listRemoteId ? (
+          <Text style={styles.infoText}>
+            This list is syncing. Invites will be generated automatically once it finishes connecting.
+          </Text>
+        ) : null}
 
         {loading ? (
           <View style={styles.loadingState}>
@@ -215,20 +266,30 @@ export function ManageCollaboratorsSheet({ visible, listId, listRemoteId, listNa
                       <Text style={styles.rowTitle}>{formatRole(invite.role)}</Text>
                       <Text style={styles.rowSubtitle}>{invite.status.toUpperCase()}</Text>
                     </View>
-                    {invite.status === 'pending' ? (
-                      <Pressable
-                        style={styles.revokeButton}
-                        disabled={actionLoading}
-                        onPress={() =>
-                          Alert.alert('Revoke invite', 'This invite will no longer work. Continue?', [
-                            { text: 'Cancel', style: 'cancel' },
-                            { text: 'Revoke', style: 'destructive', onPress: () => handleRevoke(invite.id) }
-                          ])
-                        }
-                      >
-                        <Text style={styles.revokeLabel}>Revoke</Text>
-                      </Pressable>
-                    ) : null}
+                    <View style={styles.inviteActions}>
+                      {invite.token ? (
+                        <Pressable
+                          style={styles.inviteActionButton}
+                          onPress={() => handleShareExisting(invite.token!)}
+                        >
+                          <Ionicons name="share-social-outline" size={14} color={palette.accent} />
+                        </Pressable>
+                      ) : null}
+                      {invite.status === 'pending' ? (
+                        <Pressable
+                          style={styles.revokeButton}
+                          disabled={actionLoading}
+                          onPress={() =>
+                            Alert.alert('Revoke invite', 'This invite will no longer work. Continue?', [
+                              { text: 'Cancel', style: 'cancel' },
+                              { text: 'Revoke', style: 'destructive', onPress: () => handleRevoke(invite.id) }
+                            ])
+                          }
+                        >
+                          <Text style={styles.revokeLabel}>Revoke</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
                   </View>
                 ))
               ) : (
@@ -252,6 +313,12 @@ export function ManageCollaboratorsSheet({ visible, listId, listRemoteId, listNa
               {!canInvite ? 'Sync list to share' : actionLoading ? 'Generating…' : 'Generate invite link'}
             </Text>
           </Pressable>
+          {latestInviteToken ? (
+            <Pressable style={styles.secondaryFooterButton} onPress={() => handleShareExisting(latestInviteToken)}>
+              <Ionicons name="logo-whatsapp" size={16} color={palette.accent} />
+              <Text style={styles.secondaryFooterLabel}>Share existing link</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -315,6 +382,10 @@ const styles = StyleSheet.create({
   errorText: {
     color: palette.destructive,
     fontSize: 14
+  },
+  infoText: {
+    color: palette.muted,
+    fontSize: 13
   },
   loadingState: {
     flex: 1,
@@ -398,6 +469,21 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     gap: 12
   },
+  inviteActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6
+  },
+  inviteActionButton: {
+    width: 36,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.card
+  },
   inviteDetails: {
     flex: 1
   },
@@ -414,7 +500,8 @@ const styles = StyleSheet.create({
     fontWeight: '600'
   },
   sheetFooter: {
-    paddingTop: 8
+    paddingTop: 8,
+    gap: 12
   },
   primaryButton: {
     flexDirection: 'row',
@@ -431,6 +518,21 @@ const styles = StyleSheet.create({
   primaryButtonLabel: {
     color: palette.accent,
     fontSize: 15,
+    fontWeight: '600'
+  },
+  secondaryFooterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: palette.border,
+    paddingVertical: 12
+  },
+  secondaryFooterLabel: {
+    color: palette.accent,
+    fontSize: 14,
     fontWeight: '600'
   }
 });

@@ -24,6 +24,31 @@ export function useLists(options: UseListsOptions = {}) {
   const [lists, setLists] = useState<ListSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const collection = database.get<ListItem>('list_items');
+    const query = collection.query(Q.where('is_deleted', false));
+    const observable =
+      typeof (query as any).observeWithColumns === 'function'
+        ? (query as any).observeWithColumns(['list_id'])
+        : query.observe();
+
+    const subscription = (observable as any).subscribe({
+      next: (records: ListItem[]) => {
+        const counts: Record<string, number> = {};
+        records.forEach((record) => {
+          const listId = record.listId;
+          counts[listId] = (counts[listId] ?? 0) + 1;
+        });
+        setItemCounts(counts);
+      },
+      error: (err: unknown) => {
+        console.error('useLists: item count subscription error', err);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     const collection = database.get<List>('lists');
@@ -37,20 +62,15 @@ export function useLists(options: UseListsOptions = {}) {
     const subscription = query.observe().subscribe({
       next: async (records) => {
         try {
-          const summaries = await Promise.all(
-            records.map(async (record) => ({
-              id: record.id,
-              remoteId: record.remoteId,
-              name: record.name,
-              isShared: record.isShared,
-              updatedAt: record.updatedAt,
-              collaboratorIds: parseCollaboratorSnapshot(record.collaboratorSnapshot),
-              itemCount: await database
-                .get<ListItem>('list_items')
-                .query(Q.where('list_id', record.id), Q.where('is_deleted', false))
-                .fetchCount()
-            }))
-          );
+          const summaries = records.map((record) => ({
+            id: record.id,
+            remoteId: record.remoteId,
+            name: record.name,
+            isShared: record.isShared,
+            updatedAt: record.updatedAt,
+            collaboratorIds: parseCollaboratorSnapshot(record.collaboratorSnapshot),
+            itemCount: itemCounts[record.id] ?? 0
+          }));
           setLists(summaries);
           setLoading(false);
           setError(null);
@@ -66,7 +86,7 @@ export function useLists(options: UseListsOptions = {}) {
     });
 
     return () => subscription.unsubscribe();
-  }, [ownerId]);
+  }, [ownerId, itemCounts]);
 
   return useMemo(
     () => ({ lists, loading, error }),

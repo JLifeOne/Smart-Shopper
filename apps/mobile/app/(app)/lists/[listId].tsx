@@ -691,10 +691,8 @@ export default function ListDetailScreen() {
       return;
     }
     if (!list?.remoteId) {
-      Alert.alert('Sync required', 'This list has not synced yet. Try again after it finishes syncing.');
-      return;
-    }
-    if (list?.remoteId) {
+      Alert.alert('Syncing list', 'Generating invites once sync completes. You can keep working while we connect.');
+    } else {
       trackEvent('list_share_open', { list_id: list.remoteId });
     }
     setShareSheetVisible(true);
