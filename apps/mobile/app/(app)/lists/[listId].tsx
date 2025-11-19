@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -47,6 +47,7 @@ const palette = {
   card: '#FFFFFF',
   accent: '#4FD1C5',
   accentDark: '#0C1D37',
+  accentWarm: '#FFB347',
   border: '#E2E8F0',
   subtitle: '#4A576D'
 };
@@ -55,7 +56,7 @@ const OTHER_CATEGORY = 'OTHER';
 const CUSTOM_STORE_STORAGE_KEY = '@smart-shopper:custom-stores';
 const DELEGATE_FILTERS = [
   { key: 'all', label: 'All items' },
-  { key: 'mine', label: 'Assigned to me' },
+  { key: 'mine', label: 'Delegated to me' },
   { key: 'open', label: 'Open' }
 ] as const;
 
@@ -101,7 +102,7 @@ function formatItemTitle(item: ListItemSummary) {
   return item.label;
 }
 
-function formatCollaboratorInitials(userId: string | null | undefined, currentUserId: string | null | undefined) {
+function formatDelegateInitials(userId: string | null | undefined, currentUserId: string | null | undefined) {
   if (currentUserId && userId === currentUserId) {
     return 'You';
   }
@@ -203,6 +204,15 @@ export default function ListDetailScreen() {
   const [shareSheetVisible, setShareSheetVisible] = useState(false);
   const [delegateFilter, setDelegateFilter] = useState<DelegateFilterKey>('all');
   const { setActiveListId } = useSearchOverlay();
+  const shareSyncNoticeShown = useRef(false);
+
+  const handleSyncQueuedNotice = useCallback(() => {
+    Toast.show('Invite queued—finishing sync before sharing.');
+  }, []);
+
+  const handleSyncResolvedNotice = useCallback(() => {
+    Toast.show('Invite link is ready. Share it anywhere.');
+  }, []);
 
   useEffect(() => {
     if (listId) {
@@ -214,6 +224,20 @@ export default function ListDetailScreen() {
   useEffect(() => {
     setCollaboratorIds(parseCollaboratorSnapshot(list?.collaboratorSnapshot ?? null));
   }, [list?.collaboratorSnapshot]);
+
+  useEffect(() => {
+    if (!sharingEnabled) {
+      return;
+    }
+    if (!shareSheetVisible) {
+      shareSyncNoticeShown.current = false;
+      return;
+    }
+    if (!list?.remoteId && !shareSyncNoticeShown.current) {
+      Toast.show('Syncing list—invites will send once it connects.');
+      shareSyncNoticeShown.current = true;
+    }
+  }, [shareSheetVisible, list?.remoteId, sharingEnabled]);
 
   useEffect(() => {
     if (!draft.trim()) {
@@ -337,7 +361,7 @@ export default function ListDetailScreen() {
     () =>
       collaboratorIds.map((id) => ({
         id,
-        initials: formatCollaboratorInitials(id, user?.id ?? null)
+        initials: formatDelegateInitials(id, user?.id ?? null)
       })),
     [collaboratorIds, user?.id]
   );
@@ -691,7 +715,6 @@ export default function ListDetailScreen() {
       return;
     }
     if (!list?.remoteId) {
-      Alert.alert('Syncing list', 'Generating invites once sync completes. You can keep working while we connect.');
     } else {
       trackEvent('list_share_open', { list_id: list.remoteId });
     }
@@ -787,17 +810,20 @@ export default function ListDetailScreen() {
                 </Text>
               </Pressable>
             ) : null}
-            {costEstimate ? (
-              <View style={styles.estimatePill}>
-                <Ionicons name="pricetag-outline" size={14} color={palette.accentDark} />
-                <Text style={styles.estimatePillLabel}>
-                  Estimated cost = {formatPrice(costEstimate.total, costEstimate.currency)} (
-                  {costEstimate.itemCount === 1 ? '1 item' : `${costEstimate.itemCount} items`}, qty{' '}
-                  {costEstimate.quantity})
-                </Text>
-              </View>
-            ) : null}
+            <Pressable style={styles.shareSecondaryChip} onPress={handleOpenShare}>
+              <Ionicons name="share-social-outline" size={14} color={palette.accentDark} />
+              <Text style={styles.shareSecondaryChipLabel}>Share</Text>
+            </Pressable>
           </View>
+          {costEstimate ? (
+            <View style={styles.estimateRow}>
+              <Ionicons name="pricetag-outline" size={14} color={palette.accentDark} />
+              <Text style={styles.estimateLabel}>
+                {formatPrice(costEstimate.total, costEstimate.currency)} est. ({costEstimate.itemCount}{' '}
+                items)
+              </Text>
+            </View>
+          ) : null}
           <View style={styles.delegateFilterRow}>
             {DELEGATE_FILTERS.map((option) => {
               const active = delegateFilter === option.key;
@@ -818,27 +844,26 @@ export default function ListDetailScreen() {
           </View>
           {sharingEnabled ? (
             <View style={styles.collabRow}>
-              <View style={styles.avatarStack}>
-                {previewAvatars.length ? (
-                  previewAvatars.map((avatar) => (
-                    <View key={avatar.id} style={styles.avatarBubble}>
-                      <Text style={styles.avatarBubbleLabel}>{avatar.initials}</Text>
-                      <View style={styles.presenceDot} />
+              <View style={styles.collabCopy}>
+                <Text style={styles.collabHint}>Delegated teammates</Text>
+                <View style={styles.avatarStack}>
+                  {previewAvatars.length ? (
+                    previewAvatars.map((avatar) => (
+                      <View key={avatar.id} style={styles.avatarBubble}>
+                        <Text style={styles.avatarBubbleLabel}>{avatar.initials}</Text>
+                        <View style={styles.presenceDot} />
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.collabPlaceholder}>Only you</Text>
+                  )}
+                  {extraCollaborators > 0 ? (
+                    <View style={styles.avatarOverflow}>
+                      <Text style={styles.avatarOverflowLabel}>+{extraCollaborators}</Text>
                     </View>
-                  ))
-                ) : (
-                  <Text style={styles.collabPlaceholder}>Only you</Text>
-                )}
-                {extraCollaborators > 0 ? (
-                  <View style={styles.avatarOverflow}>
-                    <Text style={styles.avatarOverflowLabel}>+{extraCollaborators}</Text>
-                  </View>
-                ) : null}
+                  ) : null}
+                </View>
               </View>
-              <Pressable style={styles.shareSecondaryChip} onPress={handleOpenShare}>
-                <Ionicons name="share-social-outline" size={14} color={palette.accentDark} />
-                <Text style={styles.shareSecondaryChipLabel}>Share</Text>
-              </Pressable>
             </View>
           ) : null}
         </View>
@@ -935,6 +960,7 @@ export default function ListDetailScreen() {
               onToggle={handleToggleChecked}
               onAdjust={handleAdjustQuantity}
               onLongPress={handleListItemLongPress}
+              currentUserId={user?.id ?? null}
             />
           )}
         />
@@ -976,6 +1002,8 @@ export default function ListDetailScreen() {
             setCollaboratorIds(ids);
             persistCollaboratorSnapshot(list.id, collaborators);
           }}
+          onSyncQueued={handleSyncQueuedNotice}
+          onSyncResolved={handleSyncResolvedNotice}
         />
       ) : null}
     </SafeAreaView>
@@ -1154,12 +1182,14 @@ function ListItemRow({
   item,
   onToggle,
   onAdjust,
-  onLongPress
+  onLongPress,
+  currentUserId
 }: {
   item: ListItemSummary;
   onToggle: (item: ListItemSummary) => void;
   onAdjust: (item: ListItemSummary, delta: number) => void;
   onLongPress: (item: ListItemSummary) => void;
+  currentUserId: string | null;
 }) {
   const latest = item.priceSummary?.latest ?? null;
   const lowest = item.priceSummary?.lowest ?? null;
@@ -1205,6 +1235,13 @@ function ListItemRow({
             <Text style={[styles.itemTags, item.isChecked && styles.itemTagsChecked]}>{item.tags.join(', ')}</Text>
           ) : null}
         </Pressable>
+        {item.delegateUserId ? (
+          <View style={styles.delegateBadge}>
+            <Text style={styles.delegateBadgeLabel}>
+              {formatDelegateInitials(item.delegateUserId, currentUserId)}
+            </Text>
+          </View>
+        ) : null}
       </View>
       <View style={styles.stepper}>
         <Pressable
@@ -1322,11 +1359,30 @@ const styles = StyleSheet.create({
     color: '#065F46',
     fontWeight: '700'
   },
+  estimateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8
+  },
+  estimateLabel: {
+    fontSize: 12,
+    color: palette.subtitle,
+    fontWeight: '600'
+  },
   collabRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: 12
+  },
+  collabCopy: {
+    flex: 1
+  },
+  collabHint: {
+    fontSize: 12,
+    color: palette.subtitle,
+    marginBottom: 4
   },
   avatarStack: {
     flexDirection: 'row',
@@ -1381,12 +1437,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: palette.border,
-    backgroundColor: palette.card
+    backgroundColor: '#FFF4EA'
   },
   shareSecondaryChipLabel: {
     fontSize: 13,
@@ -1517,6 +1573,19 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     flex: 1,
     gap: 12
+  },
+  delegateBadge: {
+    minWidth: 32,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#FFF4EA',
+    alignSelf: 'flex-start'
+  },
+  delegateBadgeLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: palette.accentWarm
   },
   checkbox: {
     width: 22,

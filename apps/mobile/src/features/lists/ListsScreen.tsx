@@ -20,6 +20,7 @@ const palette = {
   card: '#FFFFFF',
   accent: '#4FD1C5',
   accentDark: '#0C1D37',
+  accentWarm: '#FFB347',
   subtitle: '#4A576D',
   border: '#E2E8F0'
 };
@@ -165,8 +166,14 @@ export const ListsScreen = forwardRef<ListsScreenHandle, { searchQuery?: string 
   const renderContent = () => {
     if (loading) {
       return (
-        <View style={styles.centerContent}>
-          <ActivityIndicator size="small" color={palette.accentDark} />
+        <View style={styles.listContent}>
+          {[0, 1, 2].map((index) => (
+            <View key={index} style={styles.skeletonCard}>
+              <View style={styles.skeletonTitle} />
+              <View style={styles.skeletonLine} />
+              <View style={styles.skeletonFooter} />
+            </View>
+          ))}
         </View>
       );
     }
@@ -426,6 +433,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center'
   },
+  skeletonCard: {
+    height: 120,
+    borderRadius: 20,
+    backgroundColor: '#E2E8F0',
+    opacity: 0.5,
+    padding: 16,
+    justifyContent: 'space-between'
+  },
+  skeletonTitle: {
+    width: '60%',
+    height: 18,
+    borderRadius: 8,
+    backgroundColor: '#CBD5F5'
+  },
+  skeletonLine: {
+    width: '80%',
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#D9E3F8'
+  },
+  skeletonFooter: {
+    flexDirection: 'row',
+    gap: 8
+  },
   errorText: {
     color: '#E53E3E'
   },
@@ -577,7 +608,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#E6F3FF',
+    backgroundColor: '#FFEEDA',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -28,6 +29,7 @@ const palette = {
   card: '#FFFFFF',
   accent: '#0C1D37',
   accentSoft: '#4FD1C5',
+  accentWarm: '#FFB347',
   border: '#E2E8F0',
   muted: '#6C7A91',
   destructive: '#E53E3E'
@@ -48,9 +50,20 @@ type Props = {
   listName: string;
   onClose: () => void;
   onUpdated?: (payload: { collaborators: Collaborator[]; invites: ListInvite[] }) => void;
+  onSyncQueued?: () => void;
+  onSyncResolved?: () => void;
 };
 
-export function ManageCollaboratorsSheet({ visible, listId, listRemoteId, listName, onClose, onUpdated }: Props) {
+export function ManageCollaboratorsSheet({
+  visible,
+  listId,
+  listRemoteId,
+  listName,
+  onClose,
+  onUpdated,
+  onSyncQueued,
+  onSyncResolved
+}: Props) {
   const { user } = useAuth();
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [invites, setInvites] = useState<ListInvite[]>([]);
@@ -59,13 +72,22 @@ export function ManageCollaboratorsSheet({ visible, listId, listRemoteId, listNa
   const [error, setError] = useState<string | null>(null);
   const QUEUED_MSG = 'Invite pending sync. We will generate the link once your list finishes syncing.';
   const [queuedInvite, setQueuedInvite] = useState<GenerateInviteOptions | null>(null);
-  const canInvite = Boolean(listRemoteId) || Boolean(queuedInvite);
+  const isSynced = Boolean(listRemoteId);
+  const hasQueuedInvite = Boolean(queuedInvite);
+  const primaryDisabled = actionLoading || (hasQueuedInvite && !isSynced);
+  const primaryLabel = !isSynced
+    ? hasQueuedInvite
+      ? 'Waiting for sync…'
+      : 'Queue invite link'
+    : actionLoading
+      ? 'Generating…'
+      : 'Generate invite link';
 
   const loadData = useCallback(async () => {
     if (!listRemoteId) {
       setCollaborators([]);
       setInvites([]);
-      setError('Sync this list before sharing.');
+      setError(null);
       return;
     }
     setLoading(true);
@@ -109,9 +131,7 @@ export function ManageCollaboratorsSheet({ visible, listId, listRemoteId, listNa
           onUpdated?.({ collaborators, invites: next });
           return next;
         });
-        await Share.share({
-          message: formatShareMessage(listName, invite.token)
-        });
+        await shareMessage(listName, invite.token);
         setError(null);
         trackEvent('collab_invite_generated', {
           list_id: targetListId,
@@ -124,12 +144,13 @@ export function ManageCollaboratorsSheet({ visible, listId, listRemoteId, listNa
         if (!(err instanceof Error) || err.message.toLowerCase().includes('network')) {
           setQueuedInvite(payload);
           setError(QUEUED_MSG);
+          onSyncQueued?.();
         }
       } finally {
         setActionLoading(false);
       }
     },
-    [collaborators, listName, onUpdated]
+    [collaborators, listName, onUpdated, onSyncQueued]
   );
 
   const handleInvite = useCallback(async () => {
@@ -142,16 +163,20 @@ export function ManageCollaboratorsSheet({ visible, listId, listRemoteId, listNa
     if (!listRemoteId) {
       setQueuedInvite(request);
       setError(QUEUED_MSG);
+      onSyncQueued?.();
       return;
     }
     await sendInvite(listRemoteId, request);
-  }, [listRemoteId, sendInvite]);
+  }, [listRemoteId, sendInvite, onSyncQueued]);
 
   useEffect(() => {
     if (queuedInvite && listRemoteId) {
-      sendInvite(listRemoteId, queuedInvite).then(() => setQueuedInvite(null));
+      sendInvite(listRemoteId, queuedInvite).then(() => {
+        setQueuedInvite(null);
+        onSyncResolved?.();
+      });
     }
-  }, [queuedInvite, listRemoteId, sendInvite]);
+  }, [queuedInvite, listRemoteId, sendInvite, onSyncResolved]);
 
   const handleRevoke = useCallback(async (inviteId: string) => {
     if (!listRemoteId) {
@@ -192,7 +217,7 @@ export function ManageCollaboratorsSheet({ visible, listId, listRemoteId, listNa
 
   const handleShareExisting = useCallback(
     async (token: string) => {
-      await Share.share({ message: formatShareMessage(listName, token) });
+      await shareMessage(listName, token);
     },
     [listName]
   );
@@ -303,21 +328,25 @@ export function ManageCollaboratorsSheet({ visible, listId, listRemoteId, listNa
           <Pressable
             style={[
               styles.primaryButton,
-              (!canInvite || actionLoading) && styles.primaryButtonDisabled
+              primaryDisabled && styles.primaryButtonDisabled
             ]}
-            disabled={!canInvite || actionLoading}
+            disabled={primaryDisabled}
             onPress={handleInvite}
           >
             <Ionicons name="share-social" size={16} color={palette.accent} />
             <Text style={styles.primaryButtonLabel}>
-              {!canInvite ? 'Sync list to share' : actionLoading ? 'Generating…' : 'Generate invite link'}
+              {primaryLabel}
             </Text>
           </Pressable>
           {latestInviteToken ? (
-            <Pressable style={styles.secondaryFooterButton} onPress={() => handleShareExisting(latestInviteToken)}>
-              <Ionicons name="logo-whatsapp" size={16} color={palette.accent} />
-              <Text style={styles.secondaryFooterLabel}>Share existing link</Text>
-            </Pressable>
+            <View style={styles.shareRow}>
+              <Pressable style={styles.secondaryFooterButton} onPress={() => handleShareExisting(latestInviteToken)}>
+                <Ionicons name="logo-whatsapp" size={16} color={palette.accent} />
+              </Pressable>
+              <Pressable style={styles.secondaryFooterButton} onPress={() => handleShareExisting(latestInviteToken)}>
+                <Ionicons name="copy-outline" size={16} color={palette.accent} />
+              </Pressable>
+            </View>
           ) : null}
         </View>
       </View>
@@ -337,14 +366,30 @@ function formatRole(role: Collaborator['role']) {
     case 'owner':
       return 'Owner';
     case 'editor':
-      return 'Editor';
+      return 'Collaborator';
     case 'checker':
-      return 'Checker';
+      return 'Reviewer';
     case 'observer':
-      return 'Observer';
+      return 'Guest';
     default:
       return role;
   }
+}
+
+async function shareMessage(listName: string, token: string) {
+  const message = formatShareMessage(listName, token);
+  const encoded = encodeURIComponent(message);
+  const whatsappUrl = `whatsapp://send?text=${encoded}`;
+  try {
+    const canOpen = await Linking.canOpenURL(whatsappUrl);
+    if (canOpen) {
+      await Linking.openURL(whatsappUrl);
+      return;
+    }
+  } catch {
+    // fall through to Share API
+  }
+  await Share.share({ message });
 }
 
 const styles = StyleSheet.create({
@@ -519,6 +564,11 @@ const styles = StyleSheet.create({
     color: palette.accent,
     fontSize: 15,
     fontWeight: '600'
+  },
+  shareRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12
   },
   secondaryFooterButton: {
     flexDirection: 'row',
