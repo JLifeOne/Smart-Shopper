@@ -20,7 +20,13 @@ jobs:
         run: supabase --version
 
       - name: Lint database (static)
-        run: supabase db lint
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "SUPABASE_DB_URL secret not set; skipping db lint." && exit 0
+          fi
+          supabase db lint --db-url "$SUPABASE_DB_URL"
 
       - name: Ping Edge Functions
         env:
