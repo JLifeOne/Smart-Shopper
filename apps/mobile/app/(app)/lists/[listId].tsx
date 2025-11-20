@@ -54,13 +54,13 @@ const palette = {
 
 const OTHER_CATEGORY = 'OTHER';
 const CUSTOM_STORE_STORAGE_KEY = '@smart-shopper:custom-stores';
-const DELEGATE_FILTERS = [
+const ASSIGNMENT_FILTERS = [
   { key: 'all', label: 'All items' },
-  { key: 'mine', label: 'Delegated to me' },
+  { key: 'assigned', label: 'Assigned' },
   { key: 'open', label: 'Open' }
 ] as const;
 
-type DelegateFilterKey = (typeof DELEGATE_FILTERS)[number]['key'];
+type AssignmentFilterKey = (typeof ASSIGNMENT_FILTERS)[number]['key'];
 
 type SectionRow = {
   title: string;
@@ -202,9 +202,11 @@ export default function ListDetailScreen() {
   const { user } = useAuth();
   const [collaboratorIds, setCollaboratorIds] = useState<string[]>([]);
   const [shareSheetVisible, setShareSheetVisible] = useState(false);
-  const [delegateFilter, setDelegateFilter] = useState<DelegateFilterKey>('all');
+  const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilterKey>('all');
+  const [assigneeFilter, setAssigneeFilter] = useState<string | 'me' | 'any'>('me');
   const { setActiveListId } = useSearchOverlay();
   const shareSyncNoticeShown = useRef(false);
+  const [showDelegateHelper, setShowDelegateHelper] = useState(false);
 
   const handleSyncQueuedNotice = useCallback(() => {
     Toast.show('Invite queued—finishing sync before sharing.');
@@ -224,6 +226,57 @@ export default function ListDetailScreen() {
   useEffect(() => {
     setCollaboratorIds(parseCollaboratorSnapshot(list?.collaboratorSnapshot ?? null));
   }, [list?.collaboratorSnapshot]);
+
+  useEffect(() => {
+    if (!list?.id) {
+      return;
+    }
+    const key = `@smart-shopper:list:${list.id}:assignment-filter`;
+    AsyncStorage.getItem(key)
+      .then((raw) => {
+        if (!raw) {
+          setAssignmentFilter(list.isShared ? 'open' : 'all');
+          setAssigneeFilter('me');
+          return;
+        }
+        const parsed = JSON.parse(raw) as { assignmentFilter?: AssignmentFilterKey; assigneeFilter?: string | 'me' | 'any' };
+        setAssignmentFilter(parsed.assignmentFilter ?? (list.isShared ? 'open' : 'all'));
+        setAssigneeFilter(parsed.assigneeFilter ?? 'me');
+      })
+      .catch(() => {
+        setAssignmentFilter(list?.isShared ? 'open' : 'all');
+        setAssigneeFilter('me');
+      });
+  }, [list?.id, list?.isShared]);
+
+  useEffect(() => {
+    if (!list?.id) {
+      return;
+    }
+    const key = `@smart-shopper:list:${list.id}:assignment-filter`;
+    AsyncStorage.setItem(
+      key,
+      JSON.stringify({ assignmentFilter, assigneeFilter })
+    ).catch(() => undefined);
+  }, [assignmentFilter, assigneeFilter, list?.id]);
+
+  useEffect(() => {
+    if (!list?.id || !list.isShared) {
+      setShowDelegateHelper(false);
+      return;
+    }
+    const key = `@smart-shopper:list:${list.id}:delegate-helper`;
+    AsyncStorage.getItem(key)
+      .then((raw) => {
+        if (raw) {
+          setShowDelegateHelper(false);
+          return;
+        }
+        setShowDelegateHelper(true);
+        AsyncStorage.setItem(key, 'seen').catch(() => undefined);
+      })
+      .catch(() => setShowDelegateHelper(false));
+  }, [list?.id, list?.isShared]);
 
   useEffect(() => {
     if (!sharingEnabled) {
@@ -342,20 +395,25 @@ export default function ListDetailScreen() {
   );
 
   const costEstimate = useMemo(() => calculateCostEstimate(items), [items]);
-  const matchesDelegateFilter = useCallback(
+  const matchesAssignmentFilter = useCallback(
     (item: ListItemSummary) => {
-      if (delegateFilter === 'mine') {
-        if (!user?.id) {
+      if (assignmentFilter === 'open') {
+        return !item.delegateUserId;
+      }
+      if (assignmentFilter === 'assigned') {
+        const target =
+          assigneeFilter === 'me' ? user?.id ?? null : assigneeFilter === 'any' ? 'any' : assigneeFilter;
+        if (target === null) {
           return false;
         }
-        return item.delegateUserId === user.id;
-      }
-      if (delegateFilter === 'open') {
-        return !item.delegateUserId;
+        if (target === 'any') {
+          return Boolean(item.delegateUserId);
+        }
+        return item.delegateUserId === target;
       }
       return true;
     },
-    [delegateFilter, user?.id]
+    [assignmentFilter, assigneeFilter, user?.id]
   );
   const collaboratorDisplay = useMemo(
     () =>
@@ -368,10 +426,12 @@ export default function ListDetailScreen() {
   const previewAvatars = collaboratorDisplay.slice(0, 3);
   const extraCollaborators = Math.max(collaboratorDisplay.length - previewAvatars.length, 0);
 
-  const { activeSections, completedItems } = useMemo(() => {
+  const { activeSections, completedItems, assignedCount, openCount } = useMemo(() => {
     if (!items.length) {
-      return { activeSections: [] as SectionRow[], completedItems: [] as ListItemSummary[] };
+      return { activeSections: [] as SectionRow[], completedItems: [] as ListItemSummary[], assignedCount: 0, openCount: 0 };
     }
+    let assigned = 0;
+    let open = 0;
     const groups = new Map<
       string,
       {
@@ -383,7 +443,12 @@ export default function ListDetailScreen() {
     const doneItems: ListItemSummary[] = [];
 
     items.forEach((item) => {
-      if (!matchesDelegateFilter(item)) {
+      if (item.delegateUserId) {
+        assigned += 1;
+      } else {
+        open += 1;
+      }
+      if (!matchesAssignmentFilter(item)) {
         return;
       }
       if (item.isChecked) {
@@ -421,8 +486,16 @@ export default function ListDetailScreen() {
 
     const sortedDone = doneItems.slice().sort(compareItems);
 
-    return { activeSections: sortedActive, completedItems: sortedDone };
-  }, [aisleOrder, items, matchesDelegateFilter]);
+    return { activeSections: sortedActive, completedItems: sortedDone, assignedCount: assigned, openCount: open };
+  }, [aisleOrder, items, matchesAssignmentFilter]);
+
+  const assignmentCounts = useMemo(
+    () => ({
+      assigned: assignedCount,
+      open: openCount
+    }),
+    [assignedCount, openCount]
+  );
 
   const doneCount = completedItems.length;
   const visibleSections = showCompleted && doneCount
@@ -701,10 +774,10 @@ export default function ListDetailScreen() {
     setShowCompleted((prev) => !prev);
   }, []);
 
-  const handleDelegateFilterChange = useCallback(
-    (next: DelegateFilterKey) => {
-      setDelegateFilter(next);
-      trackEvent('delegate_filter_change', { filter: next });
+  const handleAssignmentFilterChange = useCallback(
+    (next: AssignmentFilterKey) => {
+      setAssignmentFilter(next);
+      trackEvent('assignment_filter_change', { filter: next });
     },
     []
   );
@@ -810,10 +883,12 @@ export default function ListDetailScreen() {
                 </Text>
               </Pressable>
             ) : null}
-            <Pressable style={styles.shareSecondaryChip} onPress={handleOpenShare}>
-              <Ionicons name="share-social-outline" size={14} color={palette.accentDark} />
-              <Text style={styles.shareSecondaryChipLabel}>Share</Text>
-            </Pressable>
+            {sharingEnabled ? (
+              <Pressable style={styles.shareSecondaryChip} onPress={handleOpenShare}>
+                <Ionicons name="share-social-outline" size={14} color={palette.accentDark} />
+                <Text style={styles.shareSecondaryChipLabel}>{list.isShared ? 'Share' : 'Invite'}</Text>
+              </Pressable>
+            ) : null}
           </View>
           {costEstimate ? (
             <View style={styles.estimateRow}>
@@ -824,47 +899,119 @@ export default function ListDetailScreen() {
               </Text>
             </View>
           ) : null}
-          <View style={styles.delegateFilterRow}>
-            {DELEGATE_FILTERS.map((option) => {
-              const active = delegateFilter === option.key;
-              return (
-                <Pressable
-                  key={option.key}
-                  style={[styles.delegateChip, active && styles.delegateChipActive]}
-                  onPress={() => handleDelegateFilterChange(option.key)}
-                >
-                  <Text
-                    style={[styles.delegateChipLabel, active && styles.delegateChipLabelActive]}
-                  >
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          {sharingEnabled ? (
-            <View style={styles.collabRow}>
-              <View style={styles.collabCopy}>
-                <Text style={styles.collabHint}>Delegated teammates</Text>
-                <View style={styles.avatarStack}>
-                  {previewAvatars.length ? (
-                    previewAvatars.map((avatar) => (
-                      <View key={avatar.id} style={styles.avatarBubble}>
-                        <Text style={styles.avatarBubbleLabel}>{avatar.initials}</Text>
-                        <View style={styles.presenceDot} />
-                      </View>
-                    ))
-                  ) : (
-                    <Text style={styles.collabPlaceholder}>Only you</Text>
-                  )}
-                  {extraCollaborators > 0 ? (
-                    <View style={styles.avatarOverflow}>
-                      <Text style={styles.avatarOverflowLabel}>+{extraCollaborators}</Text>
-                    </View>
-                  ) : null}
-                </View>
+          {list.isShared ? (
+            <>
+              <View style={styles.delegateFilterRow}>
+                {ASSIGNMENT_FILTERS.map((option) => {
+                  const active = assignmentFilter === option.key;
+                  const label =
+                    option.key === 'assigned'
+                      ? `Assigned${assignmentCounts.assigned ? ` (${assignmentCounts.assigned})` : ''}`
+                      : option.key === 'open'
+                        ? `Open${assignmentCounts.open ? ` (${assignmentCounts.open})` : ''}`
+                        : option.label;
+                  return (
+                    <Pressable
+                      key={option.key}
+                      style={[styles.delegateChip, active && styles.delegateChipActive]}
+                      onPress={() => handleAssignmentFilterChange(option.key)}
+                    >
+                      <Text
+                        style={[styles.delegateChipLabel, active && styles.delegateChipLabelActive]}
+                      >
+                        {label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
-            </View>
+              {assignmentFilter === 'assigned' ? (
+                <View style={styles.assigneeRow}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.assigneeChips}>
+                    <Pressable
+                      style={[
+                        styles.assigneeChip,
+                        assigneeFilter === 'me' && styles.assigneeChipActive
+                      ]}
+                      onPress={() => setAssigneeFilter('me')}
+                    >
+                      <Text
+                        style={[
+                          styles.assigneeChipLabel,
+                          assigneeFilter === 'me' && styles.assigneeChipLabelActive
+                        ]}
+                      >
+                        Me
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={[
+                        styles.assigneeChip,
+                        assigneeFilter === 'any' && styles.assigneeChipActive
+                      ]}
+                      onPress={() => setAssigneeFilter('any')}
+                    >
+                      <Text
+                        style={[
+                          styles.assigneeChipLabel,
+                          assigneeFilter === 'any' && styles.assigneeChipLabelActive
+                        ]}
+                      >
+                        Anyone/Open
+                      </Text>
+                    </Pressable>
+                    {collaboratorDisplay.map((collab) => (
+                      <Pressable
+                        key={collab.id}
+                        style={[
+                          styles.assigneeChip,
+                          assigneeFilter === collab.id && styles.assigneeChipActive
+                        ]}
+                        onPress={() => setAssigneeFilter(collab.id)}
+                      >
+                        <Text
+                          style={[
+                            styles.assigneeChipLabel,
+                            assigneeFilter === collab.id && styles.assigneeChipLabelActive
+                          ]}
+                        >
+                          {collab.initials}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              ) : null}
+              {sharingEnabled ? (
+                <View style={styles.collabRow}>
+                  <View style={styles.collabCopy}>
+                    <Text style={styles.collabHint}>Delegated teammates</Text>
+                    <View style={styles.avatarStack}>
+                      {previewAvatars.length ? (
+                        previewAvatars.map((avatar) => (
+                          <View key={avatar.id} style={styles.avatarBubble}>
+                            <Text style={styles.avatarBubbleLabel}>{avatar.initials}</Text>
+                            <View style={styles.presenceDot} />
+                          </View>
+                        ))
+                      ) : (
+                        <Text style={styles.collabPlaceholder}>Only you</Text>
+                      )}
+                      {extraCollaborators > 0 ? (
+                        <View style={styles.avatarOverflow}>
+                          <Text style={styles.avatarOverflowLabel}>+{extraCollaborators}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    {showDelegateHelper ? (
+                      <Text style={styles.helperText}>
+                        Use “Open” to see unclaimed items. Claim to own it.
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              ) : null}
+            </>
           ) : null}
         </View>
       </View>
@@ -1338,6 +1485,35 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 12
   },
+  assigneeRow: {
+    marginTop: 8
+  },
+  assigneeChips: {
+    gap: 8,
+    paddingRight: 8
+  },
+  assigneeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: palette.border,
+    marginRight: 8
+  },
+  assigneeChipActive: {
+    backgroundColor: '#E6FFFA',
+    borderColor: palette.accent
+  },
+  assigneeChipLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: palette.accentDark
+  },
+  assigneeChipLabelActive: {
+    color: palette.accentDark
+  },
   delegateChip: {
     borderWidth: 1,
     borderColor: palette.border,
@@ -1432,6 +1608,16 @@ const styles = StyleSheet.create({
   collabPlaceholder: {
     fontSize: 12,
     color: palette.subtitle
+  },
+  helperText: {
+    marginTop: 6,
+    fontSize: 12,
+    color: palette.subtitle
+  },
+  inviteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12
   },
   shareSecondaryChip: {
     flexDirection: 'row',

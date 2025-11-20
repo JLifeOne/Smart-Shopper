@@ -29,6 +29,9 @@ type PromptState =
   | { mode: 'create' }
   | { mode: 'rename'; listId: string; currentName: string };
 
+type ListFilter = 'all' | 'shared' | 'received';
+type SortOption = 'newest' | 'oldest' | 'received' | 'shared' | 'az';
+
 export const ListsScreen = forwardRef<ListsScreenHandle, { searchQuery?: string }>(function ListsScreen({ searchQuery }, ref) {
   const { user } = useAuth();
   const router = useRouter();
@@ -36,6 +39,8 @@ export const ListsScreen = forwardRef<ListsScreenHandle, { searchQuery?: string 
   const [prompt, setPrompt] = useState<PromptState | null>(null);
   const [nameDraft, setNameDraft] = useState('');
   const [shareTarget, setShareTarget] = useState<ListSummary | null>(null);
+  const [listFilter, setListFilter] = useState<ListFilter>('all');
+  const [sortOption, setSortOption] = useState<SortOption>('newest');
   const sharingEnabled = featureFlags.listSharing;
   const persistCollaborators = useCallback(
     (listId: string, collaborators: Collaborator[]) => {
@@ -142,13 +147,50 @@ export const ListsScreen = forwardRef<ListsScreenHandle, { searchQuery?: string 
 
   const closeShareModal = useCallback(() => setShareTarget(null), []);
 
+  const receivedLists = useMemo(
+    () =>
+      lists.filter(
+        (list) =>
+          list.isShared && Boolean(user?.id) && list.ownerId && list.ownerId !== user?.id
+      ),
+    [lists, user?.id]
+  );
+
+  const sharedBadgeCount = receivedLists.length;
+
   const filteredLists = useMemo(() => {
-    const term = (searchQuery ?? "").trim().toLowerCase();
-    if (!term) {
-      return lists;
+    const term = (searchQuery ?? '').trim().toLowerCase();
+    let pool: ListSummary[] = lists;
+
+    if (listFilter === 'shared') {
+      pool = lists.filter((list) => list.isShared);
+    } else if (listFilter === 'received') {
+      pool = receivedLists;
     }
-    return lists.filter((list) => list.name.toLowerCase().includes(term));
-  }, [lists, searchQuery]);
+
+    if (term) {
+      pool = pool.filter((list) => list.name.toLowerCase().includes(term));
+    }
+
+    const sorted = pool.slice().sort((a, b) => {
+      switch (sortOption) {
+        case 'oldest':
+          return a.updatedAt - b.updatedAt;
+        case 'received':
+          return Number((b.ownerId ?? '') !== (user?.id ?? '')) - Number((a.ownerId ?? '') !== (user?.id ?? '')) ||
+            b.updatedAt - a.updatedAt;
+        case 'shared':
+          return Number(b.isShared) - Number(a.isShared) || b.updatedAt - a.updatedAt;
+        case 'az':
+          return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+        case 'newest':
+        default:
+          return b.updatedAt - a.updatedAt;
+      }
+    });
+
+    return sorted;
+  }, [lists, listFilter, receivedLists, sortOption, searchQuery, user?.id]);
 
   const renderItem = useCallback(
     ({ item }: { item: ListSummary }) => (
@@ -259,6 +301,21 @@ export const ListsScreen = forwardRef<ListsScreenHandle, { searchQuery?: string 
     );
   };
 
+  const sortLabels: Record<SortOption, string> = {
+    newest: 'Newest',
+    oldest: 'Oldest',
+    received: 'Received',
+    shared: 'Shared',
+    az: 'A–Z'
+  };
+
+  const handleSortCycle = useCallback(() => {
+    const order: SortOption[] = ['newest', 'oldest', 'received', 'shared', 'az'];
+    const next = order[(order.indexOf(sortOption) + 1) % order.length];
+    setSortOption(next);
+    trackEvent('lists_sort_changed', { sort: next });
+  }, [sortOption]);
+
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
@@ -266,14 +323,32 @@ export const ListsScreen = forwardRef<ListsScreenHandle, { searchQuery?: string 
           <Text style={styles.title}>Your lists</Text>
           <Text style={styles.subtitle}>Create shopping plans and share them across devices.</Text>
         </View>
-        <View style={styles.headerActions}>
+        <View style={styles.actionRow}>
+          <Pressable style={styles.primaryButton} onPress={startCreatePrompt}>
+            <Ionicons name="add" size={18} color={palette.accentDark} />
+            <Text style={styles.primaryButtonLabel}>New list</Text>
+          </Pressable>
+          <Pressable
+            style={styles.secondaryButton}
+            onPress={() => setListFilter((prev) => (prev === 'received' ? 'all' : 'received'))}
+          >
+            <Ionicons name="people-outline" size={16} color={palette.accentDark} />
+            <Text style={styles.secondaryButtonLabel}>
+              Shared
+            </Text>
+            {sharedBadgeCount > 0 ? (
+              <View style={styles.badge}>
+                <Text style={styles.badgeLabel}>{sharedBadgeCount}</Text>
+              </View>
+            ) : null}
+          </Pressable>
           <Pressable style={styles.secondaryButton} onPress={() => router.push('/library' as never)}>
             <Ionicons name="book-outline" size={16} color={palette.accentDark} />
             <Text style={styles.secondaryButtonLabel}>Library</Text>
           </Pressable>
-          <Pressable style={styles.primaryButton} onPress={startCreatePrompt}>
-            <Ionicons name="add" size={18} color={palette.accentDark} />
-            <Text style={styles.primaryButtonLabel}>New list</Text>
+          <Pressable style={styles.secondaryButton} onPress={handleSortCycle}>
+            <Ionicons name="swap-vertical" size={16} color={palette.accentDark} />
+            <Text style={styles.secondaryButtonLabel}>{sortLabels[sortOption]}</Text>
           </Pressable>
         </View>
       </View>
@@ -357,12 +432,6 @@ function ListCard({
             </View>
           ) : null}
         </View>
-        {showShareChip ? (
-          <Pressable style={styles.cardShareChip} onPress={onShare}>
-            <Ionicons name="share-social-outline" size={12} color={palette.accentDark} />
-            <Text style={styles.cardShareChipLabel}>Share</Text>
-          </Pressable>
-        ) : null}
       </View>
       <View style={styles.cardActions}>
         <Pressable style={styles.cardButton} onPress={onOpen}>
@@ -422,11 +491,12 @@ const styles = StyleSheet.create({
     marginTop: 4,
     maxWidth: 260
   },
-  headerActions: {
+  actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap'
+    gap: 10,
+    flexWrap: 'wrap',
+    marginTop: 8
   },
   centerContent: {
     flex: 1,
@@ -589,21 +659,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.accentDark
   },
-  cardShareChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1,
-    borderColor: palette.border,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4
-  },
-  cardShareChipLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: palette.accentDark
-  },
   shareChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -686,5 +741,19 @@ const styles = StyleSheet.create({
   secondaryButtonLabel: {
     fontWeight: '600',
     color: palette.accentDark
+  },
+  badge: {
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#E53E3E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4
+  },
+  badgeLabel: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700'
   }
 });

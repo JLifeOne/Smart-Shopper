@@ -9,6 +9,7 @@ export type ListSummary = {
   id: string;
   remoteId: string | null;
   name: string;
+  ownerId: string | null;
   itemCount: number;
   updatedAt: number;
   isShared: boolean;
@@ -66,6 +67,7 @@ export function useLists(options: UseListsOptions = {}) {
             id: record.id,
             remoteId: record.remoteId,
             name: record.name,
+            ownerId: record.ownerId,
             isShared: record.isShared,
             updatedAt: record.updatedAt,
             collaboratorIds: parseCollaboratorSnapshot(record.collaboratorSnapshot),
