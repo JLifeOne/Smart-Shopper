@@ -246,7 +246,7 @@ function CategoryPickerModal({
     <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
       <View style={modalStyles.backdrop}>
         <View style={modalStyles.card}>
-          <Text style={modalStyles.title}>Select section</Text>
+          <Text style={modalStyles.title}>Select category</Text>
           <FlatList
             data={options}
             keyExtractor={(item) => item.id}
@@ -254,7 +254,6 @@ function CategoryPickerModal({
             renderItem={({ item }) => (
               <Pressable style={modalStyles.listItem} onPress={() => onSelect(item)}>
                 <Text style={modalStyles.listItemLabel}>{item.label}</Text>
-                {item.isCustom ? <Text style={modalStyles.customBadge}>Custom</Text> : null}
               </Pressable>
             )}
           />
@@ -496,14 +495,6 @@ const modalStyles = StyleSheet.create({
   listItemLabel: {
     fontSize: 14,
     color: '#0C1D37'
-  },
-  customBadge: {
-    fontSize: 10,
-    color: '#1D4ED8',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: '#E0EAFF'
   },
   customRow: {
     flexDirection: 'row',

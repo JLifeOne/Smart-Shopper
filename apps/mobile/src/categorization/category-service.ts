@@ -192,5 +192,17 @@ export const categoryService = new CategoryService();
 export { normalizeProductName as normalizeName };
 export type CategoryConfidenceBand = ConfidenceBand;
 export function categoryLabel(category: string) {
-  return taxonomy.categories.find((cat) => cat.id === category)?.label ?? category;
+  const match = taxonomy.categories.find((cat) => cat.id === category);
+  if (match) {
+    return match.label;
+  }
+  const customPrefix = /^custom[:\s-]*/i;
+  const cleaned = category.replace(customPrefix, '').replace(/[_-]+/g, ' ').trim();
+  if (!cleaned) {
+    return category;
+  }
+  return cleaned
+    .split(' ')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
