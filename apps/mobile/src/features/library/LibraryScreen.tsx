@@ -151,7 +151,7 @@ export function LibraryScreen() {
     <SafeAreaView style={styles.screen}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>Item Library</Text>
+          <Text style={styles.title}>Shopping library</Text>
           <Text style={styles.subtitle}>Pin favourites, review prices, and add items to lists in seconds.</Text>
         </View>
       </View>
@@ -161,7 +161,7 @@ export function LibraryScreen() {
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder="Search library"
+          placeholder="Search shopping library"
           placeholderTextColor="#94A3B8"
           style={styles.searchInput}
           autoCapitalize="none"
