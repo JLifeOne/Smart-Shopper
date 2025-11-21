@@ -12,6 +12,7 @@ type Extra = {
   featureListParserV2?: boolean;
   featureListSharing?: boolean;
   featureAiSuggestions?: boolean;
+  featureMenuIngestion?: boolean;
   recoServiceUrl?: string;
 };
 
@@ -32,7 +33,8 @@ const flags = {
   themeSelection: extra.featureThemeSelection ?? false,
   listParserV2: extra.featureListParserV2 ?? false,
   listSharing: extra.featureListSharing ?? false,
-  aiSuggestions: extra.featureAiSuggestions ?? false
+  aiSuggestions: extra.featureAiSuggestions ?? false,
+  menuIngestion: extra.featureMenuIngestion ?? false
 };
 
 if (__DEV__) {

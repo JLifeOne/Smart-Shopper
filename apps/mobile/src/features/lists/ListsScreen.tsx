@@ -328,6 +328,10 @@ export const ListsScreen = forwardRef<ListsScreenHandle, { searchQuery?: string 
             <Ionicons name="add" size={18} color={palette.accentDark} />
             <Text style={styles.primaryButtonLabel}>New list</Text>
           </Pressable>
+          <Pressable style={styles.secondaryButton} onPress={() => router.push('/menus' as never)}>
+            <Ionicons name="restaurant" size={16} color={palette.accentDark} />
+            <Text style={styles.secondaryButtonLabel}>Menus</Text>
+          </Pressable>
           <Pressable
             style={styles.secondaryButton}
             onPress={() => setListFilter((prev) => (prev === 'received' ? 'all' : 'received'))}

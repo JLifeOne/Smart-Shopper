@@ -157,6 +157,7 @@ function DashboardView({
 }) {
   const { user, signOut, isAuthenticating } = auth;
   const router = useRouter();
+  const isMenuPremium = featureFlags.menuIngestion ?? false;
   const { quickStats, heatmap, loading: metricsLoading, error: metricsError } = useDashboardMetrics(
     user?.id ?? undefined,
     featureFlags.heatmapV2
@@ -293,6 +294,16 @@ function DashboardView({
               Discover store promotions tailored to your lists. Visit the Promos tab to explore deals (coming soon).
             </Text>
           </View>
+
+          <Pressable
+            style={[newStyles.analyticsCard, newStyles.menuCard]}
+            onPress={() => router.push('/menus' as never)}
+          >
+            <Text style={newStyles.cardTitle}>Menus</Text>
+            <Text style={newStyles.cardBody}>
+              Scan menus to detect dishes. {isMenuPremium ? 'Start a menu scan now.' : 'Upgrade to unlock recipes or save dish titles only.'}
+            </Text>
+          </Pressable>
 
           <View style={newStyles.analyticsCard}>
             <Text style={newStyles.cardTitle}>Budget insights</Text>
@@ -1118,8 +1129,11 @@ type ListDraftPayload = {
   updatedAt: number;
 };
 
+type CreateTab = 'type' | 'voice' | 'camera' | 'menu';
+
 function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateSheetProps) {
-  const [activeTab, setActiveTab] = useState<'type' | 'voice' | 'camera'>('type');
+  const [activeTab] = useState<CreateTab>('type');
+  const isMenuPremium = featureFlags.menuIngestion ?? false;
   const [listName, setListName] = useState(() => suggestListName());
   const [textValue, setTextValue] = useState('');
   const [parsedEntries, setParsedEntries] = useState<EnrichedListEntry[]>([]);
@@ -1320,11 +1334,6 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
     onClose();
   }, [activeTab, creating, parsedEntries.length, persistDraft, voiceRecording, onClose]);
 
-  const handleTabChange = useCallback((tab: 'type' | 'voice' | 'camera') => {
-    setActiveTab(tab);
-    trackEvent('create_sheet_tab_selected', { tab });
-  }, []);
-
   const buildCustomStore = useCallback(
     (label: string, regionHint?: string | null): StoreDefinition => {
       const normalized = label.trim();
@@ -1501,7 +1510,6 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
         });
         if (result.transcript.trim().length) {
           setTextValue(result.transcript.trim());
-          setActiveTab('type');
           Toast.show('Voice captured - review your list.');
         }
       } catch (err) {
@@ -1569,7 +1577,6 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
           }
           return `${prefix}\n${merged}`;
         });
-        setActiveTab('type');
         trackEvent('create_sheet_camera_list_success', {
           confidence: result.confidence,
           items: items.length,
@@ -1591,10 +1598,10 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
     } finally {
       setCameraProcessing(false);
     }
-  }, [cameraProcessing, setActiveTab]);
+  }, [cameraProcessing]);
 
   useEffect(() => {
-    if (!visible || activeTab !== 'camera') {
+    if (!visible) {
       cameraAutoTriggerRef.current = false;
       return;
     }
@@ -1642,7 +1649,6 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
   const hydrateDefault = useCallback(() => {
     const nextName = suggestListName();
     defaultListNameRef.current = nextName;
-    setActiveTab('type');
     setListName(nextName);
     setTextValue('');
     setParsedEntries([]);
@@ -1667,7 +1673,6 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
       const fallbackName = suggestListName();
       const chosenName = draft.listName && draft.listName.trim().length ? draft.listName : fallbackName;
       defaultListNameRef.current = fallbackName;
-      setActiveTab('type');
       setListName(chosenName);
       setTextValue(draft.textValue ?? '');
       setParsedEntries([]);
@@ -1864,6 +1869,27 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
         </View>
       ) : null}
       <Text style={newStyles.createLabel}>Items</Text>
+      <View style={newStyles.inputActionsRow}>
+        <Text style={newStyles.createHelperText}>Paste or type items, one per line.</Text>
+        <View style={newStyles.actionChips}>
+          <Pressable
+            accessibilityRole="button"
+            style={newStyles.actionChip}
+            onPress={handleVoiceToggle}
+            disabled={voiceProcessing}
+          >
+            <Ionicons name="mic" size={16} color="#0C1D37" />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            style={newStyles.actionChip}
+            onPress={handleCameraCapture}
+            disabled={cameraProcessing}
+          >
+            <Ionicons name="camera" size={16} color="#0C1D37" />
+          </Pressable>
+        </View>
+      </View>
       <TextInput
         style={newStyles.createInput}
         multiline
@@ -1876,6 +1902,24 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
           ? `${parsedEntries.length} item${parsedEntries.length === 1 ? '' : 's'} ready`
           : 'Type or paste one item per line to build your list.'}
       </Text>
+      <View style={newStyles.menuInfoCard}>
+        <Ionicons name="restaurant" size={16} color="#0C1D37" />
+        <View style={{ flex: 1 }}>
+          <Text style={newStyles.menuInfoTitle}>Menu (Premium)</Text>
+          <Text style={newStyles.menuInfoBody}>Convert dishes to Recipes and complete Shopping list.</Text>
+        </View>
+        <Pressable
+          style={newStyles.menuInfoButton}
+          onPress={() =>
+            Toast.show(
+              isMenuPremium ? 'Open Menus from the Lists tab to review.' : 'Upgrade to unlock menu parsing.',
+              1600
+            )
+          }
+        >
+          <Text style={newStyles.menuInfoButtonLabel}>{isMenuPremium ? 'Open' : 'Upgrade'}</Text>
+        </Pressable>
+      </View>
       <SmartAddPreview
         entries={parsedEntries}
         loading={parsing}
@@ -1972,7 +2016,6 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
             <Text style={newStyles.voiceTranscriptText}>{voiceTranscript}</Text>
             <Pressable
               accessibilityRole="button"
-              onPress={() => setActiveTab('type')}
               style={newStyles.captureSecondaryButton}
             >
               <Text style={newStyles.captureSecondaryLabel}>Review in form</Text>
@@ -1980,11 +2023,55 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
           </View>
         ) : null}
         <Text style={newStyles.captureFootnote}>
-          We automatically move you to the Type tab after transcription so you can confirm and edit the items.
+          We move your capture into the form so you can confirm and edit the items.
         </Text>
       </View>
     );
   };
+
+  const renderMenuTab = () => (
+    <View style={newStyles.captureContainer}>
+      <Text style={newStyles.captureTitle}>Scan a menu (Premium)</Text>
+      <Text style={newStyles.captureBody}>
+        Detect dishes from a photo or upload. Premium unlocks recipes and shopping plans; non-premium can save dish
+        titles only.
+      </Text>
+      {isMenuPremium ? (
+        <Pressable
+          accessibilityRole="button"
+          style={[newStyles.capturePrimaryButton]}
+          onPress={() => {
+            Toast.show('Menu scan coming soon—hooking into /ingest/menu.', 1800);
+          }}
+        >
+          <Ionicons name="restaurant" size={18} color="#FFFFFF" />
+          <Text style={newStyles.capturePrimaryLabel}>Start menu scan</Text>
+        </Pressable>
+      ) : (
+        <View style={newStyles.lockedCard}>
+          <Ionicons name="lock-closed" size={18} color="#0C1D37" />
+          <Text style={newStyles.lockedTitle}>Premium required</Text>
+          <Text style={newStyles.lockedBody}>
+            Upgrade to unlock menu recipes and auto-generated shopping plans. Or save dish titles only.
+          </Text>
+          <Pressable
+            style={newStyles.capturePrimaryButton}
+            accessibilityRole="button"
+            onPress={() => Toast.show('Upgrade flow coming soon.', 1500)}
+          >
+            <Text style={newStyles.capturePrimaryLabel}>Upgrade</Text>
+          </Pressable>
+          <Pressable
+            style={newStyles.captureSecondaryButton}
+            accessibilityRole="button"
+            onPress={() => Toast.show('Saved dish titles only (no recipes).', 1500)}
+          >
+            <Text style={newStyles.captureSecondaryLabel}>Save titles only</Text>
+          </Pressable>
+        </View>
+      )}
+    </View>
+  );
 
   const renderCameraTab = () => (
     <View style={newStyles.captureContainer}>
@@ -2035,15 +2122,7 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
     </View>
   );
 
-  const renderBody = () => {
-    if (activeTab === 'type') {
-      return renderTypeTab();
-    }
-    if (activeTab === 'voice') {
-      return renderVoiceTab();
-    }
-    return renderCameraTab();
-  };
+  const renderBody = () => renderTypeTab();
 
   return (
     <Modal transparent animationType="slide" visible={visible} onRequestClose={handleDismiss}>
@@ -2067,19 +2146,6 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
             <View style={[newStyles.createSheet, { paddingBottom: Math.max(24, sheetBottomPadding - 12) }]}>
               <View style={newStyles.createHandle} />
               <Text style={newStyles.createTitle}>New list</Text>
-              <View style={newStyles.createTabs}>
-                {(['type', 'voice', 'camera'] as const).map((tab) => (
-                  <Pressable
-                    key={tab}
-                    style={[newStyles.createTab, activeTab === tab && newStyles.createTabActive]}
-                    onPress={() => handleTabChange(tab)}
-                  >
-                    <Text style={[newStyles.createTabLabel, activeTab === tab && newStyles.createTabLabelActive]}>
-                      {tab === 'type' ? 'Type' : tab === 'voice' ? 'Voice' : 'Camera'}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
               {renderBody()}
             </View>
           </ScrollView>
@@ -2408,6 +2474,11 @@ const newStyles = StyleSheet.create({
   },
   performanceCard: {
     backgroundColor: '#F9FAFB'
+  },
+  menuCard: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#DCFCE7'
   },
   cardTitle: {
     fontSize: 18,
@@ -2838,6 +2909,17 @@ const newStyles = StyleSheet.create({
     lineHeight: 19,
     color: '#4A576D'
   },
+  menuInfoButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#0C1D37'
+  },
+  menuInfoButtonLabel: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 12
+  },
   createOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -3150,6 +3232,23 @@ const newStyles = StyleSheet.create({
     color: '#334155',
     lineHeight: 20
   },
+  inputActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  actionChips: {
+    flexDirection: 'row',
+    gap: 8
+  },
+  actionChip: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
   captureSecondaryButton: {
     alignSelf: 'flex-start',
     paddingHorizontal: 14,
@@ -3161,6 +3260,24 @@ const newStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#0C1D37'
+  },
+  lockedCard: {
+    borderRadius: 16,
+    backgroundColor: '#F8FAFC',
+    padding: 16,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0'
+  },
+  lockedTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  lockedBody: {
+    fontSize: 13,
+    color: '#4A576D',
+    lineHeight: 18
   },
   captureWarnings: {
     borderRadius: 12,
