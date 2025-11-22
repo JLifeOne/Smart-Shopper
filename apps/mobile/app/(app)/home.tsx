@@ -1932,7 +1932,7 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
           <Text style={newStyles.menuInfoBody}>Convert dishes to Recipes and complete Shopping list.</Text>
         </View>
         <Pressable
-          style={newStyles.menuInfoButton}
+          style={[newStyles.menuInfoButton, !isMenuPremium && newStyles.upgradeAccent]}
           onPress={() =>
             Toast.show(
               isMenuPremium ? 'Open Menus from the Lists tab to review.' : 'Upgrade to unlock menu parsing.',
@@ -2078,7 +2078,7 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
             Upgrade to unlock menu recipes and auto-generated shopping plans. Or save dish titles only.
           </Text>
           <Pressable
-            style={newStyles.capturePrimaryButton}
+            style={[newStyles.capturePrimaryButton, newStyles.upgradeAccent]}
             accessibilityRole="button"
             onPress={() => Toast.show('Upgrade flow coming soon.', 1500)}
           >
@@ -2947,6 +2947,10 @@ const newStyles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 12
+  },
+  upgradeAccent: {
+    backgroundColor: '#F97316',
+    borderColor: '#F97316'
   },
   createOverlay: {
     flex: 1,

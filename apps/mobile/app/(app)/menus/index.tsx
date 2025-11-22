@@ -104,6 +104,8 @@ export default function MenuInboxScreen() {
   const [sortOpen, setSortOpen] = useState(false);
   const [savedSelection, setSavedSelection] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
+  const [showUpgradeOverlay, setShowUpgradeOverlay] = useState(!isPremium);
+  const [overlayCollapsed, setOverlayCollapsed] = useState(false);
 
   const sortedCards = useMemo(() => {
     const copy = [...SAMPLE_CARDS];
@@ -249,6 +251,52 @@ export default function MenuInboxScreen() {
 
   return (
     <SafeAreaView style={styles.screen}>
+      {!isPremium && showUpgradeOverlay && !overlayCollapsed ? (
+        <View style={styles.upgradeOverlay}>
+          <View style={styles.upgradeCard}>
+            <Ionicons name="lock-closed" size={20} color="#0C1D37" />
+            <Text style={styles.upgradeTitle}>Premium required</Text>
+            <Text style={styles.upgradeBody}>
+              Upgrade to unlock full menu parsing. Or save dishes as titles only to your library.
+            </Text>
+            <Pressable
+              style={[styles.primary, styles.upgradeAccent]}
+              onPress={() => Toast.show('Upgrade flow coming soon.', 1500)}
+            >
+              <Text style={styles.primaryLabel}>Upgrade</Text>
+            </Pressable>
+            <Pressable
+              style={styles.secondary}
+              onPress={() => {
+                Toast.show('Saved dish title only.', 1500);
+                setOverlayCollapsed(true);
+              }}
+            >
+              <Text style={styles.secondaryLabel}>Save dish only</Text>
+            </Pressable>
+            <View style={[styles.intelCard, styles.intelCardMuted]}>
+              <View style={styles.intelHeader}>
+                <Ionicons name="sparkles" size={16} color="#475569" />
+                <Text style={styles.intelTitle}>What AI does</Text>
+              </View>
+              <Text style={styles.intelMeta}>
+                - Detects dishes, course type, and key ingredients.{'\n'}
+                - Builds a shopping plan and suggests substitutions.{'\n'}
+                - Saves recipe cards to revisit later.
+              </Text>
+            </View>
+            <Pressable
+              style={styles.dismissLink}
+              onPress={() => {
+                setShowUpgradeOverlay(false);
+                setOverlayCollapsed(true);
+              }}
+            >
+              <Text style={styles.dismissLabel}>Not now</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
       <View style={styles.headerRow}>
         <Text style={styles.title}>Menus</Text>
         <View style={styles.badge}>
@@ -266,6 +314,23 @@ export default function MenuInboxScreen() {
           <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />
           <Text style={styles.quickActionPrimaryLabel}>Upload</Text>
         </Pressable>
+        {!isPremium ? (
+          <Pressable
+            style={({ pressed }) => [
+              styles.quickAction,
+              styles.quickActionPrimary,
+              styles.quickActionUpgrade,
+              pressed && styles.quickActionPressed
+            ]}
+            onPress={() => {
+              setOverlayCollapsed(false);
+              setShowUpgradeOverlay(true);
+            }}
+          >
+            <Ionicons name="sparkles" size={16} color="#FFFFFF" />
+            <Text style={styles.quickActionPrimaryLabel}>Upgrade</Text>
+          </Pressable>
+        ) : null}
         <View style={styles.sortWrapper}>
           <Pressable
             style={[styles.sortChip, styles.sortChipActive]}
@@ -511,32 +576,7 @@ export default function MenuInboxScreen() {
             ))}
           </View>
         </>
-      ) : (
-        <View style={styles.card}>
-          <Ionicons name="lock-closed" size={24} color="#0C1D37" />
-          <Text style={styles.cardTitle}>Premium required</Text>
-          <Text style={styles.cardBody}>
-            Upgrade to unlock full menu parsing. Or save dishes as titles only to your library.
-          </Text>
-          <Pressable style={styles.primary} onPress={() => Toast.show('Upgrade flow coming soon.', 1500)}>
-            <Text style={styles.primaryLabel}>Upgrade</Text>
-          </Pressable>
-          <Pressable style={styles.secondary} onPress={() => Toast.show('Saved dish title only.', 1500)}>
-            <Text style={styles.secondaryLabel}>Save dish only</Text>
-          </Pressable>
-          <View style={[styles.intelCard, styles.intelCardMuted]}>
-            <View style={styles.intelHeader}>
-              <Ionicons name="sparkles" size={16} color="#475569" />
-              <Text style={styles.intelTitle}>What AI does</Text>
-            </View>
-            <Text style={styles.intelMeta}>
-              - Detects dishes, course type, and key ingredients.{'\n'}
-              - Builds a shopping plan and suggests substitutions.{'\n'}
-              - Saves recipe cards to revisit later.
-            </Text>
-          </View>
-        </View>
-      )}
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -612,6 +652,10 @@ const styles = StyleSheet.create({
   quickActionPrimary: {
     backgroundColor: '#0C1D37',
     borderColor: '#0C1D37'
+  },
+  quickActionUpgrade: {
+    backgroundColor: '#F97316',
+    borderColor: '#F97316'
   },
   quickActionPressed: {
     backgroundColor: '#F8FAFC'
@@ -705,6 +749,46 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#0C1D37'
+  },
+  upgradeOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    zIndex: 25
+  },
+  upgradeCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 6
+  },
+  upgradeTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  upgradeBody: {
+    fontSize: 13,
+    color: '#475569'
+  },
+  dismissLink: {
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+    paddingHorizontal: 6
+  },
+  dismissLabel: {
+    fontSize: 12,
+    color: '#0C1D37',
+    fontWeight: '700'
   },
   dishInputCard: {
     marginTop: 8,
@@ -901,6 +985,10 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 12,
     alignItems: 'center'
+  },
+  upgradeAccent: {
+    backgroundColor: '#F97316',
+    borderColor: '#F97316'
   },
   primaryLabel: {
     color: '#FFFFFF',
