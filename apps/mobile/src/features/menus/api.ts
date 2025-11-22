@@ -19,6 +19,23 @@ export type MenuSession = {
   updated_at: string;
 };
 
+export type MenuRecipe = {
+  id: string;
+  title: string;
+  course: string | null;
+  cuisine_style: string | null;
+  servings: Record<string, unknown>;
+  scale_factor: number;
+  ingredients: unknown[];
+  method: unknown[];
+  tips: string[];
+  packaging_notes: string | null;
+  packaging_guidance: unknown[];
+  premium_required: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 async function callMenuFunction<T>(path: string, init: RequestInit): Promise<T> {
   const client = ensureSupabaseClient();
   const { data } = await client.auth.getSession();
@@ -61,16 +78,80 @@ export async function fetchMenuSession(sessionId: string) {
 }
 
 export async function saveDish(request: SaveDishRequest) {
-  return Promise.resolve({
-    status: 'ok' as const,
-    savedAsTitleOnly: !request.premium
+  const payload = await callMenuFunction<{ recipe: MenuRecipe }>('menu-recipes', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: request.title,
+      premiumRequired: request.premium
+    })
   });
+  return {
+    status: 'ok' as const,
+    savedAsTitleOnly: !request.premium,
+    recipe: payload.recipe
+  };
 }
 
 export async function openDish(id: string) {
   return Promise.resolve({ status: 'ok' as const, id });
 }
 
-export async function createListFromMenus(ids: string[], people: number) {
-  return Promise.resolve({ status: 'ok' as const, ids, people });
+export type ConsolidatedLine = {
+  name: string;
+  quantity: number;
+  unit?: string | null;
+  notes?: string | null;
+  packaging?: string | null;
+};
+
+export async function createListFromMenus(
+  ids: string[],
+  people: number,
+  options: { persistList?: boolean; listName?: string | null } = {}
+) {
+  const result = await callMenuFunction<{ consolidatedList: ConsolidatedLine[]; listId: string | null }>(
+    'menus-lists',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        dishIds: ids,
+        peopleCountOverride: people,
+        persistList: options.persistList ?? false,
+        listName: options.listName ?? null
+      })
+    }
+  );
+  return result;
+}
+
+export type MenuPairing = {
+  id: string;
+  title: string;
+  description: string | null;
+  dish_ids: string[];
+  locale: string | null;
+  is_default: boolean;
+};
+
+export async function fetchMenuPairings(locale?: string) {
+  const query = locale ? `?locale=${encodeURIComponent(locale)}` : '';
+  const result = await callMenuFunction<{ items: MenuPairing[] }>(`menus-pairings${query}`, { method: 'GET' });
+  return result.items;
+}
+
+export async function saveMenuPairing(data: { title: string; dishIds: string[]; description?: string; locale?: string }) {
+  const result = await callMenuFunction<{ pairing: MenuPairing }>('menus-pairings', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: data.title,
+      dishIds: data.dishIds,
+      description: data.description ?? null,
+      locale: data.locale ?? null
+    })
+  });
+  return result.pairing;
+}
+
+export async function deleteMenuPairing(pairingId: string) {
+  await callMenuFunction(`menus-pairings/${pairingId}`, { method: 'DELETE' });
 }
