@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { withTimeout } from '@/src/lib/retry';
 import { ensureSupabaseClient } from '@/src/lib/supabase';
 import { AppError } from '@/src/lib/errors';

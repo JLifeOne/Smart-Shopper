@@ -162,6 +162,15 @@ function DashboardView({
     user?.id ?? undefined,
     featureFlags.heatmapV2
   );
+  const glanceStats = useMemo(() => {
+    const trackedItems = quickStats.find((stat) => stat.label === 'Tracked items');
+    const receiptsScanned = quickStats.find((stat) => stat.label === 'Receipts scanned');
+    return [
+      { label: 'Menus', value: '0' },
+      trackedItems ?? { label: 'Tracked items', value: '0' },
+      receiptsScanned ?? { label: 'Receipts scanned', value: '0' }
+    ];
+  }, [quickStats]);
   const recommendationRequest = useMemo(() => {
     if (!featureFlags.aiSuggestions) {
       return null;
@@ -269,7 +278,7 @@ function DashboardView({
           <View style={[newStyles.analyticsCard, newStyles.performanceCard]}>
             <Text style={newStyles.cardTitle}>At a glance</Text>
             <View style={newStyles.quickStatRow}>
-              {quickStats.map((stat) => (
+              {glanceStats.map((stat) => (
                 <View key={stat.label} style={newStyles.quickStat}>
                   <Text style={newStyles.quickStatValue}>{metricsLoading ? '...' : stat.value}</Text>
                   <Text style={newStyles.quickStatLabel}>{stat.label}</Text>
@@ -2913,7 +2922,9 @@ const newStyles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 12,
-    backgroundColor: '#0C1D37'
+    backgroundColor: '#0C1D37',
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   menuInfoButtonLabel: {
     color: '#FFFFFF',
