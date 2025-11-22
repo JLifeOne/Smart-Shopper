@@ -266,6 +266,36 @@ export default function MenuInboxScreen() {
           <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />
           <Text style={styles.quickActionPrimaryLabel}>Upload</Text>
         </Pressable>
+        <View style={styles.sortWrapper}>
+          <Pressable
+            style={[styles.sortChip, styles.sortChipActive]}
+            onPress={() => setSortOpen((prev) => !prev)}
+          >
+            <Ionicons name="swap-vertical" size={14} color="#FFFFFF" />
+            <Text style={styles.sortChipLabelActive}>
+              {sortMode === 'alpha' ? 'A-Z' : sortMode === 'course' ? 'Course' : 'Cuisine'}
+            </Text>
+            <Ionicons name={sortOpen ? 'chevron-up' : 'chevron-down'} size={14} color="#FFFFFF" />
+          </Pressable>
+          {sortOpen ? (
+            <View style={styles.sortDropdown}>
+              {(['alpha', 'course', 'cuisine'] as SortMode[]).map((mode) => (
+                <Pressable
+                  key={mode}
+                  style={styles.sortDropdownItem}
+                  onPress={() => {
+                    setSortMode(mode);
+                    setSortOpen(false);
+                  }}
+                >
+                  <Text style={styles.sortDropdownLabel}>
+                    {mode === 'alpha' ? 'Alphabetical (default)' : mode === 'course' ? 'Course' : 'Cuisine'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+        </View>
         {showUploadOptions ? (
           <View style={styles.uploadOptions}>
             <Pressable style={styles.uploadOption} onPress={() => handleUpload('camera')}>
@@ -279,6 +309,28 @@ export default function MenuInboxScreen() {
           </View>
         ) : null}
       </View>
+      {showUploadOptions ? (
+        <View style={styles.uploadOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowUploadOptions(false)} />
+          <View style={styles.uploadModal}>
+            <Text style={styles.uploadTitle}>Upload menus</Text>
+            <Text style={styles.uploadSubtitle}>Use your camera or pick photos to capture dishes.</Text>
+            <View style={styles.uploadOptionsModal}>
+              <Pressable style={styles.uploadOptionRow} onPress={() => handleUpload('camera')}>
+                <Ionicons name="camera" size={16} color="#0C1D37" />
+                <Text style={styles.uploadOptionLabel}>Use camera</Text>
+              </Pressable>
+              <Pressable style={styles.uploadOptionRow} onPress={() => handleUpload('gallery')}>
+                <Ionicons name="images-outline" size={16} color="#0C1D37" />
+                <Text style={styles.uploadOptionLabel}>Choose photos</Text>
+              </Pressable>
+            </View>
+            <Pressable style={styles.uploadClose} onPress={() => setShowUploadOptions(false)}>
+              <Text style={styles.uploadCloseLabel}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
       <View style={styles.dishInputCard}>
         <Text style={styles.inputLabel}>Dish name</Text>
         <TextInput
@@ -340,46 +392,6 @@ export default function MenuInboxScreen() {
             ) : null}
           </View>
         ) : null}
-      </View>
-      <View style={styles.sortRow}>
-        <Pressable
-          style={[styles.sortChip, styles.sortChipActive]}
-          onPress={() => setSortOpen((prev) => !prev)}
-        >
-          <Ionicons name="swap-vertical" size={14} color="#FFFFFF" />
-          <Text style={styles.sortChipLabelActive}>
-            {sortMode === 'alpha' ? 'A-Z' : sortMode === 'course' ? 'Course' : 'Cuisine'}
-          </Text>
-          <Ionicons name={sortOpen ? 'chevron-up' : 'chevron-down'} size={14} color="#FFFFFF" />
-        </Pressable>
-        {sortOpen ? (
-          <View style={styles.sortDropdown}>
-            {(['alpha', 'course', 'cuisine'] as SortMode[]).map((mode) => (
-              <Pressable
-                key={mode}
-                style={styles.sortDropdownItem}
-                onPress={() => {
-                  setSortMode(mode);
-                  setSortOpen(false);
-                }}
-              >
-                <Text style={styles.sortDropdownLabel}>
-                  {mode === 'alpha' ? 'Alphabetical (default)' : mode === 'course' ? 'Course' : 'Cuisine'}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        ) : null}
-        <View style={styles.sessionActions}>
-          <Pressable style={styles.primaryInline} onPress={() => handleAddSelected('list')}>
-            <Ionicons name="cart" size={14} color="#FFFFFF" />
-            <Text style={styles.primaryInlineLabel}>Add selected to list</Text>
-          </Pressable>
-          <Pressable style={styles.secondaryInline} onPress={() => handleAddSelected('create')}>
-            <Ionicons name="add-circle-outline" size={14} color="#0C1D37" />
-            <Text style={styles.secondaryInlineLabel}>Create list</Text>
-          </Pressable>
-        </View>
       </View>
 
       {isPremium ? (
@@ -614,9 +626,59 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF'
   },
+  sortWrapper: {
+    position: 'relative'
+  },
   uploadOptions: {
     flexDirection: 'row',
     gap: 8
+  },
+  uploadOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    backgroundColor: 'rgba(12,29,55,0.25)'
+  },
+  uploadModal: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 6
+  },
+  uploadTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  uploadSubtitle: {
+    fontSize: 13,
+    color: '#475569'
+  },
+  uploadOptionsModal: {
+    gap: 8
+  },
+  uploadOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC'
   },
   uploadOption: {
     flexDirection: 'row',
@@ -631,6 +693,16 @@ const styles = StyleSheet.create({
   },
   uploadOptionLabel: {
     fontSize: 12,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  uploadClose: {
+    alignSelf: 'flex-end',
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  uploadCloseLabel: {
+    fontSize: 13,
     fontWeight: '700',
     color: '#0C1D37'
   },
