@@ -1932,7 +1932,10 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
           <Text style={newStyles.menuInfoBody}>Convert dishes to Recipes and complete Shopping list.</Text>
         </View>
         <Pressable
-          style={[newStyles.menuInfoButton, !isMenuPremium && newStyles.upgradeAccent]}
+          style={[
+            newStyles.menuInfoButton,
+            !isMenuPremium && newStyles.upgradeButton
+          ]}
           onPress={() =>
             Toast.show(
               isMenuPremium ? 'Open Menus from the Lists tab to review.' : 'Upgrade to unlock menu parsing.',
@@ -1940,6 +1943,11 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
             )
           }
         >
+          {!isMenuPremium ? (
+            <View style={newStyles.upgradeIconWrap}>
+              <Ionicons name="sparkles" size={12} color="#FFFFFF" />
+            </View>
+          ) : null}
           <Text style={newStyles.menuInfoButtonLabel}>{isMenuPremium ? 'Open' : 'Upgrade'}</Text>
         </Pressable>
       </View>
@@ -2078,10 +2086,11 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
             Upgrade to unlock menu recipes and auto-generated shopping plans. Or save dish titles only.
           </Text>
           <Pressable
-            style={[newStyles.capturePrimaryButton, newStyles.upgradeAccent]}
+            style={[newStyles.capturePrimaryButton, newStyles.upgradeButton]}
             accessibilityRole="button"
             onPress={() => Toast.show('Upgrade flow coming soon.', 1500)}
           >
+            <Ionicons name="sparkles" size={16} color="#FFFFFF" />
             <Text style={newStyles.capturePrimaryLabel}>Upgrade</Text>
           </Pressable>
           <Pressable
@@ -2939,7 +2948,6 @@ const newStyles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 12,
-    backgroundColor: '#0C1D37',
     alignItems: 'center',
     justifyContent: 'center'
   },
@@ -2948,9 +2956,17 @@ const newStyles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 12
   },
-  upgradeAccent: {
-    backgroundColor: '#F97316',
-    borderColor: '#F97316'
+  upgradeIconWrap: {
+    marginRight: 4
+  },
+  upgradeButton: {
+    backgroundColor: '#FB923C',
+    borderColor: '#FB923C',
+    shadowColor: '#EA580C',
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6
   },
   createOverlay: {
     flex: 1,

@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { SafeAreaView, StyleSheet, Text, View, Pressable, TextInput } from 'react-native';
+import React, { useMemo, useRef, useState } from 'react';
+import { SafeAreaView, StyleSheet, Text, View, Pressable, TextInput, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { featureFlags } from '@/src/lib/env';
 import { Toast } from '@/src/components/search/Toast';
@@ -260,9 +260,10 @@ export default function MenuInboxScreen() {
               Upgrade to unlock full menu parsing. Or save dishes as titles only to your library.
             </Text>
             <Pressable
-              style={[styles.primary, styles.upgradeAccent]}
+              style={[styles.primary, styles.upgradeFancy]}
               onPress={() => Toast.show('Upgrade flow coming soon.', 1500)}
             >
+              <Ionicons name="sparkles" size={16} color="#FFFFFF" />
               <Text style={styles.primaryLabel}>Upgrade</Text>
             </Pressable>
             <Pressable
@@ -318,7 +319,6 @@ export default function MenuInboxScreen() {
           <Pressable
             style={({ pressed }) => [
               styles.quickAction,
-              styles.quickActionPrimary,
               styles.quickActionUpgrade,
               pressed && styles.quickActionPressed
             ]}
@@ -654,8 +654,13 @@ const styles = StyleSheet.create({
     borderColor: '#0C1D37'
   },
   quickActionUpgrade: {
-    backgroundColor: '#F97316',
-    borderColor: '#F97316'
+    backgroundColor: '#FB923C',
+    borderColor: '#FB923C',
+    shadowColor: '#EA580C',
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6
   },
   quickActionPressed: {
     backgroundColor: '#F8FAFC'
@@ -984,11 +989,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#0C1D37',
     borderRadius: 14,
     paddingVertical: 12,
-    alignItems: 'center'
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8
   },
-  upgradeAccent: {
-    backgroundColor: '#F97316',
-    borderColor: '#F97316'
+  upgradeFancy: {
+    backgroundColor: '#FB923C',
+    borderColor: '#FB923C',
+    shadowColor: '#EA580C',
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6
   },
   primaryLabel: {
     color: '#FFFFFF',
