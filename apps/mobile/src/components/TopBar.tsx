@@ -39,6 +39,7 @@ export const TopBar: React.FC = () => {
     if (!raw) return 'SS';
     return raw.slice(0, 3).toUpperCase();
   }, [config.logoGlyph]);
+  const isPremium = config.isPremium ?? false;
 
   const showMenu = Boolean(config.onMenuPress);
   const showSearch = config.showSearch !== false;
@@ -139,6 +140,11 @@ export const TopBar: React.FC = () => {
         <Animated.View style={[styles.brand, { opacity: brandOpacity }]}>
           <View style={styles.logoBadge}>
             <Text style={styles.logoLetter}>{logoGlyph}</Text>
+            {isPremium ? (
+              <View style={styles.crownBadge}>
+                <Ionicons name="crown" size={12} color="#FACC15" />
+              </View>
+            ) : null}
           </View>
           <Text style={styles.title}>{title}</Text>
         </Animated.View>
@@ -248,12 +254,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10
+    marginRight: 10,
+    position: 'relative'
   },
   logoLetter: {
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 12
+  },
+  crownBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    backgroundColor: '#0F172A',
+    borderRadius: 8,
+    padding: 2
   },
   title: {
     color: '#0F172A',

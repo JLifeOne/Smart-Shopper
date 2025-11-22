@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { SafeAreaView, StyleSheet, Text, View, Pressable } from 'react-native';
+import { SafeAreaView, StyleSheet, Text, View, Pressable, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { featureFlags } from '@/src/lib/env';
 import { Toast } from '@/src/components/search/Toast';
@@ -87,6 +87,9 @@ export default function MenuInboxScreen() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
   const [sessionPeople, setSessionPeople] = useState<number>(1);
+  const [showUploadOptions, setShowUploadOptions] = useState(false);
+  const [dishDraft, setDishDraft] = useState('');
+  const [savedDishes, setSavedDishes] = useState<string[]>([]);
 
   const sortedCards = useMemo(() => {
     const copy = [...SAMPLE_CARDS];
@@ -135,6 +138,41 @@ export default function MenuInboxScreen() {
     Toast.show(`Scaled session to ${Math.max(1, sessionPeople + delta)} people (new cards inherit).`, 1200);
   };
 
+  const handleUpload = (mode: 'camera' | 'gallery') => {
+    setShowUploadOptions(false);
+    if (isPremium) {
+      Toast.show(`Uploading via ${mode === 'camera' ? 'camera' : 'gallery'}... parsing menu.`, 1500);
+    } else {
+      Toast.show(
+        `Saved dish titles from ${mode === 'camera' ? 'camera' : 'gallery'}. Upgrade for recipes and shopping plans.`,
+        1700
+      );
+    }
+  };
+
+  const handleSaveDish = () => {
+    const trimmed = dishDraft.trim();
+    if (!trimmed) {
+      Toast.show('Enter a dish name first.', 1200);
+      return;
+    }
+    setSavedDishes((prev) => [trimmed, ...prev.slice(0, 6)]);
+    setDishDraft('');
+    if (isPremium) {
+      Toast.show(`Saved ${trimmed}. Generating recipe & list...`, 1500);
+    } else {
+      Toast.show(`Saved ${trimmed} as a title only. Upgrade to unlock recipes.`, 1600);
+    }
+  };
+
+  const handleSavedPress = (title: string) => {
+    if (isPremium) {
+      Toast.show(`Opening ${title} recipe...`, 1400);
+      return;
+    }
+    Toast.show('Upgrade to unlock full recipes and auto shopping lists.', 1700);
+  };
+
   return (
     <SafeAreaView style={styles.screen}>
       <View style={styles.headerRow}>
@@ -147,16 +185,53 @@ export default function MenuInboxScreen() {
         Review menu captures. Premium unlocks recipes and shopping plans; non-premium can save dish titles only.
       </Text>
       <View style={styles.quickActionsRow}>
-        {QUICK_ACTIONS.map((action) => (
-          <Pressable
-            key={action.id}
-            style={({ pressed }) => [styles.quickAction, pressed && styles.quickActionPressed]}
-            onPress={() => Toast.show(action.toast, 1500)}
-          >
-            <Ionicons name={action.icon as any} size={16} color="#0C1D37" />
-            <Text style={styles.quickActionLabel}>{action.label}</Text>
-          </Pressable>
-        ))}
+        <Pressable
+          style={({ pressed }) => [styles.quickAction, styles.quickActionPrimary, pressed && styles.quickActionPressed]}
+          onPress={() => setShowUploadOptions((prev) => !prev)}
+        >
+          <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />
+          <Text style={styles.quickActionPrimaryLabel}>Upload</Text>
+        </Pressable>
+        {showUploadOptions ? (
+          <View style={styles.uploadOptions}>
+            <Pressable style={styles.uploadOption} onPress={() => handleUpload('camera')}>
+              <Ionicons name="camera" size={14} color="#0C1D37" />
+              <Text style={styles.uploadOptionLabel}>Use camera</Text>
+            </Pressable>
+            <Pressable style={styles.uploadOption} onPress={() => handleUpload('gallery')}>
+              <Ionicons name="images-outline" size={14} color="#0C1D37" />
+              <Text style={styles.uploadOptionLabel}>Choose photos</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+      <View style={styles.dishInputCard}>
+        <Text style={styles.inputLabel}>Dish name</Text>
+        <TextInput
+          style={styles.dishInput}
+          placeholder="Type a dish (e.g., Jamaican curry chicken)"
+          value={dishDraft}
+          onChangeText={setDishDraft}
+          placeholderTextColor="#94A3B8"
+          returnKeyType="done"
+        />
+        <Pressable style={styles.saveDishButton} onPress={handleSaveDish}>
+          <Ionicons name="bookmark-outline" size={14} color="#FFFFFF" />
+          <Text style={styles.saveDishButtonLabel}>Save dish</Text>
+        </Pressable>
+        {savedDishes.length ? (
+          <View style={styles.savedList}>
+            {savedDishes.map((dish) => (
+              <Pressable key={dish} style={styles.savedRow} onPress={() => handleSavedPress(dish)}>
+                <View>
+                  <Text style={styles.savedTitle}>{dish}</Text>
+                  {!isPremium ? <Text style={styles.savedUpsell}>Title only – tap to upgrade</Text> : null}
+                </View>
+                <Ionicons name="arrow-forward" size={14} color="#0C1D37" />
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
       </View>
       <View style={styles.sortRow}>
         {(['alpha', 'course', 'cuisine'] as SortMode[]).map((mode) => (
@@ -201,7 +276,9 @@ export default function MenuInboxScreen() {
           <View style={styles.card}>
             <Ionicons name="restaurant" size={24} color="#0C1D37" />
             <Text style={styles.cardTitle}>Menu review</Text>
-            <Text style={styles.cardBody}>Select dishes, scale people, and add all to your list. Packaging matches local store sizes.</Text>
+            <Text style={styles.cardBody}>
+              Upload or type dishes, scale people, and add all to your list. Packaging matches local store sizes.
+            </Text>
             <Pressable
               style={styles.primary}
               onPress={() => Toast.show('Start a menu scan from the New list modal.', 1600)}
@@ -316,13 +393,13 @@ export default function MenuInboxScreen() {
           <Ionicons name="lock-closed" size={24} color="#0C1D37" />
           <Text style={styles.cardTitle}>Premium required</Text>
           <Text style={styles.cardBody}>
-            Upgrade to unlock full menu parsing. Or save dish titles only to your library.
+            Upgrade to unlock full menu parsing. Or save dishes as titles only to your library.
           </Text>
           <Pressable style={styles.primary} onPress={() => Toast.show('Upgrade flow coming soon.', 1500)}>
             <Text style={styles.primaryLabel}>Upgrade</Text>
           </Pressable>
-          <Pressable style={styles.secondary} onPress={() => Toast.show('Saved dish titles only.', 1500)}>
-            <Text style={styles.secondaryLabel}>Save titles only</Text>
+          <Pressable style={styles.secondary} onPress={() => Toast.show('Saved dish title only.', 1500)}>
+            <Text style={styles.secondaryLabel}>Save dish only</Text>
           </Pressable>
           <View style={[styles.intelCard, styles.intelCardMuted]}>
             <View style={styles.intelHeader}>
@@ -409,6 +486,10 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     backgroundColor: '#FFFFFF'
   },
+  quickActionPrimary: {
+    backgroundColor: '#0C1D37',
+    borderColor: '#0C1D37'
+  },
   quickActionPressed: {
     backgroundColor: '#F8FAFC'
   },
@@ -416,6 +497,91 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#0C1D37'
+  },
+  quickActionPrimaryLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF'
+  },
+  uploadOptions: {
+    flexDirection: 'row',
+    gap: 8
+  },
+  uploadOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF'
+  },
+  uploadOptionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  dishInputCard: {
+    marginTop: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 8
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  dishInput: {
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#0C1D37',
+    backgroundColor: '#F8FAFC'
+  },
+  saveDishButton: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#0C1D37',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12
+  },
+  saveDishButtonLabel: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13
+  },
+  savedList: {
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    paddingTop: 6,
+    gap: 6
+  },
+  savedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6
+  },
+  savedTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  savedUpsell: {
+    fontSize: 11,
+    color: '#64748B'
   },
   sortRow: {
     flexDirection: 'row',

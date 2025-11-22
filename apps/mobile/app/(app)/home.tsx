@@ -257,7 +257,8 @@ function DashboardView({
       () => ({
         logoGlyph: initials,
         onMenuPress: openMenu,
-        showSearch: true
+        showSearch: true,
+        isPremium: featureFlags.menuIngestion ?? false
       }),
       [initials, openMenu]
     )

@@ -12,6 +12,7 @@ export type TopBarConfig = {
   logoGlyph?: string | null;
   onMenuPress?: (() => void) | null;
   showSearch?: boolean;
+  isPremium?: boolean;
 };
 
 type TopBarState = {
@@ -24,7 +25,8 @@ const defaultConfig: TopBarConfig = {
   title: 'Smart Shopper',
   logoGlyph: 'SS',
   onMenuPress: null,
-  showSearch: true
+  showSearch: true,
+  isPremium: false
 };
 
 const TopBarContext = createContext<TopBarState | undefined>(undefined);
