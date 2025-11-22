@@ -381,6 +381,7 @@ function DashboardView({
         metricsError={metricsError}
         recommendationsCount={suggestedItems.length}
         flags={featureFlags}
+        isMenuPremium={isMenuPremium}
       />
     </View>
   );
@@ -471,7 +472,8 @@ function CommandDrawer({
   metricsLoading,
   metricsError,
   recommendationsCount,
-  flags
+  flags,
+  isMenuPremium
 }: {
   visible: boolean;
   onClose: () => void;
@@ -487,6 +489,7 @@ function CommandDrawer({
   metricsError?: string;
   recommendationsCount: number;
   flags: typeof featureFlags;
+  isMenuPremium: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -778,6 +781,19 @@ function CommandDrawer({
               <Ionicons name="close" size={18} color="#0F172A" />
             </Pressable>
           </View>
+          {!isMenuPremium ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => Toast.show('Upgrade flow coming soon.', 1500)}
+              style={({ pressed }) => [
+                drawerStyles.headerUpgrade,
+                pressed && drawerStyles.headerUpgradePressed
+              ]}
+            >
+              <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+              <Text style={drawerStyles.headerUpgradeLabel}>Upgrade</Text>
+            </Pressable>
+          ) : null}
 
           <ScrollView
             showsVerticalScrollIndicator={false}
@@ -2226,6 +2242,30 @@ const drawerStyles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#F1F5F9'
   },
+  headerUpgrade: {
+    flexDirection: 'row',
+    alignSelf: 'flex-start',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#0F766E',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginBottom: 16,
+    shadowColor: '#0F766E',
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6
+  },
+  headerUpgradePressed: {
+    opacity: 0.9
+  },
+  headerUpgradeLabel: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13
+  },
   scrollContent: {
     paddingBottom: 48
   },
@@ -2916,11 +2956,16 @@ const newStyles = StyleSheet.create({
   menuInfoCard: {
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#BAE6FD',
     padding: 16,
     flexDirection: 'row',
     gap: 12,
-    backgroundColor: '#FFFFFF'
+    backgroundColor: '#ECFEFF',
+    shadowColor: '#38BDF8',
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4
   },
   menuInfoIcon: {
     width: 28,
@@ -2928,7 +2973,7 @@ const newStyles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EBFBF8'
+    backgroundColor: '#BAE6FD'
   },
   menuInfoText: {
     flex: 1,

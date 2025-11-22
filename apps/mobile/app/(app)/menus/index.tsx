@@ -765,15 +765,16 @@ const styles = StyleSheet.create({
     zIndex: 25
   },
   upgradeCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#ECFEFF',
     borderRadius: 16,
     padding: 16,
     gap: 10,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
+    borderColor: '#CFFAFE',
+    shadowColor: '#0EA5E9',
+    shadowOpacity: 0.15,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
     elevation: 6
   },
   upgradeTitle: {
