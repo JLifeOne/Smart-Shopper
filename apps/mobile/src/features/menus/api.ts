@@ -19,21 +19,51 @@ export type MenuSession = {
   updated_at: string;
 };
 
+export type MenuServings = {
+  people_count: number;
+  portion_size_per_person?: string | null;
+  scale_factor?: number | null;
+};
+
+export type MenuIngredient = {
+  name: string;
+  quantity?: number | string | null;
+  unit?: string | null;
+  notes?: string | null;
+};
+
+export type MenuMethodStep = {
+  step: number;
+  text: string;
+};
+
+export type PackagingGuidanceEntry = {
+  text?: string | null;
+  label?: string | null;
+  packaging?: string | null;
+} | string;
+
 export type MenuRecipe = {
   id: string;
   title: string;
   course: string | null;
   cuisine_style: string | null;
-  servings: Record<string, unknown>;
+  servings: MenuServings | null;
   scale_factor: number;
-  ingredients: unknown[];
-  method: unknown[];
+  ingredients: MenuIngredient[];
+  method: MenuMethodStep[];
   tips: string[];
   packaging_notes: string | null;
-  packaging_guidance: unknown[];
+  packaging_guidance: PackagingGuidanceEntry[] | null;
   premium_required: boolean;
   created_at: string;
   updated_at: string;
+};
+
+export type SaveDishResponse = {
+  status: 'ok';
+  savedAsTitleOnly: boolean;
+  recipe: MenuRecipe | null;
 };
 
 async function callMenuFunction<T>(path: string, init: RequestInit): Promise<T> {
@@ -77,18 +107,19 @@ export async function fetchMenuSession(sessionId: string) {
   return result.session;
 }
 
-export async function saveDish(request: SaveDishRequest) {
-  const payload = await callMenuFunction<{ recipe: MenuRecipe }>('menu-recipes', {
+export async function saveDish(request: SaveDishRequest): Promise<SaveDishResponse> {
+  const payload = await callMenuFunction<{ recipe?: MenuRecipe | null }>('menu-recipes', {
     method: 'POST',
     body: JSON.stringify({
       title: request.title,
       premiumRequired: request.premium
     })
   });
+  const recipe = payload?.recipe ?? null;
   return {
-    status: 'ok' as const,
-    savedAsTitleOnly: !request.premium,
-    recipe: payload.recipe
+    status: 'ok',
+    savedAsTitleOnly: !request.premium || !recipe,
+    recipe
   };
 }
 
@@ -104,23 +135,27 @@ export type ConsolidatedLine = {
   packaging?: string | null;
 };
 
+export type MenuListConversionResult = {
+  consolidatedList: ConsolidatedLine[];
+  listId: string | null;
+  notes?: string[];
+  servings?: number;
+};
+
 export async function createListFromMenus(
   ids: string[],
   people: number,
   options: { persistList?: boolean; listName?: string | null } = {}
-) {
-  const result = await callMenuFunction<{ consolidatedList: ConsolidatedLine[]; listId: string | null }>(
-    'menus-lists',
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        dishIds: ids,
-        peopleCountOverride: people,
-        persistList: options.persistList ?? false,
-        listName: options.listName ?? null
-      })
-    }
-  );
+): Promise<MenuListConversionResult> {
+  const result = await callMenuFunction<MenuListConversionResult>('menus-lists', {
+    method: 'POST',
+    body: JSON.stringify({
+      dishIds: ids,
+      peopleCountOverride: people,
+      persistList: options.persistList ?? false,
+      listName: options.listName ?? null
+    })
+  });
   return result;
 }
 
@@ -154,4 +189,18 @@ export async function saveMenuPairing(data: { title: string; dishIds: string[]; 
 
 export async function deleteMenuPairing(pairingId: string) {
   await callMenuFunction(`menus-pairings/${pairingId}`, { method: 'DELETE' });
+}
+
+export async function listMenuRecipes(cursor?: string) {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+  const result = await callMenuFunction<{ recipes: MenuRecipe[] }>(`menu-recipes${query}`, { method: 'GET' });
+  return result.recipes;
+}
+
+export async function updateMenuRecipe(recipeId: string, updates: Partial<MenuRecipe>) {
+  const result = await callMenuFunction<{ recipe: MenuRecipe }>(`menu-recipes/${recipeId}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates)
+  });
+  return result.recipe;
 }

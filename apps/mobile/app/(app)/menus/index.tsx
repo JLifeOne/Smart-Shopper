@@ -1,17 +1,39 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { SafeAreaView, StyleSheet, Text, View, Pressable, TextInput, Animated } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { SafeAreaView, StyleSheet, Text, View, Pressable, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { featureFlags } from '@/src/lib/env';
 import { Toast } from '@/src/components/search/Toast';
-import { createListFromMenus, openDish, saveDish, uploadMenu } from '@/src/features/menus/api';
+import {
+  useMenuListConversion,
+  useMenuPairings,
+  useMenuRecipes,
+  useMenuSession
+} from '@/src/features/menus/hooks';
+import type { ConsolidatedLine, MenuRecipe, PackagingGuidanceEntry } from '@/src/features/menus/api';
 
 type SortMode = 'alpha' | 'course' | 'cuisine';
 
-const QUICK_ACTIONS = [
-  { id: 'scan', label: 'Scan a menu', icon: 'restaurant', toast: 'Menu scan coming soon—hooking into /ingest/menu.' },
-  { id: 'import', label: 'Import photo', icon: 'image-outline', toast: 'Photo picker coming soon. Use camera for now.' },
-  { id: 'save', label: 'Save dish title', icon: 'bookmark-outline', toast: 'Save dish title only (no recipes) enabled.' }
-] as const;
+type DisplayCard = {
+  id: string;
+  title: string;
+  course: string;
+  cuisine: string;
+  portion: string;
+  people: number;
+  basePeople: number;
+  listLines: string[];
+  packagingNote?: string | null;
+  packagingGuidance: string[];
+  requiresPremium: boolean;
+  recipe?: MenuRecipe | null;
+};
+
+type ConversionMeta = {
+  label: string;
+  dishCount: number;
+  people: number;
+  persisted: boolean;
+};
 
 const SAMPLE_AI_MENU = [
   {
@@ -34,59 +56,26 @@ const SAMPLE_AI_MENU = [
   }
 ] as const;
 
-const SAMPLE_CARDS = [
+const FALLBACK_CARDS: DisplayCard[] = [
   {
-    id: 'curry-chicken',
+    id: 'fallback-curry',
     title: 'Curry chicken',
     course: 'Main',
     cuisine: 'Jamaican',
-    portion: '350g plate',
-    people: 1,
-    listLines: ['Chicken thighs 1kg pack', 'Curry powder (Jamaican blend) 1 jar', 'Coconut milk 400ml can', 'Onion 2x', 'Scotch bonnet 1x'],
-    packagingNote: 'Mapped to local packs (1kg chicken, 400ml coconut milk, 1 spice jar).'
-  },
-  {
-    id: 'steamed-rice',
-    title: 'Steamed rice',
-    course: 'Side',
-    cuisine: 'Long grain',
-    portion: '180g cooked per person',
-    people: 1,
-    listLines: ['Long grain rice 500g bag', 'Sea salt'],
-    packagingNote: 'Rounded to 500g bag; adjust bags as people count scales.'
-  },
-  {
-    id: 'coleslaw',
-    title: 'Coleslaw',
-    course: 'Side',
-    cuisine: 'American',
-    portion: '150g bowl per person',
-    people: 1,
-    listLines: ['Cabbage 1 head', 'Carrots 4x', 'Mayo 470ml jar', 'Lime 2x'],
-    packagingNote: 'Uses 470ml mayo jar and whole produce units.'
-  },
-  {
-    id: 'lemon-herb-salmon',
-    title: 'Lemon herb salmon',
-    course: 'Main',
-    cuisine: 'Mediterranean',
-    portion: '320g plate',
-    people: 1,
-    listLines: ['Salmon fillets 4x 170g', 'Lemon 2x', 'Fresh dill 1 bunch', 'Olive oil 500ml bottle'],
-    packagingNote: 'Assumes standard fillet weights and a 500ml oil bottle.'
+    portion: 'Portion guidance coming soon',
+    people: 4,
+    basePeople: 4,
+    listLines: ['Chicken thighs 1kg pack', 'Curry powder 1 jar', 'Coconut milk 400ml can'],
+    packagingNote: 'Mapped to common Jamaican pantry sizes.',
+    packagingGuidance: [],
+    requiresPremium: false
   }
-] as const;
+];
 
-const SAMPLE_MENUS = [
-  { id: 'yard-classic', title: 'Yard classic', dishes: ['curry-chicken', 'steamed-rice', 'coleslaw'] },
-  { id: 'light-sea', title: 'Light sea', dishes: ['lemon-herb-salmon', 'coleslaw'] }
-] as const;
-
-const SAMPLE_SAVED = [
-  { id: 'saved-1', title: 'Ackee and Saltfish', titleOnly: true },
-  { id: 'saved-2', title: 'Boil Dumplings', titleOnly: true },
-  { id: 'saved-3', title: 'Jamaican curry chicken', titleOnly: true }
-] as const;
+const FALLBACK_PAIRINGS = [
+  { id: 'yard-classic', title: 'Yard classic', dishes: ['Curry chicken', 'Steamed rice', 'Coleslaw'] },
+  { id: 'light-sea', title: 'Light sea', dishes: ['Lemon herb salmon', 'Coleslaw'] }
+];
 
 export default function MenuInboxScreen() {
   const isPremium = featureFlags.menuIngestion ?? false;
@@ -94,30 +83,114 @@ export default function MenuInboxScreen() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
   const [cardPeople, setCardPeople] = useState<Record<string, number>>(
-    SAMPLE_CARDS.reduce((acc, card) => ({ ...acc, [card.id]: card.people }), {})
+    FALLBACK_CARDS.reduce((acc, card) => ({ ...acc, [card.id]: card.basePeople }), {})
   );
   const [showUploadOptions, setShowUploadOptions] = useState(false);
   const [dishDraft, setDishDraft] = useState('');
-  const [savedDishes, setSavedDishes] = useState<{ id: string; title: string; titleOnly: boolean }[]>([
-    ...SAMPLE_SAVED
-  ]);
+  const [savedDishes, setSavedDishes] = useState<{ id: string; title: string; titleOnly: boolean }[]>([]);
   const [sortOpen, setSortOpen] = useState(false);
   const [savedSelection, setSavedSelection] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
   const [showUpgradeOverlay, setShowUpgradeOverlay] = useState(!isPremium);
   const [overlayCollapsed, setOverlayCollapsed] = useState(false);
+  const [conversionMeta, setConversionMeta] = useState<ConversionMeta | null>(null);
+  const [sessionHighlights, setSessionHighlights] = useState<string[]>([]);
+
+  const {
+    session,
+    sessionError,
+    sessionLoading,
+    startSession,
+    refreshSession,
+    clearSession,
+    uploading,
+    hasActiveSession
+  } = useMenuSession();
+  const { recipes, recipesLoading, recipesError, createRecipe, creating } = useMenuRecipes();
+  const { convert, conversionLoading, conversionResult, conversionError, resetConversion } = useMenuListConversion();
+  const { pairings, pairingsLoading, pairingsError, savePairing } = useMenuPairings();
+
+  useEffect(() => {
+    if (!recipes.length) {
+      setCardPeople(FALLBACK_CARDS.reduce((acc, card) => ({ ...acc, [card.id]: card.basePeople }), {}));
+      return;
+    }
+    setCardPeople((prev) => {
+      const next = { ...prev };
+      recipes.forEach((recipe) => {
+        const basePeople = Number(recipe.servings?.people_count ?? recipe.scale_factor ?? 1) || 1;
+        if (!next[recipe.id]) {
+          next[recipe.id] = basePeople;
+        }
+      });
+      return next;
+    });
+    setSavedDishes(
+      recipes.map((recipe) => ({
+        id: recipe.id,
+        title: recipe.title,
+        titleOnly: !isPremium && recipe.premium_required
+      }))
+    );
+  }, [recipes, isPremium]);
+
+  useEffect(() => {
+    if (!session?.card_ids?.length) {
+      setSessionHighlights([]);
+      return;
+    }
+    setSessionHighlights(session.card_ids);
+    setOpenCards((prev) => {
+      const next = new Set(prev);
+      session.card_ids.forEach((id) => next.add(id));
+      return next;
+    });
+  }, [session?.card_ids]);
+
+  const cardsSource = useMemo(() => {
+    if (!recipes.length) {
+      return FALLBACK_CARDS;
+    }
+    return recipes.map((recipe) => mapRecipeToCard(recipe, cardPeople[recipe.id]));
+  }, [recipes, cardPeople]);
 
   const sortedCards = useMemo(() => {
-    const copy = [...SAMPLE_CARDS];
+    const copy = [...cardsSource];
     switch (sortMode) {
       case 'course':
         return copy.sort((a, b) => a.course.localeCompare(b.course) || a.title.localeCompare(b.title));
       case 'cuisine':
-        return copy.sort((a, b) => (a.cuisine ?? '').localeCompare(b.cuisine ?? '') || a.title.localeCompare(b.title));
+        return copy.sort((a, b) => a.cuisine.localeCompare(b.cuisine) || a.title.localeCompare(b.title));
       default:
         return copy.sort((a, b) => a.title.localeCompare(b.title));
     }
-  }, [sortMode]);
+  }, [cardsSource, sortMode]);
+
+  const pairingEntries = useMemo(() => {
+    if (pairings.length) {
+      return pairings.map((pairing) => ({
+        id: pairing.id,
+        title: pairing.title,
+        dishes: pairing.dish_ids ?? []
+      }));
+    }
+    return FALLBACK_PAIRINGS;
+  }, [pairings]);
+
+  const sessionStatusLabel = session ? describeSessionStatus(session.status) : null;
+  const sessionDishTitles = session?.dish_titles ?? [];
+  const sessionWarnings = session?.warnings ?? [];
+  const sessionUpdatedAt = session ? new Date(session.updated_at).toLocaleTimeString() : null;
+  const showConversionSummary = Boolean(conversionResult && conversionMeta);
+  const conversionErrorLabel = conversionError
+    ? 'Unable to convert menus right now. Please try again in a few moments.'
+    : null;
+  const highlightSet = useMemo(() => new Set(sessionHighlights), [sessionHighlights]);
+
+  const dismissConversionSummary = () => {
+    resetConversion();
+    setConversionMeta(null);
+  };
 
   const toggleSelected = (id: string) => {
     setSelectedIds((prev) => {
@@ -143,6 +216,38 @@ export default function MenuInboxScreen() {
     });
   };
 
+  const handleUpgradePress = () => {
+    Alert.alert('Upgrade required', 'Visit Account & Billing to upgrade your plan for menu recipes.');
+  };
+
+  const handleAddSingle = async (cardId: string, people: number, label: string) => {
+    if (!isPremium) {
+      handleUpgradePress();
+      return;
+    }
+    try {
+      resetConversion();
+      const result = await convert([cardId], people);
+      setConversionMeta({
+        label,
+        dishCount: 1,
+        people,
+        persisted: Boolean(result.listId)
+      });
+    } catch {
+      Toast.show('Unable to add menu right now.', 1700);
+    }
+  };
+
+  const handleSaveCombo = async (cardId: string) => {
+    try {
+      await savePairing({ title: `Menu combo for ${cardId.slice(0, 4)}`, dishIds: [cardId] });
+      Toast.show('Combo saved.', 1300);
+    } catch {
+      Toast.show('Unable to save combo.', 1700);
+    }
+  };
+
   const handleAddSelected = async (action: 'list' | 'create') => {
     const ids = Array.from(selectedIds.size ? selectedIds : sortedCards.map((card) => card.id));
     const people = Math.max(1, Math.min(...ids.map((id) => cardPeople[id] ?? 1)));
@@ -151,12 +256,25 @@ export default function MenuInboxScreen() {
       return;
     }
     if (!isPremium) {
-      Toast.show('Upgrade to convert dishes into a list with recipes.', 1700);
+      handleUpgradePress();
       return;
     }
-    await createListFromMenus(ids, people);
-    const label = action === 'list' ? 'Added to shopping list' : 'Created list from menus';
-    Toast.show(`${label}: ${ids.length} dish${ids.length === 1 ? '' : 'es'} (serves ${people}).`, 1600);
+    try {
+      resetConversion();
+      const result = await convert(ids, people, {
+        persist: action === 'create',
+        listName: action === 'create' ? `Menu plan ${new Date().toLocaleDateString()}` : null
+      });
+      const label = action === 'list' ? 'Add to list' : 'Create list';
+      setConversionMeta({
+        label,
+        dishCount: ids.length,
+        people: result.servings ?? people,
+        persisted: Boolean(result.listId)
+      });
+    } catch (error) {
+      Toast.show('Unable to convert menus right now.', 1700);
+    }
   };
 
   const handleCardPeopleChange = (id: string, delta: number) => {
@@ -166,21 +284,17 @@ export default function MenuInboxScreen() {
     });
   };
 
-  const handleUpload = (mode: 'camera' | 'gallery') => {
+  const handleUpload = async (mode: 'camera' | 'gallery') => {
     setShowUploadOptions(false);
-    uploadMenu(mode, isPremium).then(() => {
-      if (isPremium) {
-        Toast.show(`Uploading via ${mode === 'camera' ? 'camera' : 'gallery'}... parsing menu.`, 1500);
-      } else {
-        Toast.show(
-          `Saved dish titles from ${mode === 'camera' ? 'camera' : 'gallery'}. Upgrade for recipes and shopping plans.`,
-          1700
-        );
-      }
-    });
+    try {
+      await startSession({ mode, premium: isPremium });
+      Toast.show('Upload started. We will notify you when recipes are ready.', 1500);
+    } catch (error) {
+      Toast.show('Unable to start upload. Try again.', 1700);
+    }
   };
 
-  const handleSaveDish = () => {
+  const handleSaveDish = async () => {
     const parts = dishDraft
       .split(/[,\\n]/)
       .map((p) => p.trim())
@@ -189,26 +303,47 @@ export default function MenuInboxScreen() {
       Toast.show('Enter a dish name first.', 1200);
       return;
     }
-    parts.forEach((title) => saveDish({ title, premium: isPremium }).catch(() => undefined));
-    setSavedDishes((prev) => [
-      ...parts.map((title) => ({ id: `saved-${Date.now()}-${title}`, title, titleOnly: !isPremium })),
-      ...prev
-    ].slice(0, 8));
-    setDishDraft('');
-    if (isPremium) {
-      Toast.show(`Saved ${parts.length} dish${parts.length === 1 ? '' : 'es'}. Generating recipe & list...`, 1500);
-    } else {
-      Toast.show(`Saved title only. Upgrade to unlock recipes.`, 1600);
+    try {
+      let titlesOnly = 0;
+      for (const title of parts) {
+        const result = await createRecipe({ title, premium: isPremium });
+        if (result.savedAsTitleOnly) {
+          titlesOnly += 1;
+        }
+      }
+      setDishDraft('');
+      if (titlesOnly === parts.length) {
+        Toast.show('Saved dish titles only. Upgrade to unlock recipes and shopping plans.', 1700);
+      } else if (titlesOnly > 0) {
+        const recipeCount = parts.length - titlesOnly;
+        Toast.show(
+          `Saved ${recipeCount} recipe${recipeCount === 1 ? '' : 's'}; ${titlesOnly} title${
+            titlesOnly === 1 ? '' : 's'
+          } need premium.`,
+          1700
+        );
+      } else {
+        Toast.show(`Saved ${parts.length} recipe${parts.length === 1 ? '' : 's'}.`, 1500);
+      }
+    } catch (error) {
+      Toast.show('Unable to save dish right now.', 1700);
     }
   };
 
   const handleSavedPress = (dish: { id: string; title: string; titleOnly: boolean }) => {
-    if (isPremium) {
-      openDish(dish.id).catch(() => undefined);
-      Toast.show(`Opening ${dish.title} recipe...`, 1400);
+    if (dish.titleOnly) {
+      handleUpgradePress();
       return;
     }
-    Toast.show('Upgrade to unlock full recipes and auto shopping lists.', 1700);
+    if (!cardsSource.some((card) => card.id === dish.id)) {
+      Toast.show('Recipe syncing... try again shortly.', 1400);
+      return;
+    }
+    setOpenCards((prev) => {
+      const next = new Set(prev);
+      next.add(dish.id);
+      return next;
+    });
   };
 
   const handleSavedLongPress = (id: string) => {
@@ -233,17 +368,36 @@ export default function MenuInboxScreen() {
       Toast.show('Select at least one dish.', 1200);
       return;
     }
-    if (!isPremium) {
-      Toast.show('Upgrade to view recipes or convert to lists.', 1700);
-      return;
-    }
     const ids = Array.from(savedSelection);
     if (action === 'open') {
-      await Promise.all(ids.map((id) => openDish(id)));
-      Toast.show(`Opened ${ids.length} recipe${ids.length === 1 ? '' : 's'}.`, 1400);
+      const locked = savedDishes.filter((dish) => savedSelection.has(dish.id) && dish.titleOnly);
+      if (locked.length) {
+        handleUpgradePress();
+        return;
+      }
+      setOpenCards((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.add(id));
+        return next;
+      });
+      Toast.show('Opened selected recipes.', 1200);
     } else {
-      await createListFromMenus(ids, 1);
-      Toast.show(`Created list from ${ids.length} dish${ids.length === 1 ? '' : 'es'}.`, 1400);
+      if (!isPremium) {
+        handleUpgradePress();
+        return;
+      }
+      try {
+        resetConversion();
+        const result = await convert(ids, 1, { persist: true, listName: 'Saved menu list' });
+        setConversionMeta({
+          label: 'Saved dishes',
+          dishCount: ids.length,
+          people: result.servings ?? 1,
+          persisted: Boolean(result.listId)
+        });
+      } catch (error) {
+        Toast.show('Unable to create list right now.', 1700);
+      }
     }
     setSelectionMode(false);
     setSavedSelection(new Set());
@@ -261,7 +415,7 @@ export default function MenuInboxScreen() {
             </Text>
             <Pressable
               style={[styles.primary, styles.upgradeFancy]}
-              onPress={() => Toast.show('Upgrade flow coming soon.', 1500)}
+              onPress={handleUpgradePress}
             >
               <Ionicons name="sparkles" size={16} color="#FFFFFF" />
               <Text style={styles.primaryLabel}>Upgrade</Text>
@@ -309,11 +463,17 @@ export default function MenuInboxScreen() {
       </Text>
       <View style={styles.quickActionsRow}>
         <Pressable
-          style={({ pressed }) => [styles.quickAction, styles.quickActionPrimary, pressed && styles.quickActionPressed]}
+          style={({ pressed }) => [
+            styles.quickAction,
+            styles.quickActionPrimary,
+            (uploading || sessionLoading) && styles.quickActionDisabled,
+            pressed && styles.quickActionPressed
+          ]}
           onPress={() => setShowUploadOptions((prev) => !prev)}
+          disabled={uploading}
         >
-          <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />
-          <Text style={styles.quickActionPrimaryLabel}>Upload</Text>
+          {uploading ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />}
+          <Text style={styles.quickActionPrimaryLabel}>{uploading ? 'Uploading…' : 'Upload'}</Text>
         </Pressable>
         {!isPremium ? (
           <Pressable
@@ -396,6 +556,61 @@ export default function MenuInboxScreen() {
           </View>
         </View>
       ) : null}
+      {sessionError ? (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorBannerText}>Unable to load capture status.</Text>
+          <Pressable style={styles.errorBannerButton} onPress={() => refreshSession()}>
+            <Text style={styles.errorBannerButtonLabel}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {(session || uploading) && (
+        <View style={styles.sessionCard}>
+          <View style={styles.sessionHeader}>
+            <View>
+              <Text style={styles.sessionTitle}>Menu capture</Text>
+              <Text style={styles.sessionStatus}>{sessionStatusLabel ?? 'Preparing upload...'}</Text>
+              {sessionUpdatedAt ? <Text style={styles.sessionMeta}>Updated {sessionUpdatedAt}</Text> : null}
+            </View>
+            {(sessionLoading || uploading) && <ActivityIndicator size="small" color="#0C1D37" />}
+          </View>
+          {sessionDishTitles.length ? (
+            <View style={styles.sessionList}>
+              <Text style={styles.sessionListLabel}>Detected dishes</Text>
+              {sessionDishTitles.map((dish) => (
+                <Text key={dish} style={styles.sessionListItem}>
+                  • {dish}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+          {sessionWarnings.length ? (
+            <View style={styles.sessionWarnings}>
+              <Ionicons name="alert-circle" size={14} color="#B45309" />
+              <Text style={styles.sessionWarningText}>{sessionWarnings.join(' ')}</Text>
+            </View>
+          ) : null}
+          {sessionHighlights.length ? (
+            <Text style={styles.sessionHighlight}>
+              {sessionHighlights.length} recipe{sessionHighlights.length === 1 ? '' : 's'} added to your library.
+            </Text>
+          ) : null}
+          <View style={styles.sessionCardActions}>
+            {session && hasActiveSession ? (
+              <Pressable style={styles.primaryInline} onPress={() => refreshSession()}>
+                <Ionicons name="refresh" size={14} color="#FFFFFF" />
+                <Text style={styles.primaryInlineLabel}>Refresh status</Text>
+              </Pressable>
+            ) : null}
+            {session ? (
+              <Pressable style={styles.secondaryInline} onPress={clearSession}>
+                <Ionicons name="close-circle-outline" size={14} color="#0C1D37" />
+                <Text style={styles.secondaryInlineLabel}>Clear session</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      )}
       <View style={styles.dishInputCard}>
         <Text style={styles.inputLabel}>Dish name</Text>
         <TextInput
@@ -430,7 +645,7 @@ export default function MenuInboxScreen() {
               >
                 <View>
                   <Text style={styles.savedTitle}>{dish.title}</Text>
-                  {!isPremium ? <Text style={styles.savedUpsell}>Title only – tap to upgrade</Text> : null}
+                  {dish.titleOnly ? <Text style={styles.savedUpsell}>Title only – tap to upgrade</Text> : null}
                 </View>
                 {selectionMode ? (
                   <Ionicons
@@ -445,11 +660,19 @@ export default function MenuInboxScreen() {
             ))}
             {selectionMode ? (
               <View style={styles.savedActions}>
-                <Pressable style={styles.primaryInline} onPress={() => handleSavedAction('open')}>
+                <Pressable
+                  style={[styles.primaryInline, conversionLoading && styles.disabledButton]}
+                  onPress={() => handleSavedAction('open')}
+                  disabled={conversionLoading}
+                >
                   <Ionicons name="book-outline" size={14} color="#FFFFFF" />
                   <Text style={styles.primaryInlineLabel}>View recipes</Text>
                 </Pressable>
-                <Pressable style={styles.secondaryInline} onPress={() => handleSavedAction('list')}>
+                <Pressable
+                  style={[styles.secondaryInline, conversionLoading && styles.disabledButton]}
+                  onPress={() => handleSavedAction('list')}
+                  disabled={conversionLoading}
+                >
                   <Ionicons name="cart" size={14} color="#0C1D37" />
                   <Text style={styles.secondaryInlineLabel}>Create list</Text>
                 </Pressable>
@@ -459,11 +682,59 @@ export default function MenuInboxScreen() {
         ) : null}
       </View>
 
+      {conversionLoading ? (
+        <View style={styles.conversionSpinner}>
+          <ActivityIndicator size="small" color="#0C1D37" />
+          <Text style={styles.conversionSpinnerLabel}>Building shopping list…</Text>
+        </View>
+      ) : null}
+      {conversionErrorLabel ? (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorBannerText}>{conversionErrorLabel}</Text>
+        </View>
+      ) : null}
+      {showConversionSummary && conversionResult && conversionMeta ? (
+        <View style={styles.conversionCard}>
+          <View style={styles.conversionHeader}>
+            <View>
+              <Text style={styles.conversionTitle}>{conversionMeta.label}</Text>
+              <Text style={styles.conversionMeta}>
+                {conversionMeta.dishCount} dish{conversionMeta.dishCount === 1 ? '' : 'es'} •{' '}
+                {conversionMeta.people} people • {conversionMeta.persisted ? 'Saved to list' : 'List ready to review'}
+              </Text>
+            </View>
+            <Pressable style={styles.conversionClose} onPress={dismissConversionSummary}>
+              <Ionicons name="close" size={16} color="#0C1D37" />
+            </Pressable>
+          </View>
+          <View style={styles.conversionLines}>
+            {conversionResult.consolidatedList.map((line, index) => (
+              <View key={`${line.name}-${index}`} style={styles.conversionLine}>
+                <Text style={styles.conversionLineName}>{line.name}</Text>
+                <Text style={styles.conversionLineMeta}>{formatListLine(line)}</Text>
+                {line.packaging ? <Text style={styles.conversionPackaging}>{line.packaging}</Text> : null}
+              </View>
+            ))}
+          </View>
+          {conversionResult.notes?.length ? (
+            <View style={styles.conversionNotes}>
+              {conversionResult.notes.map((note) => (
+                <Text key={note} style={styles.conversionNote}>
+                  • {note}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
       {isPremium ? (
         <>
           <View style={styles.card}>
             <Ionicons name="restaurant" size={24} color="#0C1D37" />
             <Text style={styles.cardTitle}>Menu review</Text>
+            {recipesLoading ? <ActivityIndicator size="small" color="#0C1D37" /> : null}
+            {recipesError ? <Text style={styles.errorText}>Unable to load menus. Pull to refresh.</Text> : null}
             <Text style={styles.cardBody}>
               Upload or type dishes, scale people, and add all to your list. Packaging matches local store sizes.
             </Text>
@@ -476,7 +747,9 @@ export default function MenuInboxScreen() {
             {sortedCards.map((card) => {
               const selected = selectedIds.has(card.id);
               const open = openCards.has(card.id);
-              const people = cardPeople[card.id] ?? 1;
+              const people = cardPeople[card.id] ?? card.basePeople ?? 1;
+              const cardLocked = !isPremium && card.requiresPremium;
+              const isNewCard = highlightSet.has(card.id);
               return (
                 <Pressable
                   key={card.id}
@@ -487,8 +760,13 @@ export default function MenuInboxScreen() {
                     <View style={styles.menuTitleBlock}>
                       <Text style={styles.menuTitle}>{card.title}</Text>
                       <Text style={styles.menuMeta}>
-                        {card.course} • {card.cuisine} • Serves {people} (start: {card.people})
+                        {card.course} • {card.cuisine} • Serves {people} (base {card.basePeople})
                       </Text>
+                      {isNewCard ? (
+                        <View style={styles.menuBadge}>
+                          <Text style={styles.menuBadgeLabel}>New</Text>
+                        </View>
+                      ) : null}
                     </View>
                     <View style={styles.menuPeople}>
                       <Pressable style={styles.sessionButton} onPress={() => handleCardPeopleChange(card.id, -1)}>
@@ -503,17 +781,32 @@ export default function MenuInboxScreen() {
                       <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color="#0C1D37" />
                     </Pressable>
                   </View>
+                  {cardLocked ? (
+                    <Text style={styles.menuLockedText}>Upgrade to unlock this recipe and auto-generated lists.</Text>
+                  ) : null}
                   <View style={styles.menuActions}>
                     <Pressable
-                      style={styles.menuChip}
-                      onPress={() => Toast.show(`Added ${card.title} with packs matched.`, 1200)}
+                      style={[
+                        styles.menuChip,
+                        (conversionLoading || cardLocked) && styles.menuChipDisabled
+                      ]}
+                      onPress={() => {
+                        if (cardLocked) {
+                          handleUpgradePress();
+                          return;
+                        }
+                        handleAddSingle(card.id, people, card.title);
+                      }}
+                      disabled={conversionLoading}
                     >
                       <Ionicons name="cart" size={14} color="#0C1D37" />
-                      <Text style={styles.menuChipLabel}>Add to list</Text>
+                      <Text style={[styles.menuChipLabel, cardLocked && styles.menuChipLabelDisabled]}>
+                        {cardLocked ? 'Upgrade' : 'Add to list'}
+                      </Text>
                     </Pressable>
                     <Pressable
                       style={styles.menuChip}
-                      onPress={() => Toast.show('Saved combo as menu.', 1200)}
+                      onPress={() => handleSaveCombo(card.id)}
                     >
                       <Ionicons name="bookmark-outline" size={14} color="#0C1D37" />
                       <Text style={styles.menuChipLabel}>Save combo</Text>
@@ -522,13 +815,27 @@ export default function MenuInboxScreen() {
                   {open ? (
                     <View style={styles.menuBody}>
                       <Text style={styles.menuSectionTitle}>Shopping lines</Text>
-                      {card.listLines.map((line) => (
+                      {card.listLines.map((line: string) => (
                         <Text key={line} style={styles.menuLine}>
                           • {line}
                         </Text>
                       ))}
-                      <Text style={styles.menuSectionTitle}>Packaging</Text>
-                      <Text style={styles.menuPackaging}>{card.packagingNote}</Text>
+                      {card.packagingNote ? (
+                        <>
+                          <Text style={styles.menuSectionTitle}>Packaging</Text>
+                          <Text style={styles.menuPackaging}>{card.packagingNote}</Text>
+                        </>
+                      ) : null}
+                      {card.packagingGuidance.length ? (
+                        <>
+                          <Text style={styles.menuSectionTitle}>Packaging guidance</Text>
+                          {card.packagingGuidance.map((line) => (
+                            <Text key={line} style={styles.menuLine}>
+                              • {line}
+                            </Text>
+                          ))}
+                        </>
+                      ) : null}
                       <Text style={styles.menuFooter}>Serves {people} people; portion ~{card.portion}.</Text>
                     </View>
                   ) : null}
@@ -561,7 +868,9 @@ export default function MenuInboxScreen() {
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Suggested pairings</Text>
-            {SAMPLE_MENUS.map((menu) => (
+            {pairingsLoading ? <ActivityIndicator size="small" color="#0C1D37" /> : null}
+            {pairingsError ? <Text style={styles.errorText}>Unable to load pairings right now.</Text> : null}
+            {pairingEntries.map((menu) => (
               <Pressable
                 key={menu.id}
                 style={styles.menuPairing}
@@ -579,6 +888,100 @@ export default function MenuInboxScreen() {
       ) : null}
     </SafeAreaView>
   );
+}
+
+function mapRecipeToCard(recipe: MenuRecipe, overridePeople?: number): DisplayCard {
+  const servings = recipe.servings ?? null;
+  const basePeople = Number(servings?.people_count ?? recipe.scale_factor ?? 1) || 1;
+  const people = overridePeople ?? basePeople;
+  const portionLabel =
+    servings?.portion_size_per_person && String(servings.portion_size_per_person).length
+      ? `${servings.portion_size_per_person} per person`
+      : 'Portion guidance coming soon';
+  const ingredientLines = Array.isArray(recipe.ingredients)
+    ? recipe.ingredients
+        .map((ing) => {
+          if (!ing) {
+            return null;
+          }
+          const qty = ing.quantity ? String(ing.quantity).trim() : '';
+          const unit = ing.unit ? String(ing.unit).trim() : '';
+          const qtyDisplay = [qty, unit].filter(Boolean).join(' ').trim();
+          const name = ing.name ? String(ing.name) : '';
+          const notes = ing.notes ? ` (${ing.notes})` : '';
+          const line = [qtyDisplay, name].filter(Boolean).join(' ').trim();
+          return line.length ? `${line}${notes}` : null;
+        })
+        .filter((line): line is string => Boolean(line))
+    : [];
+  const packagingGuidance = Array.isArray(recipe.packaging_guidance)
+    ? recipe.packaging_guidance
+        .map((entry) => formatPackagingGuidance(entry))
+        .filter((line): line is string => Boolean(line))
+    : [];
+  return {
+    id: recipe.id,
+    title: recipe.title,
+    course: recipe.course ?? 'Course',
+    cuisine: recipe.cuisine_style ?? 'Cuisine',
+    portion: portionLabel,
+    people,
+    basePeople,
+    listLines: ingredientLines.length ? ingredientLines : ['Ingredients coming soon'],
+    packagingNote: recipe.packaging_notes ?? null,
+    packagingGuidance,
+    requiresPremium: Boolean(recipe.premium_required),
+    recipe
+  };
+}
+
+function formatPackagingGuidance(entry: PackagingGuidanceEntry): string | null {
+  if (!entry) {
+    return null;
+  }
+  if (typeof entry === 'string') {
+    return entry;
+  }
+  const parts = [entry.label, entry.text, entry.packaging].filter(Boolean).map((part) => String(part));
+  if (!parts.length) {
+    return null;
+  }
+  return parts.join(' — ');
+}
+
+function describeSessionStatus(status?: string | null) {
+  if (!status) {
+    return 'Preparing upload...';
+  }
+  const normalized = status.toLowerCase();
+  switch (normalized) {
+    case 'pending':
+    case 'queued':
+      return 'Upload pending';
+    case 'processing':
+    case 'running':
+      return 'Analyzing dishes';
+    case 'needs_clarification':
+      return 'Needs clarification';
+    case 'ready':
+    case 'completed':
+      return 'Recipes ready';
+    case 'title_only':
+      return 'Title-only capture saved';
+    case 'failed':
+    case 'error':
+      return 'Capture failed';
+    default:
+      return status.replace('_', ' ');
+  }
+}
+
+function formatListLine(line: ConsolidatedLine) {
+  const qty = typeof line.quantity === 'number' ? line.quantity.toString() : line.quantity ?? '';
+  const unit = line.unit ?? '';
+  const qtyText = [qty, unit].filter(Boolean).join(' ').trim();
+  const notes = line.notes ? ` (${line.notes})` : '';
+  return `${qtyText || 'Qty pending'}${notes}`;
 }
 
 const styles = StyleSheet.create({
@@ -633,6 +1036,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#475569'
   },
+  errorText: {
+    fontSize: 12,
+    color: '#B45309',
+    fontWeight: '600'
+  },
   quickActionsRow: {
     flexDirection: 'row',
     gap: 8,
@@ -664,6 +1072,9 @@ const styles = StyleSheet.create({
   },
   quickActionPressed: {
     backgroundColor: '#F8FAFC'
+  },
+  quickActionDisabled: {
+    opacity: 0.7
   },
   quickActionLabel: {
     fontSize: 13,
@@ -755,6 +1166,35 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0C1D37'
   },
+  errorBanner: {
+    marginTop: 8,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 12,
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#FDE68A'
+  },
+  errorBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#92400E',
+    fontWeight: '600'
+  },
+  errorBannerButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: '#F59E0B'
+  },
+  errorBannerButtonLabel: {
+    fontSize: 12,
+    color: '#0C1D37',
+    fontWeight: '700'
+  },
   upgradeOverlay: {
     position: 'absolute',
     top: 0,
@@ -830,6 +1270,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 12
   },
+  saveDishButtonDisabled: {
+    opacity: 0.7
+  },
   saveDishButtonLabel: {
     color: '#FFFFFF',
     fontWeight: '700',
@@ -840,6 +1283,72 @@ const styles = StyleSheet.create({
     borderTopColor: '#E2E8F0',
     paddingTop: 6,
     gap: 6
+  },
+  sessionCard: {
+    marginTop: 8,
+    backgroundColor: '#ECFEFF',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#CFFAFE',
+    gap: 8
+  },
+  sessionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  sessionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  sessionStatus: {
+    fontSize: 13,
+    color: '#0E7490',
+    fontWeight: '600'
+  },
+  sessionMeta: {
+    fontSize: 11,
+    color: '#475569'
+  },
+  sessionList: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 10,
+    gap: 4
+  },
+  sessionListLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  sessionListItem: {
+    fontSize: 12,
+    color: '#0F172A'
+  },
+  sessionWarnings: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    padding: 8,
+    borderRadius: 10,
+    backgroundColor: '#FEF3C7'
+  },
+  sessionWarningText: {
+    fontSize: 12,
+    color: '#B45309',
+    flex: 1
+  },
+  sessionHighlight: {
+    fontSize: 12,
+    color: '#0369A1',
+    fontWeight: '600'
+  },
+  sessionCardActions: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap'
   },
   savedRow: {
     flexDirection: 'row',
@@ -985,6 +1494,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 13
   },
+  disabledButton: {
+    opacity: 0.6
+  },
   primary: {
     marginTop: 8,
     backgroundColor: '#0C1D37',
@@ -1116,6 +1628,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#475569'
   },
+  menuLockedText: {
+    fontSize: 12,
+    color: '#B45309',
+    fontWeight: '600'
+  },
+  menuBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: '#DCFCE7'
+  },
+  menuBadgeLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#166534'
+  },
   expandButton: {
     padding: 6,
     borderRadius: 10,
@@ -1137,10 +1667,16 @@ const styles = StyleSheet.create({
     borderColor: '#CBD5E1',
     backgroundColor: '#FFFFFF'
   },
+  menuChipDisabled: {
+    opacity: 0.6
+  },
   menuChipLabel: {
     fontSize: 12,
     fontWeight: '700',
     color: '#0C1D37'
+  },
+  menuChipLabelDisabled: {
+    color: '#B45309'
   },
   menuBody: {
     gap: 6
@@ -1185,5 +1721,75 @@ const styles = StyleSheet.create({
   menuPairingMeta: {
     fontSize: 12,
     color: '#475569'
+  },
+  conversionCard: {
+    marginTop: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 14,
+    gap: 8
+  },
+  conversionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  conversionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  conversionMeta: {
+    fontSize: 12,
+    color: '#475569'
+  },
+  conversionClose: {
+    padding: 6
+  },
+  conversionLines: {
+    gap: 6
+  },
+  conversionLine: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 10,
+    gap: 4
+  },
+  conversionLineName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  conversionLineMeta: {
+    fontSize: 12,
+    color: '#0F172A'
+  },
+  conversionPackaging: {
+    fontSize: 11,
+    color: '#475569'
+  },
+  conversionNotes: {
+    marginTop: 4,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    gap: 4
+  },
+  conversionNote: {
+    fontSize: 12,
+    color: '#0C1D37'
+  },
+  conversionSpinner: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  conversionSpinnerLabel: {
+    fontSize: 12,
+    color: '#475569',
+    fontWeight: '600'
   }
 });

@@ -8,6 +8,9 @@ import { HEADER_HEIGHT } from '@/src/constants/layout';
 import { TopBar } from '@/src/components/TopBar';
 import { SearchOverlayProvider } from '@/src/providers/SearchOverlayProvider';
 import { TopBarProvider } from '@/src/providers/TopBarProvider';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+const queryClient = new QueryClient();
 
 export default function RootLayout() {
   return (
@@ -28,15 +31,17 @@ function AppFrame() {
   const topOffset = HEADER_HEIGHT + insets.top;
 
   return (
-    <SearchOverlayProvider topOffset={topOffset}>
-      <TopBar />
-      <View style={{ flex: 1, paddingTop: topOffset }}>
-        <Stack
-          screenOptions={{
-            headerShown: false
-          }}
-        />
-      </View>
-    </SearchOverlayProvider>
+    <QueryClientProvider client={queryClient}>
+      <SearchOverlayProvider topOffset={topOffset}>
+        <TopBar />
+        <View style={{ flex: 1, paddingTop: topOffset }}>
+          <Stack
+            screenOptions={{
+              headerShown: false
+            }}
+          />
+        </View>
+      </SearchOverlayProvider>
+    </QueryClientProvider>
   );
 }
