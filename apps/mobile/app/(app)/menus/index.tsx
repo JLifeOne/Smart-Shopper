@@ -3,6 +3,7 @@ import { SafeAreaView, StyleSheet, Text, View, Pressable, TextInput } from 'reac
 import { Ionicons } from '@expo/vector-icons';
 import { featureFlags } from '@/src/lib/env';
 import { Toast } from '@/src/components/search/Toast';
+import { createListFromMenus, openDish, saveDish, uploadMenu } from '@/src/features/menus/api';
 
 type SortMode = 'alpha' | 'course' | 'cuisine';
 
@@ -81,15 +82,28 @@ const SAMPLE_MENUS = [
   { id: 'light-sea', title: 'Light sea', dishes: ['lemon-herb-salmon', 'coleslaw'] }
 ] as const;
 
+const SAMPLE_SAVED = [
+  { id: 'saved-1', title: 'Ackee and Saltfish', titleOnly: true },
+  { id: 'saved-2', title: 'Boil Dumplings', titleOnly: true },
+  { id: 'saved-3', title: 'Jamaican curry chicken', titleOnly: true }
+] as const;
+
 export default function MenuInboxScreen() {
   const isPremium = featureFlags.menuIngestion ?? false;
   const [sortMode, setSortMode] = useState<SortMode>('alpha');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
-  const [sessionPeople, setSessionPeople] = useState<number>(1);
+  const [cardPeople, setCardPeople] = useState<Record<string, number>>(
+    SAMPLE_CARDS.reduce((acc, card) => ({ ...acc, [card.id]: card.people }), {})
+  );
   const [showUploadOptions, setShowUploadOptions] = useState(false);
   const [dishDraft, setDishDraft] = useState('');
-  const [savedDishes, setSavedDishes] = useState<string[]>([]);
+  const [savedDishes, setSavedDishes] = useState<{ id: string; title: string; titleOnly: boolean }[]>([
+    ...SAMPLE_SAVED
+  ]);
+  const [sortOpen, setSortOpen] = useState(false);
+  const [savedSelection, setSavedSelection] = useState<Set<string>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
 
   const sortedCards = useMemo(() => {
     const copy = [...SAMPLE_CARDS];
@@ -127,50 +141,110 @@ export default function MenuInboxScreen() {
     });
   };
 
-  const handleAddSelected = (action: 'list' | 'create') => {
-    const count = selectedIds.size || sortedCards.length;
+  const handleAddSelected = async (action: 'list' | 'create') => {
+    const ids = Array.from(selectedIds.size ? selectedIds : sortedCards.map((card) => card.id));
+    const people = Math.max(1, Math.min(...ids.map((id) => cardPeople[id] ?? 1)));
+    if (!ids.length) {
+      Toast.show('Select at least one dish.', 1200);
+      return;
+    }
+    if (!isPremium) {
+      Toast.show('Upgrade to convert dishes into a list with recipes.', 1700);
+      return;
+    }
+    await createListFromMenus(ids, people);
     const label = action === 'list' ? 'Added to shopping list' : 'Created list from menus';
-    Toast.show(`${label}: ${count} dish${count === 1 ? '' : 'es'} (pack sizes matched).`, 1600);
+    Toast.show(`${label}: ${ids.length} dish${ids.length === 1 ? '' : 'es'} (serves ${people}).`, 1600);
   };
 
-  const handlePeopleChange = (delta: number) => {
-    setSessionPeople((prev) => Math.max(1, prev + delta));
-    Toast.show(`Scaled session to ${Math.max(1, sessionPeople + delta)} people (new cards inherit).`, 1200);
+  const handleCardPeopleChange = (id: string, delta: number) => {
+    setCardPeople((prev) => {
+      const next = Math.max(1, (prev[id] ?? 1) + delta);
+      return { ...prev, [id]: next };
+    });
   };
 
   const handleUpload = (mode: 'camera' | 'gallery') => {
     setShowUploadOptions(false);
-    if (isPremium) {
-      Toast.show(`Uploading via ${mode === 'camera' ? 'camera' : 'gallery'}... parsing menu.`, 1500);
-    } else {
-      Toast.show(
-        `Saved dish titles from ${mode === 'camera' ? 'camera' : 'gallery'}. Upgrade for recipes and shopping plans.`,
-        1700
-      );
-    }
+    uploadMenu(mode, isPremium).then(() => {
+      if (isPremium) {
+        Toast.show(`Uploading via ${mode === 'camera' ? 'camera' : 'gallery'}... parsing menu.`, 1500);
+      } else {
+        Toast.show(
+          `Saved dish titles from ${mode === 'camera' ? 'camera' : 'gallery'}. Upgrade for recipes and shopping plans.`,
+          1700
+        );
+      }
+    });
   };
 
   const handleSaveDish = () => {
-    const trimmed = dishDraft.trim();
-    if (!trimmed) {
+    const parts = dishDraft
+      .split(/[,\\n]/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (!parts.length) {
       Toast.show('Enter a dish name first.', 1200);
       return;
     }
-    setSavedDishes((prev) => [trimmed, ...prev.slice(0, 6)]);
+    parts.forEach((title) => saveDish({ title, premium: isPremium }).catch(() => undefined));
+    setSavedDishes((prev) => [
+      ...parts.map((title) => ({ id: `saved-${Date.now()}-${title}`, title, titleOnly: !isPremium })),
+      ...prev
+    ].slice(0, 8));
     setDishDraft('');
     if (isPremium) {
-      Toast.show(`Saved ${trimmed}. Generating recipe & list...`, 1500);
+      Toast.show(`Saved ${parts.length} dish${parts.length === 1 ? '' : 'es'}. Generating recipe & list...`, 1500);
     } else {
-      Toast.show(`Saved ${trimmed} as a title only. Upgrade to unlock recipes.`, 1600);
+      Toast.show(`Saved title only. Upgrade to unlock recipes.`, 1600);
     }
   };
 
-  const handleSavedPress = (title: string) => {
+  const handleSavedPress = (dish: { id: string; title: string; titleOnly: boolean }) => {
     if (isPremium) {
-      Toast.show(`Opening ${title} recipe...`, 1400);
+      openDish(dish.id).catch(() => undefined);
+      Toast.show(`Opening ${dish.title} recipe...`, 1400);
       return;
     }
     Toast.show('Upgrade to unlock full recipes and auto shopping lists.', 1700);
+  };
+
+  const handleSavedLongPress = (id: string) => {
+    setSelectionMode(true);
+    setSavedSelection((prev) => new Set(prev).add(id));
+  };
+
+  const toggleSavedSelection = (id: string) => {
+    setSavedSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleSavedAction = async (action: 'open' | 'list') => {
+    if (!savedSelection.size) {
+      Toast.show('Select at least one dish.', 1200);
+      return;
+    }
+    if (!isPremium) {
+      Toast.show('Upgrade to view recipes or convert to lists.', 1700);
+      return;
+    }
+    const ids = Array.from(savedSelection);
+    if (action === 'open') {
+      await Promise.all(ids.map((id) => openDish(id)));
+      Toast.show(`Opened ${ids.length} recipe${ids.length === 1 ? '' : 's'}.`, 1400);
+    } else {
+      await createListFromMenus(ids, 1);
+      Toast.show(`Created list from ${ids.length} dish${ids.length === 1 ? '' : 'es'}.`, 1400);
+    }
+    setSelectionMode(false);
+    setSavedSelection(new Set());
   };
 
   return (
@@ -222,43 +296,80 @@ export default function MenuInboxScreen() {
         {savedDishes.length ? (
           <View style={styles.savedList}>
             {savedDishes.map((dish) => (
-              <Pressable key={dish} style={styles.savedRow} onPress={() => handleSavedPress(dish)}>
+              <Pressable
+                key={dish.id}
+                style={[
+                  styles.savedRow,
+                  selectionMode && savedSelection.has(dish.id) && styles.savedRowSelected
+                ]}
+                onPress={() => {
+                  if (selectionMode) {
+                    toggleSavedSelection(dish.id);
+                  } else {
+                    handleSavedPress(dish);
+                  }
+                }}
+                onLongPress={() => handleSavedLongPress(dish.id)}
+              >
                 <View>
-                  <Text style={styles.savedTitle}>{dish}</Text>
+                  <Text style={styles.savedTitle}>{dish.title}</Text>
                   {!isPremium ? <Text style={styles.savedUpsell}>Title only – tap to upgrade</Text> : null}
                 </View>
-                <Ionicons name="arrow-forward" size={14} color="#0C1D37" />
+                {selectionMode ? (
+                  <Ionicons
+                    name={savedSelection.has(dish.id) ? 'checkbox' : 'square-outline'}
+                    size={16}
+                    color="#0C1D37"
+                  />
+                ) : (
+                  <Ionicons name="arrow-forward" size={14} color="#0C1D37" />
+                )}
               </Pressable>
             ))}
+            {selectionMode ? (
+              <View style={styles.savedActions}>
+                <Pressable style={styles.primaryInline} onPress={() => handleSavedAction('open')}>
+                  <Ionicons name="book-outline" size={14} color="#FFFFFF" />
+                  <Text style={styles.primaryInlineLabel}>View recipes</Text>
+                </Pressable>
+                <Pressable style={styles.secondaryInline} onPress={() => handleSavedAction('list')}>
+                  <Ionicons name="cart" size={14} color="#0C1D37" />
+                  <Text style={styles.secondaryInlineLabel}>Create list</Text>
+                </Pressable>
+              </View>
+            ) : null}
           </View>
         ) : null}
       </View>
       <View style={styles.sortRow}>
-        {(['alpha', 'course', 'cuisine'] as SortMode[]).map((mode) => (
-          <Pressable
-            key={mode}
-            style={[styles.sortChip, sortMode === mode && styles.sortChipActive]}
-            onPress={() => setSortMode(mode)}
-          >
-            <Text style={[styles.sortChipLabel, sortMode === mode && styles.sortChipLabelActive]}>
-              {mode === 'alpha' ? 'A-Z' : mode === 'course' ? 'Course' : 'Cuisine'}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-      <View style={styles.sessionRow}>
-        <View style={styles.sessionCount}>
-          <Text style={styles.sessionLabel}>People</Text>
-          <View style={styles.sessionControls}>
-            <Pressable style={styles.sessionButton} onPress={() => handlePeopleChange(-1)}>
-              <Text style={styles.sessionButtonLabel}>-</Text>
-            </Pressable>
-            <Text style={styles.sessionValue}>{sessionPeople}</Text>
-            <Pressable style={styles.sessionButton} onPress={() => handlePeopleChange(1)}>
-              <Text style={styles.sessionButtonLabel}>+</Text>
-            </Pressable>
+        <Pressable
+          style={[styles.sortChip, styles.sortChipActive]}
+          onPress={() => setSortOpen((prev) => !prev)}
+        >
+          <Ionicons name="swap-vertical" size={14} color="#FFFFFF" />
+          <Text style={styles.sortChipLabelActive}>
+            {sortMode === 'alpha' ? 'A-Z' : sortMode === 'course' ? 'Course' : 'Cuisine'}
+          </Text>
+          <Ionicons name={sortOpen ? 'chevron-up' : 'chevron-down'} size={14} color="#FFFFFF" />
+        </Pressable>
+        {sortOpen ? (
+          <View style={styles.sortDropdown}>
+            {(['alpha', 'course', 'cuisine'] as SortMode[]).map((mode) => (
+              <Pressable
+                key={mode}
+                style={styles.sortDropdownItem}
+                onPress={() => {
+                  setSortMode(mode);
+                  setSortOpen(false);
+                }}
+              >
+                <Text style={styles.sortDropdownLabel}>
+                  {mode === 'alpha' ? 'Alphabetical (default)' : mode === 'course' ? 'Course' : 'Cuisine'}
+                </Text>
+              </Pressable>
+            ))}
           </View>
-        </View>
+        ) : null}
         <View style={styles.sessionActions}>
           <Pressable style={styles.primaryInline} onPress={() => handleAddSelected('list')}>
             <Ionicons name="cart" size={14} color="#FFFFFF" />
@@ -288,6 +399,7 @@ export default function MenuInboxScreen() {
             {sortedCards.map((card) => {
               const selected = selectedIds.has(card.id);
               const open = openCards.has(card.id);
+              const people = cardPeople[card.id] ?? 1;
               return (
                 <Pressable
                   key={card.id}
@@ -298,8 +410,17 @@ export default function MenuInboxScreen() {
                     <View style={styles.menuTitleBlock}>
                       <Text style={styles.menuTitle}>{card.title}</Text>
                       <Text style={styles.menuMeta}>
-                        {card.course} • {card.cuisine} • Serves {sessionPeople} (start: {card.people})
+                        {card.course} • {card.cuisine} • Serves {people} (start: {card.people})
                       </Text>
+                    </View>
+                    <View style={styles.menuPeople}>
+                      <Pressable style={styles.sessionButton} onPress={() => handleCardPeopleChange(card.id, -1)}>
+                        <Text style={styles.sessionButtonLabel}>-</Text>
+                      </Pressable>
+                      <Text style={styles.sessionValue}>{people}</Text>
+                      <Pressable style={styles.sessionButton} onPress={() => handleCardPeopleChange(card.id, 1)}>
+                        <Text style={styles.sessionButtonLabel}>+</Text>
+                      </Pressable>
                     </View>
                     <Pressable onPress={() => toggleOpen(card.id)} style={styles.expandButton}>
                       <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color="#0C1D37" />
@@ -320,16 +441,6 @@ export default function MenuInboxScreen() {
                       <Ionicons name="bookmark-outline" size={14} color="#0C1D37" />
                       <Text style={styles.menuChipLabel}>Save combo</Text>
                     </Pressable>
-                    <Pressable
-                      style={styles.menuChip}
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        handlePeopleChange(1);
-                      }}
-                    >
-                      <Ionicons name="person-add-outline" size={14} color="#0C1D37" />
-                      <Text style={styles.menuChipLabel}>Inherit people</Text>
-                    </Pressable>
                   </View>
                   {open ? (
                     <View style={styles.menuBody}>
@@ -341,7 +452,7 @@ export default function MenuInboxScreen() {
                       ))}
                       <Text style={styles.menuSectionTitle}>Packaging</Text>
                       <Text style={styles.menuPackaging}>{card.packagingNote}</Text>
-                      <Text style={styles.menuFooter}>Serves {sessionPeople} people; portion ~{card.portion}.</Text>
+                      <Text style={styles.menuFooter}>Serves {people} people; portion ~{card.portion}.</Text>
                     </View>
                   ) : null}
                 </Pressable>
@@ -574,6 +685,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 6
   },
+  savedRowSelected: {
+    backgroundColor: '#ECFEFF',
+    borderRadius: 10,
+    paddingHorizontal: 6
+  },
   savedTitle: {
     fontSize: 13,
     fontWeight: '700',
@@ -583,18 +699,28 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#64748B'
   },
-  sortRow: {
+  savedActions: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 4
+    paddingTop: 6
+  },
+  sortRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+    alignItems: 'center',
+    position: 'relative'
   },
   sortChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    backgroundColor: '#FFFFFF'
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6
   },
   sortChipActive: {
     backgroundColor: '#0C1D37',
@@ -608,11 +734,26 @@ const styles = StyleSheet.create({
   sortChipLabelActive: {
     color: '#FFFFFF'
   },
-  sessionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 6
+  sortDropdown: {
+    position: 'absolute',
+    top: 44,
+    left: 0,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingVertical: 6,
+    gap: 4,
+    elevation: 3
+  },
+  sortDropdownItem: {
+    paddingHorizontal: 14,
+    paddingVertical: 8
+  },
+  sortDropdownLabel: {
+    fontSize: 13,
+    color: '#0C1D37'
   },
   sessionCount: {
     flexDirection: 'row',
@@ -782,6 +923,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8
+  },
+  menuPeople: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6
   },
   menuTitleBlock: {
     flex: 1
