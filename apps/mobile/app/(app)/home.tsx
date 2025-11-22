@@ -1624,7 +1624,7 @@ function CreateSheet({ visible, onClose, ownerId, deviceId, onCreated }: CreateS
   }, [cameraProcessing]);
 
   useEffect(() => {
-    if (!visible) {
+    if (!visible || activeTab !== 'camera') {
       cameraAutoTriggerRef.current = false;
       return;
     }
