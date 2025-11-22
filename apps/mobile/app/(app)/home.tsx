@@ -162,13 +162,15 @@ function DashboardView({
     user?.id ?? undefined,
     featureFlags.heatmapV2
   );
-  const glanceStats = useMemo(() => {
+  const glanceStats = useMemo<Array<{ label: string; value: string; onPress?: () => void }>>(() => {
     const trackedItems = quickStats.find((stat) => stat.label === 'Tracked items');
     const receiptsScanned = quickStats.find((stat) => stat.label === 'Receipts scanned');
     return [
       { label: 'Menus', value: '0', onPress: () => router.push('/menus' as never) },
-      trackedItems ?? { label: 'Tracked items', value: '0' },
-      receiptsScanned ?? { label: 'Receipts scanned', value: '0' }
+      trackedItems ? { ...trackedItems, onPress: undefined } : { label: 'Tracked items', value: '0', onPress: undefined },
+      receiptsScanned
+        ? { ...receiptsScanned, onPress: undefined }
+        : { label: 'Receipts scanned', value: '0', onPress: undefined }
     ];
   }, [quickStats, router]);
   const recommendationRequest = useMemo(() => {
