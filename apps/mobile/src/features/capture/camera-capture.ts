@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system/legacy';
+import { File } from 'expo-file-system';
+import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { ensureSupabaseClient } from '@/src/lib/supabase';
 import { withTimeout } from '@/src/lib/retry';
 import { AppError } from '@/src/lib/errors';
@@ -78,7 +79,16 @@ async function capturePhoto(): Promise<ImagePicker.ImagePickerAsset> {
 }
 
 async function readImageAsBase64(uri: string) {
-  return FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+  try {
+    const file = new File(uri);
+    const base64 = await Promise.resolve(file.base64());
+    if (base64) {
+      return base64;
+    }
+  } catch (error) {
+    console.warn('camera-capture: falling back to legacy read', error);
+  }
+  return LegacyFileSystem.readAsStringAsync(uri, { encoding: 'base64' });
 }
 
 export async function captureListFromCamera(options: { timeoutMs?: number } = {}): Promise<CameraListCaptureResult> {

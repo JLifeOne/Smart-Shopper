@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system/legacy';
+import { File } from 'expo-file-system';
+import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { withTimeout } from '@/src/lib/retry';
 import { ensureSupabaseClient } from '@/src/lib/supabase';
 import { AppError } from '@/src/lib/errors';
@@ -103,10 +104,23 @@ export async function finalizeVoiceCapture(
   }
 
   try {
-  const base64 = await FileSystem.readAsStringAsync(uri, {
-    encoding: 'base64'
-  });
-  const supabase = ensureSupabaseClient();
+    let base64: string | null = null;
+    try {
+      const file = new File(uri);
+      base64 = await Promise.resolve(file.base64());
+    } catch (error) {
+      console.warn('voice-capture: falling back to legacy read', error);
+      base64 = await LegacyFileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+    }
+    if (!base64) {
+      throw new AppError({
+        code: 'unknown',
+        message: 'voice-recording-empty',
+        safeMessage: 'Could not access the recorded audio.',
+        retryable: false
+      });
+    }
+    const supabase = ensureSupabaseClient();
     const payload = {
       audio: base64,
       encoding: 'base64',
@@ -145,6 +159,13 @@ export async function finalizeVoiceCapture(
       locale: result.locale ?? options.locale ?? null
     };
   } finally {
-    FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
+    try {
+      const file = new File(uri);
+      if (file.exists) {
+        file.delete();
+      }
+    } catch (error) {
+      LegacyFileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
+    }
   }
 }
