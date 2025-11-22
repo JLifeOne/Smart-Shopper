@@ -166,11 +166,11 @@ function DashboardView({
     const trackedItems = quickStats.find((stat) => stat.label === 'Tracked items');
     const receiptsScanned = quickStats.find((stat) => stat.label === 'Receipts scanned');
     return [
-      { label: 'Menus', value: '0' },
+      { label: 'Menus', value: '0', onPress: () => router.push('/menus' as never) },
       trackedItems ?? { label: 'Tracked items', value: '0' },
       receiptsScanned ?? { label: 'Receipts scanned', value: '0' }
     ];
-  }, [quickStats]);
+  }, [quickStats, router]);
   const recommendationRequest = useMemo(() => {
     if (!featureFlags.aiSuggestions) {
       return null;
@@ -279,10 +279,21 @@ function DashboardView({
             <Text style={newStyles.cardTitle}>At a glance</Text>
             <View style={newStyles.quickStatRow}>
               {glanceStats.map((stat) => (
-                <View key={stat.label} style={newStyles.quickStat}>
-                  <Text style={newStyles.quickStatValue}>{metricsLoading ? '...' : stat.value}</Text>
-                  <Text style={newStyles.quickStatLabel}>{stat.label}</Text>
-                </View>
+                stat.onPress ? (
+                  <Pressable
+                    key={stat.label}
+                    style={({ pressed }) => [newStyles.quickStat, pressed && newStyles.quickStatPressed]}
+                    onPress={stat.onPress}
+                  >
+                    <Text style={newStyles.quickStatValue}>{metricsLoading ? '...' : stat.value}</Text>
+                    <Text style={newStyles.quickStatLabel}>{stat.label}</Text>
+                  </Pressable>
+                ) : (
+                  <View key={stat.label} style={newStyles.quickStat}>
+                    <Text style={newStyles.quickStatValue}>{metricsLoading ? '...' : stat.value}</Text>
+                    <Text style={newStyles.quickStatLabel}>{stat.label}</Text>
+                  </View>
+                )
               ))}
             </View>
           </View>
@@ -2514,6 +2525,9 @@ const newStyles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 2
+  },
+  quickStatPressed: {
+    backgroundColor: '#F1F5F9'
   },
   quickStatValue: {
     fontSize: 22,
