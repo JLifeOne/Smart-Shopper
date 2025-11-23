@@ -150,6 +150,7 @@ serve(async (req) => {
   try {
     switch (req.method) {
       case "POST": {
+        const startedAt = performance.now();
         const payload = (await req.json().catch(() => ({}))) as CreateSessionPayload;
         const insertPayload = {
           owner_id: userId,
@@ -194,6 +195,17 @@ serve(async (req) => {
             .update({ intent_route: intentDecisions[0]?.intent ?? null })
             .eq("id", data.id);
         }
+        const durationMs = Math.round(performance.now() - startedAt);
+        console.log(
+          JSON.stringify({
+            event: "menu_session_created",
+            sessionId: data.id,
+            ownerId: userId,
+            intentRoute: intentDecisions[0]?.intent ?? null,
+            detections: payload.detections?.length ?? 0,
+            durationMs
+          })
+        );
         return jsonResponse({ session: data }, { status: 201 });
       }
       case "GET": {
@@ -215,6 +227,7 @@ serve(async (req) => {
           return jsonResponse({ error: "session_id_required" }, { status: 400 });
         }
         const body = (await req.json().catch(() => ({}))) as UpdateSessionPayload;
+        const startedAt = performance.now();
         const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
         if (body.status) {
           updates.status = body.status;
@@ -261,6 +274,17 @@ serve(async (req) => {
         if (error) {
           return jsonResponse({ error: "session_update_failed" }, { status: 400 });
         }
+        const durationMs = Math.round(performance.now() - startedAt);
+        console.log(
+          JSON.stringify({
+            event: "menu_session_updated",
+            sessionId,
+            ownerId: userId,
+            durationMs,
+            detectionsAdded: body.detections?.length ?? 0,
+            status: body.status ?? null
+          })
+        );
         return jsonResponse({ session: data });
       }
       default:

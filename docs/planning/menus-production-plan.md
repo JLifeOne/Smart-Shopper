@@ -19,6 +19,7 @@
    - `/menus/pairings` GET/POST/DELETE – curated combos + user-saved combos.
    - `/menu-session-items` POST/GET/PATCH – OCR detections (text, bounding boxes, classifier tags).
    - `/menus-policy` GET/PATCH – returns and updates entitlement/limit metadata + dietary/allergen preferences.
+   - `/menus-packaging` POST – ML/stubbed packaging normalizer that updates `menu_packaging_units`.
 3. **Observability scaffolding**
    - Structured logging (session_id, request_id, user_id).
    - Metrics for ingestion latency, recipe-generation success, preference enforcement, policy lookups, list conversion success.

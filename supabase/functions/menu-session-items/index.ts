@@ -123,7 +123,15 @@ serve(async (req) => {
         console.error("menu_session_items insert failed", error);
         return jsonResponse({ error: "session_items_insert_failed" }, { status: 400 });
       }
-      return jsonResponse({ items: data }, { status: 201 });
+    console.log(
+      JSON.stringify({
+        event: "menu_session_items_insert",
+        sessionId,
+        ownerId: userId,
+        count: data?.length ?? 0
+      })
+    );
+    return jsonResponse({ items: data }, { status: 201 });
     }
 
     if (req.method === "PATCH") {

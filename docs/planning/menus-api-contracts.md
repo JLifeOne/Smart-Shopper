@@ -246,6 +246,38 @@ Response mirrors the GET shape with updated preferences.
 
 ---
 
+## 7. Packaging update (`POST /menus-packaging`)
+
+Endpoint invoked by the packaging normalizer service (or stub) to upsert pack sizes per ingredient.
+
+Request `POST /menus-packaging`
+```json
+{
+  "locale": "en_US",
+  "storeId": null,
+  "updates": [
+    { "ingredientKey": "coconut milk", "packSize": 400, "packUnit": "ml", "displayLabel": "400 ml can" },
+    { "ingredientKey": "chicken thigh", "packSize": 1, "packUnit": "kg", "displayLabel": "1 kg tray" }
+  ]
+}
+```
+
+Response `200`
+```json
+{
+  "profileId": "uuid",
+  "units": [
+    { "ingredient_key": "coconut milk", "pack_size": 400, "pack_unit": "ml", "display_label": "400 ml can" }
+  ]
+}
+```
+
+- When `profileId` is omitted, the service creates a new profile for the supplied locale/store.
+- Upserts are idempotent on `(profile_id, ingredient_key)`.
+- Telemetry should record how many units were updated and whether the request originated from ML vs. fallback.
+
+---
+
 ## Shared Considerations
 
 - **Auth**: All endpoints require Supabase JWT; RLS enforces owner isolation.
