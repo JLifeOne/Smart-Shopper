@@ -256,12 +256,25 @@ export function useMenuPairings(locale?: string) {
   const saveMutation = useMutation({
     mutationFn: (payload: { title: string; dishIds: string[]; description?: string }) =>
       saveMenuPairing({ title: payload.title, dishIds: payload.dishIds, description: payload.description, locale }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['menu-pairings', locale ?? 'default'] })
+    onSuccess: async (pairing) => {
+      queryClient.setQueryData<MenuPairing[] | undefined>(['menu-pairings', locale ?? 'default'], (current = []) => {
+        const existing = current.filter((item) => item.id !== pairing.id);
+        const next = [pairing, ...existing];
+        cacheMenuPairings(next);
+        return next;
+      });
+    }
   });
 
   const deleteMutation = useMutation({
     mutationFn: (pairingId: string) => deleteMenuPairing(pairingId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['menu-pairings', locale ?? 'default'] })
+    onSuccess: async (_, pairingId) => {
+      queryClient.setQueryData<MenuPairing[] | undefined>(['menu-pairings', locale ?? 'default'], (current = []) => {
+        const next = current.filter((item) => item.id !== pairingId);
+        cacheMenuPairings(next);
+        return next;
+      });
+    }
   });
 
   return {
