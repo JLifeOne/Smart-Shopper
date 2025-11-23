@@ -76,16 +76,49 @@ serve(async (req) => {
     return jsonResponse({ error: message }, { status });
   }
 
-  if (req.method !== "GET") {
-    return jsonResponse({ error: "method_not_allowed" }, { status: 405 });
-  }
-
   try {
-    const { data: preferences } = await client
+    let { data: preferencesRecord } = await client
       .from("menu_user_preferences")
       .select("*")
       .eq("owner_id", user.id)
       .single();
+
+    if (req.method === "PATCH") {
+      const body = (await req.json().catch(() => ({}))) as {
+        locale?: string | null;
+        dietaryTags?: string[];
+        allergenFlags?: string[];
+        defaultPeopleCount?: number;
+        autoScale?: boolean;
+        allowCardLock?: boolean;
+      };
+      const upsertPayload = {
+        owner_id: user.id,
+        locale: body.locale ?? preferencesRecord?.locale ?? null,
+        dietary_tags: body.dietaryTags ?? preferencesRecord?.dietary_tags ?? [],
+        allergen_flags: body.allergenFlags ?? preferencesRecord?.allergen_flags ?? [],
+        default_people_count:
+          body.defaultPeopleCount && body.defaultPeopleCount > 0
+            ? body.defaultPeopleCount
+            : preferencesRecord?.default_people_count ?? 1,
+        auto_scale: body.autoScale ?? preferencesRecord?.auto_scale ?? true,
+        allow_card_lock: body.allowCardLock ?? preferencesRecord?.allow_card_lock ?? true
+      };
+      const { error, data } = await client
+        .from("menu_user_preferences")
+        .upsert(upsertPayload, { onConflict: "owner_id" })
+        .select("*")
+        .single();
+      if (error) {
+        console.error("menu_user_preferences upsert failed", error);
+        return jsonResponse({ error: "preferences_update_failed" }, { status: 400 });
+      }
+      preferencesRecord = data ?? upsertPayload;
+    } else if (req.method !== "GET") {
+      return jsonResponse({ error: "method_not_allowed" }, { status: 405 });
+    }
+
+    const preferences = preferencesRecord ?? null;
 
     const isPremium = Boolean(user.app_metadata?.is_menu_premium ?? false);
     const policy: PolicyResponse["policy"] = {

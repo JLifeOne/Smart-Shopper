@@ -16,6 +16,7 @@ import {
   saveDish,
   saveMenuPairing,
   updateMenuRecipe,
+  updateMenuPreferences,
   uploadMenu
 } from './api';
 
@@ -193,8 +194,25 @@ export function useMenuPairings(locale?: string) {
 }
 
 export function useMenuPolicy() {
-  return useQuery({
+  const queryClient = useQueryClient();
+  const policyQuery = useQuery({
     queryKey: ['menu-policy'],
     queryFn: () => fetchMenuPolicy()
   });
+
+  const updateMutation = useMutation({
+    mutationFn: updateMenuPreferences,
+    onSuccess: (data) => {
+      queryClient.setQueryData(['menu-policy'], data);
+    }
+  });
+
+  return {
+    policy: policyQuery.data ?? null,
+    loading: policyQuery.isLoading,
+    error: policyQuery.error ? String(policyQuery.error) : null,
+    refresh: policyQuery.refetch,
+    updatePreferences: updateMutation.mutateAsync,
+    updatingPreferences: updateMutation.isPending
+  };
 }

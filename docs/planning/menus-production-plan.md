@@ -10,16 +10,18 @@
    - `menu_packaging_profiles` + `menu_packaging_units` – locale/store pack-size mappings.
    - `menu_user_preferences` – locale, dietary/allergen tags, default people count, scaling flags.
    - `menu_feature_vectors` – owner-scoped embeddings/metadata for ML routing.
-   - RLS policies & indexes for each table (migrations `0011_menu_core.sql` and `0017_menu_intel_foundation.sql`).
+   - `menu_recipes` dietary/allergen fields (migration `0018_menu_recipe_dietary.sql`).
+   - RLS policies & indexes for each table (migrations `0011_menu_core.sql`, `0017_menu_intel_foundation.sql`, `0018_menu_recipe_dietary.sql`).
 2. **Supabase functions/contracts**
    - `/menu-sessions` POST/GET/PATCH (creates session, polls OCR/ML status, updates cards) with premium enforcement.
    - `/menu-recipes` CRUD endpoints for persisted cards + smart edits.
    - `/menus/lists` POST – consolidation service returning normalized list lines + writes to `lists/list_items` when requested (idempotent).
    - `/menus/pairings` GET/POST/DELETE – curated combos + user-saved combos.
-   - `/menus-policy` GET – returns entitlement/limit metadata + user preferences for blur gating.
+   - `/menu-session-items` POST/GET/PATCH – OCR detections (text, bounding boxes, classifier tags).
+   - `/menus-policy` GET/PATCH – returns and updates entitlement/limit metadata + dietary/allergen preferences.
 3. **Observability scaffolding**
    - Structured logging (session_id, request_id, user_id).
-   - Metrics for ingestion latency, recipe-generation success, policy lookups, list conversion success.
+   - Metrics for ingestion latency, recipe-generation success, preference enforcement, policy lookups, list conversion success.
 4. **Docs** – ERD, API contracts, failure modes (timeouts, LLM fallback, packaging lookup miss). Keep docs current to avoid duplicating work.
 
 ## Stage 2 – AI Pipeline
@@ -34,9 +36,10 @@
 1. Replace placeholder toasts with hooks that call new APIs (React Query/SWR). **Done** via `useMenuSession`, `useMenuRecipes`, `useMenuListConversion`, `useMenuPairings`, `useMenuPolicy`.
 2. Persist card scaling (people counts) via API; add lock toggle & rotation/swipe UX.
 3. Editing UI for ingredients/method/tips + packaging guidance (“Buy 2 × 400 g cans”).
-4. Server-driven sorting & pairing suggestions; ability to save combos (UI partially wired; needs ML feed + offline cache).
-5. Confirmation sheet after Add to List/Create List summarizing merged items + servings (conversion summary present; finalize success states + navigation).
-6. Upgrade gating wired to real upgrade path + offline-aware blur cards (policy endpoint ready; UI gating next).
+4. Integrate dietary/allergen preference editor in UI; blur/show warnings when items conflict (backend enforcement live).
+5. Server-driven sorting & pairing suggestions; ability to save combos (UI partially wired; needs ML feed + offline cache).
+6. Confirmation sheet after Add to List/Create List summarizing merged items + servings (conversion summary present; finalize success states + navigation).
+7. Upgrade gating wired to real upgrade path + offline-aware blur cards (policy endpoint ready; UI gating next).
 
 ## Stage 4 – Testing, Analytics, Ops
 

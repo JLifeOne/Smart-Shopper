@@ -21,6 +21,8 @@ type RecipePayload = {
   packagingNotes?: string | null;
   packagingGuidance?: unknown[];
   premiumRequired?: boolean;
+  dietaryTags?: string[];
+  allergenTags?: string[];
 };
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
@@ -122,6 +124,8 @@ serve(async (req) => {
           packaging_notes: payload.packagingNotes ?? null,
           packaging_guidance: Array.isArray(payload.packagingGuidance) ? payload.packagingGuidance : [],
           premium_required: payload.premiumRequired ?? true,
+          dietary_tags: payload.dietaryTags ?? [],
+          allergen_tags: payload.allergenTags ?? [],
           last_generated_at: new Date().toISOString()
         };
         const { data, error } = await supabase.from("menu_recipes").insert(insertRecord).select("*").single();
@@ -148,6 +152,8 @@ serve(async (req) => {
         if (payload.packagingNotes !== undefined) updates.packaging_notes = payload.packagingNotes;
         if (payload.packagingGuidance) updates.packaging_guidance = payload.packagingGuidance;
         if (payload.premiumRequired !== undefined) updates.premium_required = payload.premiumRequired;
+        if (payload.dietaryTags) updates.dietary_tags = payload.dietaryTags;
+        if (payload.allergenTags) updates.allergen_tags = payload.allergenTags;
 
         const { data, error } = await supabase
           .from("menu_recipes")

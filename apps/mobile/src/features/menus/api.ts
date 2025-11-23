@@ -232,3 +232,20 @@ export async function fetchMenuPolicy() {
   const result = await callMenuFunction<MenuPolicy>('menus-policy', { method: 'GET' });
   return result;
 }
+
+export type UpdateMenuPreferencesInput = {
+  locale?: string | null;
+  dietaryTags?: string[];
+  allergenFlags?: string[];
+  defaultPeopleCount?: number;
+  autoScale?: boolean;
+  allowCardLock?: boolean;
+};
+
+export async function updateMenuPreferences(input: UpdateMenuPreferencesInput) {
+  const result = await callMenuFunction<MenuPolicy>('menus-policy', {
+    method: 'PATCH',
+    body: JSON.stringify(input)
+  });
+  return result;
+}

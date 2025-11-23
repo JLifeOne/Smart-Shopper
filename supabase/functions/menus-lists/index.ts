@@ -105,7 +105,7 @@ serve(async (req) => {
 
     const { data: recipes, error } = await supabase
       .from("menu_recipes")
-      .select("id, title, ingredients, servings, scale_factor")
+      .select("id, title, ingredients, servings, scale_factor, dietary_tags, allergen_tags")
       .in("id", dishIds)
       .eq("owner_id", userId);
     if (error) {
@@ -114,6 +114,55 @@ serve(async (req) => {
     }
     if ((recipes ?? []).length !== dishIds.length) {
       return jsonResponse({ error: "missing_recipes" }, { status: 404 });
+    }
+
+    const { data: preferences } = await supabase
+      .from("menu_user_preferences")
+      .select("dietary_tags, allergen_flags")
+      .eq("owner_id", userId)
+      .single();
+
+    const requiredDietary = Array.isArray(preferences?.dietary_tags) ? preferences?.dietary_tags : [];
+    const allergenFlags = Array.isArray(preferences?.allergen_flags) ? preferences?.allergen_flags : [];
+
+    const violations: Array<{ recipeId: string; title: string; type: "allergen" | "dietary"; details: string[] }> = [];
+    for (const recipe of recipes ?? []) {
+      const recipeAllergens: string[] = Array.isArray(recipe.allergen_tags) ? recipe.allergen_tags : [];
+      const recipeDietary: string[] = Array.isArray(recipe.dietary_tags) ? recipe.dietary_tags : [];
+      const blockedAllergens = allergenFlags.filter((flag) =>
+        recipeAllergens.map((a) => a?.toLowerCase()).includes(flag?.toLowerCase())
+      );
+      if (blockedAllergens.length) {
+        violations.push({
+          recipeId: recipe.id,
+          title: recipe.title,
+          type: "allergen",
+          details: blockedAllergens
+        });
+      }
+      if (requiredDietary.length) {
+        const missing = requiredDietary.filter(
+          (tag) => !recipeDietary.map((d) => d?.toLowerCase()).includes(tag?.toLowerCase())
+        );
+        if (missing.length) {
+          violations.push({
+            recipeId: recipe.id,
+            title: recipe.title,
+            type: "dietary",
+            details: missing
+          });
+        }
+      }
+    }
+
+    if (violations.length) {
+      return jsonResponse(
+        {
+          error: "preference_violation",
+          violations
+        },
+        { status: 400 }
+      );
     }
 
     const consolidatedList = aggregateIngredients(recipes ?? [], payload.peopleCountOverride);

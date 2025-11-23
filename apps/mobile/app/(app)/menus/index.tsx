@@ -7,7 +7,8 @@ import {
   useMenuListConversion,
   useMenuPairings,
   useMenuRecipes,
-  useMenuSession
+  useMenuSession,
+  useMenuPolicy
 } from '@/src/features/menus/hooks';
 import type { ConsolidatedLine, MenuRecipe, PackagingGuidanceEntry } from '@/src/features/menus/api';
 
@@ -95,6 +96,9 @@ export default function MenuInboxScreen() {
   const [overlayCollapsed, setOverlayCollapsed] = useState(false);
   const [conversionMeta, setConversionMeta] = useState<ConversionMeta | null>(null);
   const [sessionHighlights, setSessionHighlights] = useState<string[]>([]);
+  const [showPreferencesSheet, setShowPreferencesSheet] = useState(false);
+  const [dietaryDraft, setDietaryDraft] = useState('');
+  const [allergenDraft, setAllergenDraft] = useState('');
 
   const {
     session,
@@ -109,6 +113,9 @@ export default function MenuInboxScreen() {
   const { recipes, recipesLoading, recipesError, createRecipe, creating } = useMenuRecipes();
   const { convert, conversionLoading, conversionResult, conversionError, resetConversion } = useMenuListConversion();
   const { pairings, pairingsLoading, pairingsError, savePairing } = useMenuPairings();
+  const { policy: menuPolicy, updatePreferences, updatingPreferences } = useMenuPolicy();
+  const dietaryTags = menuPolicy?.preferences.dietaryTags ?? [];
+  const allergenFlags = menuPolicy?.preferences.allergenFlags ?? [];
 
   useEffect(() => {
     if (!recipes.length) {
@@ -146,6 +153,13 @@ export default function MenuInboxScreen() {
       return next;
     });
   }, [session?.card_ids]);
+
+  useEffect(() => {
+    if (showPreferencesSheet && menuPolicy) {
+      setDietaryDraft(dietaryTags.join(', '));
+      setAllergenDraft(allergenFlags.join(', '));
+    }
+  }, [showPreferencesSheet, menuPolicy, dietaryTags, allergenFlags]);
 
   const cardsSource = useMemo(() => {
     if (!recipes.length) {
@@ -234,8 +248,10 @@ export default function MenuInboxScreen() {
         people,
         persisted: Boolean(result.listId)
       });
-    } catch {
-      Toast.show('Unable to add menu right now.', 1700);
+    } catch (error) {
+      if (!handlePreferenceViolation(error)) {
+        Toast.show('Unable to add menu right now.', 1700);
+      }
     }
   };
 
@@ -246,6 +262,14 @@ export default function MenuInboxScreen() {
     } catch {
       Toast.show('Unable to save combo.', 1700);
     }
+  };
+
+  const handlePreferenceViolation = (error: unknown) => {
+    if (error instanceof Error && error.message === 'preference_violation') {
+      Toast.show('Recipe conflicts with your dietary or allergen preferences. Update settings to override.', 2200);
+      return true;
+    }
+    return false;
   };
 
   const handleAddSelected = async (action: 'list' | 'create') => {
@@ -273,7 +297,9 @@ export default function MenuInboxScreen() {
         persisted: Boolean(result.listId)
       });
     } catch (error) {
-      Toast.show('Unable to convert menus right now.', 1700);
+      if (!handlePreferenceViolation(error)) {
+        Toast.show('Unable to convert menus right now.', 1700);
+      }
     }
   };
 
@@ -396,7 +422,9 @@ export default function MenuInboxScreen() {
           persisted: Boolean(result.listId)
         });
       } catch (error) {
-        Toast.show('Unable to create list right now.', 1700);
+        if (!handlePreferenceViolation(error)) {
+          Toast.show('Unable to create list right now.', 1700);
+        }
       }
     }
     setSelectionMode(false);
@@ -491,6 +519,13 @@ export default function MenuInboxScreen() {
             <Text style={styles.quickActionPrimaryLabel}>Upgrade</Text>
           </Pressable>
         ) : null}
+        <Pressable
+          style={({ pressed }) => [styles.quickAction, pressed && styles.quickActionPressed]}
+          onPress={() => setShowPreferencesSheet(true)}
+        >
+          <Ionicons name="heart" size={16} color="#0C1D37" />
+          <Text style={styles.quickActionLabel}>Diet & allergens</Text>
+        </Pressable>
         <View style={styles.sortWrapper}>
           <Pressable
             style={[styles.sortChip, styles.sortChipActive]}
@@ -551,6 +586,64 @@ export default function MenuInboxScreen() {
               </Pressable>
             </View>
             <Pressable style={styles.uploadClose} onPress={() => setShowUploadOptions(false)}>
+              <Text style={styles.uploadCloseLabel}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+      {showPreferencesSheet ? (
+        <View style={styles.uploadOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowPreferencesSheet(false)} />
+          <View style={styles.prefModal}>
+            <Text style={styles.prefTitle}>Diet & allergen preferences</Text>
+            <Text style={styles.prefSubtitle}>We will block recipes that conflict with your inputs.</Text>
+            <View style={styles.prefField}>
+              <Text style={styles.prefLabel}>Dietary tags</Text>
+              <TextInput
+                style={styles.prefInput}
+                value={dietaryDraft}
+                onChangeText={setDietaryDraft}
+                placeholder="e.g., vegan, gluten_free"
+                placeholderTextColor="#94A3B8"
+              />
+              <Text style={styles.prefHint}>Comma-separated tags that recipes must include.</Text>
+            </View>
+            <View style={styles.prefField}>
+              <Text style={styles.prefLabel}>Allergen flags</Text>
+              <TextInput
+                style={styles.prefInput}
+                value={allergenDraft}
+                onChangeText={setAllergenDraft}
+                placeholder="e.g., peanut, shellfish"
+                placeholderTextColor="#94A3B8"
+              />
+              <Text style={styles.prefHint}>Recipes containing these allergens are blocked.</Text>
+            </View>
+            <Pressable
+              style={[styles.primary, updatingPreferences && styles.disabledButton]}
+              disabled={updatingPreferences}
+              onPress={async () => {
+                try {
+                  await updatePreferences({
+                    dietaryTags: dietaryDraft
+                      .split(',')
+                      .map((tag) => tag.trim())
+                      .filter(Boolean),
+                    allergenFlags: allergenDraft
+                      .split(',')
+                      .map((tag) => tag.trim())
+                      .filter(Boolean)
+                  });
+                  Toast.show('Preferences saved.', 1300);
+                  setShowPreferencesSheet(false);
+                } catch {
+                  Toast.show('Unable to save preferences right now.', 1700);
+                }
+              }}
+            >
+              <Text style={styles.primaryLabel}>{updatingPreferences ? 'Saving...' : 'Save preferences'}</Text>
+            </Pressable>
+            <Pressable style={styles.uploadClose} onPress={() => setShowPreferencesSheet(false)}>
               <Text style={styles.uploadCloseLabel}>Close</Text>
             </Pressable>
           </View>
@@ -1791,5 +1884,44 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#475569',
     fontWeight: '600'
+  },
+  prefModal: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    gap: 12
+  },
+  prefTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  prefSubtitle: {
+    fontSize: 13,
+    color: '#475569'
+  },
+  prefField: {
+    gap: 6
+  },
+  prefLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  prefInput: {
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: '#0F172A',
+    backgroundColor: '#F8FAFC'
+  },
+  prefHint: {
+    fontSize: 11,
+    color: '#64748B'
   }
 });

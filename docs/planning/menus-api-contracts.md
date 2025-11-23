@@ -115,7 +115,9 @@ Payload mirrors `menu_recipes` columns. Validates JSON schema for ingredients/me
   "scaleFactor": 2,
   "ingredients": [{ "name": "Chicken thighs", "quantity": 1, "unit": "kg" }],
   "method": [{ "step": 1, "text": "Brown chicken" }],
-  "packagingNotes": "Buy two 500g trays"
+  "packagingNotes": "Buy two 500g trays",
+  "dietaryTags": ["gluten_free", "dairy_free"],
+  "allergenTags": ["allium"]
 }
 ```
 
@@ -157,7 +159,15 @@ Response `200`
 Back-end responsibilities:
 - Merge ingredients, normalize units, map to packaging units per locale.
 - Respect idempotency key (`menus-list-convert-{dishIds-hash}`) to avoid duplicate lists.
-- Return actionable errors (e.g., insufficient data to normalize).
+- Enforce allergen/dietary preferences recorded in `menu_user_preferences`; if conflicts exist return
+```json
+{
+  "error": "preference_violation",
+  "violations": [
+    { "recipeId": "uuid", "title": "Boil Dumplings", "type": "allergen", "details": ["gluten"] }
+  ]
+}
+```
 
 ---
 
@@ -217,6 +227,22 @@ Response `200`
 ```
 
 The frontend should cache this response locally (Watermelon DB) for offline gating and re-check when the session changes. Premium users receive `accessLevel: "full"` and `blurRecipes: false`.
+
+`PATCH /menus-policy`
+
+Payload:
+```json
+{
+  "dietaryTags": ["vegan"],
+  "allergenFlags": ["peanut","shellfish"],
+  "defaultPeopleCount": 2,
+  "autoScale": true,
+  "allowCardLock": true,
+  "locale": "en_US"
+}
+```
+
+Response mirrors the GET shape with updated preferences.
 
 ---
 
