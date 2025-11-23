@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
+import { classifyProductName, normalizeProductName } from "../_shared/hybrid-classifier.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,12 +11,20 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
 
 type SessionStatus = "pending" | "processing" | "needs_clarification" | "ready" | "error";
+type IntentRoute = "template" | "llm" | "suggestion";
 
 type CreateSessionPayload = {
   source?: { type?: "camera" | "gallery" | "upload"; uri?: string | null };
   titleHint?: string | null;
   isPremium?: boolean;
   metadata?: Record<string, unknown>;
+  detections?: Array<{
+    id?: string;
+    rawText: string;
+    normalizedText?: string | null;
+    confidence?: number | null;
+    boundingBox?: Record<string, unknown>;
+  }>;
 };
 
 type UpdateSessionPayload = {
@@ -24,6 +33,13 @@ type UpdateSessionPayload = {
   dishTitles?: string[];
   warnings?: string[];
   payload?: Record<string, unknown>;
+  detections?: Array<{
+    id?: string;
+    rawText: string;
+    normalizedText?: string | null;
+    confidence?: number | null;
+    boundingBox?: Record<string, unknown>;
+  }>;
 };
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
@@ -40,6 +56,53 @@ function parseSessionIdFromUrl(url: URL) {
     return null;
   }
   return segments[idx + 1] ?? null;
+}
+
+async function insertDetections(
+  client: ReturnType<typeof createClient>,
+  userId: string,
+  sessionId: string,
+  detections?: CreateSessionPayload["detections"]
+) {
+  if (!Array.isArray(detections) || detections.length === 0) {
+    return [];
+  }
+  const records = detections.map((item) => ({
+    id: item.id,
+    session_id: sessionId,
+    owner_id: userId,
+    raw_text: item.rawText,
+    normalized_text: item.normalizedText ?? normalizeProductName(item.rawText),
+    confidence: item.confidence ?? null,
+    bounding_box: item.boundingBox ?? {},
+    classifier_tags: [],
+    status: "pending"
+  }));
+  const { data, error } = await client.from("menu_session_items").insert(records).select("*");
+  if (error) {
+    console.error("menu_session_items insert failed", error);
+    throw new Error("session_items_insert_failed");
+  }
+  return data ?? [];
+}
+
+async function classifyIntent(rows: any[]) {
+  const results: Array<{ itemId: string; intent: IntentRoute; classifierTags: string[] }> = [];
+  for (const row of rows) {
+    const normalized = row.normalized_text ?? normalizeProductName(row.raw_text);
+    const topMatch = classifyProductName(normalized, { limit: 1 })[0];
+    let intent: IntentRoute = "llm";
+    if (!topMatch) {
+      intent = "llm";
+    } else if (topMatch.category === "menu" || topMatch.category === "entree") {
+      intent = "template";
+    } else if (topMatch.category === "suggestion") {
+      intent = "suggestion";
+    }
+    const tags = [`intent:${intent}`, `category:${topMatch?.category ?? "unknown"}`];
+    results.push({ itemId: row.id, intent, classifierTags: tags });
+  }
+  return results;
 }
 
 async function getAuthedClient(req: Request) {
@@ -98,6 +161,7 @@ serve(async (req) => {
           warnings: [],
           detected_document_type: payload.source?.type ?? null,
           is_premium: Boolean(payload.isPremium ?? user?.app_metadata?.is_menu_premium ?? false),
+          intent_route: null as IntentRoute | null
         };
 
         const { data, error } = await client
@@ -108,6 +172,27 @@ serve(async (req) => {
         if (error) {
           console.error("menu_sessions insert failed", error);
           return jsonResponse({ error: "session_create_failed" }, { status: 400 });
+        }
+
+        let detections = [];
+        if (payload.detections?.length) {
+          detections = await insertDetections(client, userId, data.id, payload.detections);
+        }
+        const intentDecisions = await classifyIntent(detections.length ? detections : []);
+        if (intentDecisions.length) {
+          await client
+            .from("menu_session_items")
+            .upsert(
+              intentDecisions.map((decision) => ({
+                id: decision.itemId,
+                classifier_tags: decision.classifierTags,
+                status: "classified"
+              }))
+            );
+          await client
+            .from("menu_sessions")
+            .update({ intent_route: intentDecisions[0]?.intent ?? null })
+            .eq("id", data.id);
         }
         return jsonResponse({ session: data }, { status: 201 });
       }
@@ -145,6 +230,27 @@ serve(async (req) => {
         }
         if (body.payload) {
           updates.payload = body.payload;
+        }
+        if (body.detections?.length) {
+          await insertDetections(client, userId, sessionId, body.detections);
+          const latest = await client
+            .from("menu_session_items")
+            .select("*")
+            .eq("session_id", sessionId);
+          if (!latest.error && latest.data?.length) {
+            const intentDecisions = await classifyIntent(latest.data);
+            if (intentDecisions.length) {
+              await client
+                .from("menu_session_items")
+                .upsert(
+                  intentDecisions.map((decision) => ({
+                    id: decision.itemId,
+                    classifier_tags: decision.classifierTags,
+                    status: "classified"
+                  }))
+                );
+            }
+          }
         }
         const { data, error } = await client
           .from("menu_sessions")

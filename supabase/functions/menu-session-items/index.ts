@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
+import { classifyProductName, normalizeProductName } from "../_shared/hybrid-classifier.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -96,18 +97,27 @@ serve(async (req) => {
       if (!Array.isArray(payload.items) || payload.items.length === 0) {
         return jsonResponse({ error: "items_required" }, { status: 400 });
       }
-      const insertRecords = payload.items.map((item) => ({
-        id: item.id,
-        session_id: sessionId,
-        owner_id: userId,
-        raw_text: item.rawText,
-        normalized_text: item.normalizedText ?? null,
-        confidence: item.confidence ?? null,
-        bounding_box: item.boundingBox ?? {},
-        locale_hint: item.localeHint ?? null,
-        classifier_tags: item.classifierTags ?? [],
-        status: item.status ?? "pending",
-      }));
+      const insertRecords = payload.items.map((item) => {
+        const normalized = item.normalizedText ?? normalizeProductName(item.rawText);
+        const classification = classifyProductName(normalized, { limit: 1 })?.[0];
+        const tags = item.classifierTags ?? [];
+        if (classification) {
+          tags.push(`category:${classification.category}`);
+          tags.push(`intent:${classification.category === "suggestion" ? "suggestion" : "llm"}`);
+        }
+        return {
+          id: item.id,
+          session_id: sessionId,
+          owner_id: userId,
+          raw_text: item.rawText,
+          normalized_text: normalized,
+          confidence: item.confidence ?? classification?.confidence ?? null,
+          bounding_box: item.boundingBox ?? {},
+          locale_hint: item.localeHint ?? null,
+          classifier_tags: Array.from(new Set(tags)),
+          status: item.status ?? (classification ? "classified" : "pending"),
+        };
+      });
       const { data, error } = await supabase.from("menu_session_items").insert(insertRecords).select("*");
       if (error) {
         console.error("menu_session_items insert failed", error);
@@ -137,6 +147,16 @@ serve(async (req) => {
       if (body.updates.confidence !== undefined) updates.confidence = body.updates.confidence;
       if (body.updates.classifierTags !== undefined) updates.classifier_tags = body.updates.classifierTags;
       if (body.updates.status !== undefined) updates.status = body.updates.status;
+      if (body.updates.normalizedText !== undefined && !body.updates.classifierTags) {
+        const classification = classifyProductName(body.updates.normalizedText ?? "", { limit: 1 })?.[0];
+        if (classification) {
+          updates.classifier_tags = [
+            `category:${classification.category}`,
+            `intent:${classification.category === "suggestion" ? "suggestion" : "llm"}`
+          ];
+          updates.confidence = classification.confidence;
+        }
+      }
 
       const { data, error } = await supabase
         .from("menu_session_items")
