@@ -4,20 +4,23 @@
 
 1. **Schema & migrations**
    - `menu_recipes` – persisted cards (title, course, cuisine_style, servings JSON, ingredients JSONB, method JSONB, tips, packaging_notes, owner_id, premium flag, timestamps).
-   - `menu_sessions` – draft uploads with status + progress metadata.
+   - `menu_sessions` + `menu_session_items` – draft uploads plus OCR items (raw text, boxes, classifier tags, confidence).
    - `menu_combos` – saved pairings (title, description, dish_ids[], locale, owner_id, timestamps).
    - `menu_style_choices` – per-user per-dish context cache (style, locale, last_used_at).
    - `menu_packaging_profiles` + `menu_packaging_units` – locale/store pack-size mappings.
-   - RLS policies & indexes for each table.
+   - `menu_user_preferences` – locale, dietary/allergen tags, default people count, scaling flags.
+   - `menu_feature_vectors` – owner-scoped embeddings/metadata for ML routing.
+   - RLS policies & indexes for each table (migrations `0011_menu_core.sql` and `0017_menu_intel_foundation.sql`).
 2. **Supabase functions/contracts**
-   - `/menu-sessions` POST/GET/PATCH (creates session, polls OCR/LLM status, updates cards) with premium enforcement.
+   - `/menu-sessions` POST/GET/PATCH (creates session, polls OCR/ML status, updates cards) with premium enforcement.
    - `/menu-recipes` CRUD endpoints for persisted cards + smart edits.
    - `/menus/lists` POST – consolidation service returning normalized list lines + writes to `lists/list_items` when requested (idempotent).
-   - `/menus/pairings` GET – returns combos per locale.
+   - `/menus/pairings` GET/POST/DELETE – curated combos + user-saved combos.
+   - `/menus-policy` GET – returns entitlement/limit metadata + user preferences for blur gating.
 3. **Observability scaffolding**
    - Structured logging (session_id, request_id, user_id).
-   - Metrics for ingestion latency, recipe-generation success, list conversion success.
-4. **Docs** – ERD, API contracts, failure modes (timeouts, LLM fallback, packaging lookup miss).
+   - Metrics for ingestion latency, recipe-generation success, policy lookups, list conversion success.
+4. **Docs** – ERD, API contracts, failure modes (timeouts, LLM fallback, packaging lookup miss). Keep docs current to avoid duplicating work.
 
 ## Stage 2 – AI Pipeline
 
@@ -28,21 +31,18 @@
 
 ## Stage 3 – Frontend Integration
 
-1. Replace placeholder toasts with hooks that call new APIs (React Query/SWR):
-   - Upload (camera/gallery) → menu session.
-   - Save dish / open recipe / add-all / create list / save combo.
+1. Replace placeholder toasts with hooks that call new APIs (React Query/SWR). **Done** via `useMenuSession`, `useMenuRecipes`, `useMenuListConversion`, `useMenuPairings`, `useMenuPolicy`.
 2. Persist card scaling (people counts) via API; add lock toggle & rotation/swipe UX.
 3. Editing UI for ingredients/method/tips + packaging guidance (“Buy 2 × 400 g cans”).
-4. Server-driven sorting & pairing suggestions; ability to save combos.
-5. Confirmation sheet after Add to List/Create List summarizing merged items + servings.
-6. Upgrade gating wired to real upgrade path.
+4. Server-driven sorting & pairing suggestions; ability to save combos (UI partially wired; needs ML feed + offline cache).
+5. Confirmation sheet after Add to List/Create List summarizing merged items + servings (conversion summary present; finalize success states + navigation).
+6. Upgrade gating wired to real upgrade path + offline-aware blur cards (policy endpoint ready; UI gating next).
 
 ## Stage 4 – Testing, Analytics, Ops
 
 1. Tests: unit (merging, packaging, style cache), integration (ingestion → recipe → list), UI/e2e (selection, scaling, add-all), load/chaos (ingestion + list conversion).
 2. Analytics: track upload success/fail, clarifications, add-to-list/create-list, upgrade taps, AI fallbacks.
 3. Ops: runbooks for ingestion failure, list conversion failure; feature-flag rollout with canary metrics.
-4. Offline support: cache menu cards/combos, queue add-to-list for offline use.
+4. Offline support: cache menu cards/combos/policy data via Watermelon DB, queue add-to-list for offline use.
 
-> **Current focus:** Stage 1 – implement Supabase schema/migrations + document API contracts.
-
+> **Current focus:** Close remaining Stage 1 ingestion wiring + begin Stage 2 prompt contract while frontend wires policy-driven gating and offline caches.

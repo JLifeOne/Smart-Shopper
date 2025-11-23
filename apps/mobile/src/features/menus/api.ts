@@ -204,3 +204,31 @@ export async function updateMenuRecipe(recipeId: string, updates: Partial<MenuRe
   });
   return result.recipe;
 }
+
+export type MenuPolicy = {
+  policy: {
+    isPremium: boolean;
+    accessLevel: 'full' | 'title_only';
+    blurRecipes: boolean;
+    limits: {
+      maxUploadsPerDay: number;
+      concurrentSessions: number;
+      maxListCreates: number;
+    };
+    allowListCreation: boolean;
+    allowTemplateCards: boolean;
+  };
+  preferences: {
+    defaultPeopleCount: number;
+    autoScale: boolean;
+    allowCardLock: boolean;
+    locale: string | null;
+    dietaryTags: string[];
+    allergenFlags: string[];
+  };
+};
+
+export async function fetchMenuPolicy() {
+  const result = await callMenuFunction<MenuPolicy>('menus-policy', { method: 'GET' });
+  return result;
+}

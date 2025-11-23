@@ -10,6 +10,7 @@ import {
   createListFromMenus,
   deleteMenuPairing,
   fetchMenuPairings,
+  fetchMenuPolicy,
   fetchMenuSession,
   listMenuRecipes,
   saveDish,
@@ -189,4 +190,11 @@ export function useMenuPairings(locale?: string) {
     savePairing: (payload: { title: string; dishIds: string[]; description?: string }) => saveMutation.mutateAsync(payload),
     removePairing: (id: string) => deleteMutation.mutateAsync(id)
   };
+}
+
+export function useMenuPolicy() {
+  return useQuery({
+    queryKey: ['menu-policy'],
+    queryFn: () => fetchMenuPolicy()
+  });
 }
