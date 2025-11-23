@@ -23,9 +23,11 @@ import {
   cacheMenuPolicy,
   cacheMenuRecipes,
   cacheMenuPairings,
+  cacheMenuSessions,
   getCachedMenuPolicy,
   getCachedMenuRecipes,
-  getCachedMenuPairings
+  getCachedMenuPairings,
+  getCachedMenuSessions
 } from '@/src/database/menu-storage';
 
 type UploadArgs = { mode: 'camera' | 'gallery'; premium: boolean };
@@ -44,9 +46,35 @@ export function useMenuSession() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
+  useEffect(() => {
+    if (!sessionId) {
+      getCachedMenuSessions().then((cached) => {
+        if (cached.length) {
+          queryClient.setQueryData(['menu-session', cached[0].id], cached[0]);
+        }
+      });
+    }
+  }, [sessionId, queryClient]);
+
   const sessionQuery = useQuery({
     queryKey: ['menu-session', sessionId],
-    queryFn: () => fetchMenuSession(sessionId!),
+    queryFn: async () => {
+      if (!sessionId) {
+        return null;
+      }
+      try {
+        const remote = await fetchMenuSession(sessionId);
+        await cacheMenuSessions([remote]);
+        return remote;
+      } catch (error) {
+        const cached = await getCachedMenuSessions();
+        const match = cached.find((session) => session.id === sessionId);
+        if (match) {
+          return match;
+        }
+        throw error;
+      }
+    },
     enabled: Boolean(sessionId),
     refetchInterval: (query) => {
       const latest = (query.state.data as MenuSession | undefined)?.status;
@@ -56,7 +84,10 @@ export function useMenuSession() {
 
   const uploadMutation = useMutation({
     mutationFn: (args: UploadArgs) => uploadMenu(args.mode, args.premium),
-    onSuccess: (session) => setSessionId(session.id)
+    onSuccess: async (session) => {
+      await cacheMenuSessions([session]);
+      setSessionId(session.id);
+    }
   });
 
   const clearSession = () => {
