@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView, StyleSheet, Text, View, Pressable, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { featureFlags } from '@/src/lib/env';
 import { Toast } from '@/src/components/search/Toast';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   useMenuListConversion,
   useMenuPairings,
@@ -79,6 +80,10 @@ const FALLBACK_PAIRINGS = [
   { id: 'light-sea', title: 'Light sea', dishes: ['Lemon herb salmon', 'Coleslaw'] }
 ];
 
+const TITLE_ONLY_STORAGE_KEY = 'menus_title_only_dishes';
+const TITLE_LIMIT_STORAGE_KEY = 'menus_title_limit';
+const TITLE_LIMIT_PER_DAY = 3;
+
 export default function MenuInboxScreen() {
   const featurePremium = featureFlags.menuIngestion ?? false;
   const [sortMode, setSortMode] = useState<SortMode>('alpha');
@@ -91,6 +96,8 @@ export default function MenuInboxScreen() {
   const [dishDraft, setDishDraft] = useState('');
   const [savedDishes, setSavedDishes] = useState<{ id: string; title: string; titleOnly: boolean }[]>([]);
   const [titleOnlyDishes, setTitleOnlyDishes] = useState<{ id: string; title: string }[]>([]);
+  const [titleLimit, setTitleLimit] = useState<{ date: string; count: number }>({ date: '', count: 0 });
+  const titleLoadRef = useRef(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [savedSelection, setSavedSelection] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
@@ -122,6 +129,29 @@ export default function MenuInboxScreen() {
   const allergenFlags = menuPolicy?.preferences.allergenFlags ?? [];
 
   useEffect(() => {
+    if (titleLoadRef.current) {
+      return;
+    }
+    titleLoadRef.current = true;
+    AsyncStorage.getItem(TITLE_ONLY_STORAGE_KEY)
+      .then((raw) => (raw ? JSON.parse(raw) : []))
+      .then((parsed) => {
+        if (Array.isArray(parsed)) {
+          setTitleOnlyDishes(parsed);
+        }
+      })
+      .catch(() => {});
+    AsyncStorage.getItem(TITLE_LIMIT_STORAGE_KEY)
+      .then((raw) => (raw ? JSON.parse(raw) : null))
+      .then((parsed) => {
+        if (parsed && typeof parsed.date === 'string' && typeof parsed.count === 'number') {
+          setTitleLimit(parsed);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     if (!recipes.length) {
       setCardPeople(FALLBACK_CARDS.reduce((acc, card) => ({ ...acc, [card.id]: card.basePeople }), {}));
     } else {
@@ -136,14 +166,15 @@ export default function MenuInboxScreen() {
         return next;
       });
     }
-    setSavedDishes([
-      ...recipes.map((recipe) => ({
+    setSavedDishes((prev) => {
+      const recipeEntries = recipes.map((recipe) => ({
         id: recipe.id,
         title: recipe.title,
         titleOnly: !isPremium && recipe.premium_required
-      })),
-      ...titleOnlyDishes.map((dish) => ({ ...dish, titleOnly: true }))
-    ]);
+      }));
+      const titleEntries = titleOnlyDishes.map((dish) => ({ ...dish, titleOnly: true }));
+      return [...recipeEntries, ...titleEntries];
+    });
   }, [recipes, isPremium, titleOnlyDishes]);
 
   useEffect(() => {
@@ -329,6 +360,34 @@ export default function MenuInboxScreen() {
     });
   };
 
+  const persistTitleOnly = async (next: { id: string; title: string }[]) => {
+    setTitleOnlyDishes(next);
+    try {
+      await AsyncStorage.setItem(TITLE_ONLY_STORAGE_KEY, JSON.stringify(next));
+    } catch (error) {
+      console.warn('menus: failed to persist title-only dishes', error);
+    }
+  };
+
+  const consumeTitleSlot = async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    let current = titleLimit;
+    if (current.date !== today) {
+      current = { date: today, count: 0 };
+    }
+    if (current.count >= TITLE_LIMIT_PER_DAY) {
+      return false;
+    }
+    const next = { date: today, count: current.count + 1 };
+    setTitleLimit(next);
+    try {
+      await AsyncStorage.setItem(TITLE_LIMIT_STORAGE_KEY, JSON.stringify(next));
+    } catch (error) {
+      console.warn('menus: failed to persist title limit', error);
+    }
+    return true;
+  };
+
   const handleUpload = async (mode: 'camera' | 'gallery') => {
     setShowUploadOptions(false);
     try {
@@ -351,28 +410,40 @@ export default function MenuInboxScreen() {
     try {
       let titlesOnly = 0;
       const newTitleOnly: { id: string; title: string }[] = [];
-      for (const title of parts) {
-        const result = await createRecipe({ title, premium: isPremium });
-        if (result.savedAsTitleOnly || !result.recipe) {
+      if (!isPremium) {
+        for (const title of parts) {
+          const allowed = await consumeTitleSlot();
+          if (!allowed) {
+            Toast.show(`Limit reached. Non-premium can save ${TITLE_LIMIT_PER_DAY} dishes per day.`, 2000);
+            break;
+          }
           titlesOnly += 1;
-          const fallbackId = result.recipe?.id ?? `title-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-          newTitleOnly.push({ id: fallbackId, title });
+          newTitleOnly.push({ id: `title-${Date.now()}-${Math.random().toString(36).slice(2)}`, title });
+        }
+      } else {
+        for (const title of parts) {
+          const result = await createRecipe({ title, premium: isPremium });
+          if (result.savedAsTitleOnly || !result.recipe) {
+            titlesOnly += 1;
+            const fallbackId = result.recipe?.id ?? `title-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            newTitleOnly.push({ id: fallbackId, title });
+          }
         }
       }
       if (newTitleOnly.length) {
-        setTitleOnlyDishes((prev) => {
-          const existingIds = new Set(prev.map((dish) => dish.id));
-          const merged = [...prev];
-          newTitleOnly.forEach((dish) => {
-            if (!existingIds.has(dish.id)) {
-              merged.push(dish);
-            }
-          });
-          return merged;
+        const existingIds = new Set(titleOnlyDishes.map((dish) => dish.id));
+        const merged = [...titleOnlyDishes];
+        newTitleOnly.forEach((dish) => {
+          if (!existingIds.has(dish.id)) {
+            merged.push(dish);
+          }
         });
+        persistTitleOnly(merged);
       }
       setDishDraft('');
-      if (titlesOnly === parts.length) {
+      if (!isPremium) {
+        Toast.show('Saved dish titles. Upgrade to unlock recipes and shopping plans.', 1700);
+      } else if (titlesOnly === parts.length) {
         Toast.show('Saved dish titles only. Upgrade to unlock recipes and shopping plans.', 1700);
       } else if (titlesOnly > 0) {
         const recipeCount = parts.length - titlesOnly;
