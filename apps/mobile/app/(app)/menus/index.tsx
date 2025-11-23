@@ -80,7 +80,7 @@ const FALLBACK_PAIRINGS = [
 ];
 
 export default function MenuInboxScreen() {
-  const isPremium = featureFlags.menuIngestion ?? false;
+  const featurePremium = featureFlags.menuIngestion ?? false;
   const [sortMode, setSortMode] = useState<SortMode>('alpha');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
@@ -93,7 +93,7 @@ export default function MenuInboxScreen() {
   const [sortOpen, setSortOpen] = useState(false);
   const [savedSelection, setSavedSelection] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
-  const [showUpgradeOverlay, setShowUpgradeOverlay] = useState(!isPremium);
+  const [showUpgradeOverlay, setShowUpgradeOverlay] = useState(!featurePremium);
   const [overlayCollapsed, setOverlayCollapsed] = useState(false);
   const [conversionMeta, setConversionMeta] = useState<ConversionMeta | null>(null);
   const [sessionHighlights, setSessionHighlights] = useState<string[]>([]);
@@ -115,6 +115,7 @@ export default function MenuInboxScreen() {
   const { convert, conversionLoading, conversionResult, conversionError, resetConversion } = useMenuListConversion();
   const { pairings, pairingsLoading, pairingsError, savePairing } = useMenuPairings();
   const { policy: menuPolicy, updatePreferences, updatingPreferences } = useMenuPolicy();
+  const isPremium = menuPolicy?.policy.isPremium ?? featurePremium;
   const { runPrompt, preview, previewLoading, previewError } = useMenuPrompt();
   const dietaryTags = menuPolicy?.preferences.dietaryTags ?? [];
   const allergenFlags = menuPolicy?.preferences.allergenFlags ?? [];
@@ -162,6 +163,13 @@ export default function MenuInboxScreen() {
       setAllergenDraft(allergenFlags.join(', '));
     }
   }, [showPreferencesSheet, menuPolicy, dietaryTags, allergenFlags]);
+
+  useEffect(() => {
+    if (menuPolicy?.policy.isPremium) {
+      setShowUpgradeOverlay(false);
+      setOverlayCollapsed(true);
+    }
+  }, [menuPolicy?.policy.isPremium]);
 
   const cardsSource = useMemo(() => {
     if (!recipes.length) {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   MenuPairing,
@@ -48,16 +48,19 @@ const sessionShouldPoll = (status?: string | null) => {
 export function useMenuSession() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const bootstrappedRef = useRef(false);
 
   useEffect(() => {
-    if (!sessionId) {
-      getCachedMenuSessions().then((cached) => {
-        if (cached.length) {
-          queryClient.setQueryData(['menu-session', cached[0].id], cached[0]);
-        }
-      });
+    if (bootstrappedRef.current) {
+      return;
     }
-  }, [sessionId, queryClient]);
+    bootstrappedRef.current = true;
+    getCachedMenuSessions().then((cached) => {
+      if (cached.length) {
+        queryClient.setQueryData(['menu-session', cached[0].id], cached[0]);
+      }
+    });
+  }, [queryClient]);
 
   const sessionQuery = useQuery({
     queryKey: ['menu-session', sessionId],
