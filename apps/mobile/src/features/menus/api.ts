@@ -60,6 +60,28 @@ export type MenuRecipe = {
   updated_at: string;
 };
 
+export type MenuPromptCard = {
+  id: string;
+  title: string;
+  course: string;
+  cuisine_style?: string | null;
+  servings: MenuServings;
+  lock_scope?: boolean;
+  ingredients: MenuIngredient[];
+  method: MenuMethodStep[];
+  total_time_minutes?: number;
+  tips?: string[];
+  list_lines: ConsolidatedLine[];
+  packaging_guidance?: PackagingGuidanceEntry[] | null;
+  summary_footer: string;
+};
+
+export type MenuPromptResponse = {
+  cards: MenuPromptCard[];
+  consolidated_list: ConsolidatedLine[];
+  menus?: Array<{ id: string; title: string; dishes: string[]; list_lines?: ConsolidatedLine[] }>;
+};
+
 export type SaveDishResponse = {
   status: 'ok';
   savedAsTitleOnly: boolean;
@@ -203,6 +225,22 @@ export async function updateMenuRecipe(recipeId: string, updates: Partial<MenuRe
     body: JSON.stringify(updates)
   });
   return result.recipe;
+}
+
+export type MenuPromptRequest = {
+  sessionId?: string;
+  locale?: string;
+  peopleCount: number;
+  dishes: { title: string; cuisineStyle?: string }[];
+  preferences?: { dietaryTags?: string[]; allergenFlags?: string[] };
+  policy?: { isPremium: boolean; blurRecipes: boolean };
+};
+
+export async function requestMenuPrompt(payload: MenuPromptRequest) {
+  return callMenuFunction<MenuPromptResponse>('menus-llm', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
 }
 
 export type MenuPolicy = {

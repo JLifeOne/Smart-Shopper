@@ -17,7 +17,10 @@ import {
   saveMenuPairing,
   updateMenuRecipe,
   updateMenuPreferences,
-  uploadMenu
+  uploadMenu,
+  MenuPromptRequest,
+  requestMenuPrompt,
+  MenuPromptResponse
 } from './api';
 import {
   cacheMenuPolicy,
@@ -284,6 +287,19 @@ export function useMenuPairings(locale?: string) {
     refreshPairings: pairingsQuery.refetch,
     savePairing: (payload: { title: string; dishIds: string[]; description?: string }) => saveMutation.mutateAsync(payload),
     removePairing: (id: string) => deleteMutation.mutateAsync(id)
+  };
+}
+
+export function useMenuPrompt() {
+  const mutation = useMutation({
+    mutationFn: (payload: MenuPromptRequest) => requestMenuPrompt(payload)
+  });
+  return {
+    runPrompt: mutation.mutateAsync,
+    preview: mutation.data ?? null,
+    previewLoading: mutation.isPending,
+    previewError: mutation.error ? String(mutation.error) : null,
+    resetPreview: mutation.reset
   };
 }
 

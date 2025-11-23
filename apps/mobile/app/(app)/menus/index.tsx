@@ -8,9 +8,10 @@ import {
   useMenuPairings,
   useMenuRecipes,
   useMenuSession,
-  useMenuPolicy
+  useMenuPolicy,
+  useMenuPrompt
 } from '@/src/features/menus/hooks';
-import type { ConsolidatedLine, MenuRecipe, PackagingGuidanceEntry } from '@/src/features/menus/api';
+import type { ConsolidatedLine, MenuRecipe, PackagingGuidanceEntry, MenuPromptResponse } from '@/src/features/menus/api';
 
 type SortMode = 'alpha' | 'course' | 'cuisine';
 
@@ -114,6 +115,7 @@ export default function MenuInboxScreen() {
   const { convert, conversionLoading, conversionResult, conversionError, resetConversion } = useMenuListConversion();
   const { pairings, pairingsLoading, pairingsError, savePairing } = useMenuPairings();
   const { policy: menuPolicy, updatePreferences, updatingPreferences } = useMenuPolicy();
+  const { runPrompt, preview, previewLoading, previewError } = useMenuPrompt();
   const dietaryTags = menuPolicy?.preferences.dietaryTags ?? [];
   const allergenFlags = menuPolicy?.preferences.allergenFlags ?? [];
 
@@ -190,6 +192,13 @@ export default function MenuInboxScreen() {
     }
     return FALLBACK_PAIRINGS;
   }, [pairings]);
+  const previewCards = useMemo(() => {
+    if (!preview) {
+      return [];
+    }
+    return preview.cards.map((card) => mapPromptCardToDisplayCard(card));
+  }, [preview]);
+  const previewList = preview?.consolidated_list ?? [];
 
   const sessionStatusLabel = session ? describeSessionStatus(session.status) : null;
   const sessionDishTitles = session?.dish_titles ?? [];
@@ -429,6 +438,32 @@ export default function MenuInboxScreen() {
     }
     setSelectionMode(false);
     setSavedSelection(new Set());
+  };
+
+  const handleGeneratePreview = async () => {
+    const dishes = sortedCards.slice(0, 5).map((card) => ({
+      title: card.title,
+      cuisineStyle: card.cuisine
+    }));
+    if (!dishes.length) {
+      Toast.show('Add or save at least one dish first.', 1400);
+      return;
+    }
+    try {
+      await runPrompt({
+        sessionId: session?.id,
+        locale: menuPolicy?.preferences.locale ?? undefined,
+        peopleCount: menuPolicy?.preferences.defaultPeopleCount ?? 1,
+        dishes,
+        preferences: { dietaryTags, allergenFlags },
+        policy: menuPolicy
+          ? { isPremium: menuPolicy.policy.isPremium, blurRecipes: menuPolicy.policy.blurRecipes }
+          : { isPremium, blurRecipes: !isPremium }
+      });
+      Toast.show('Generated menu preview.', 1200);
+    } catch (error) {
+      Toast.show('Unable to generate preview right now.', 1700);
+    }
   };
 
   return (
@@ -939,23 +974,49 @@ export default function MenuInboxScreen() {
               <View style={styles.intelHeader}>
                 <Ionicons name="sparkles" size={16} color="#0F172A" />
                 <Text style={styles.intelTitle}>AI preview</Text>
+                {previewLoading ? <ActivityIndicator size="small" color="#0F172A" /> : null}
               </View>
-              {SAMPLE_AI_MENU.map((dish) => (
-                <View key={dish.title} style={styles.intelRow}>
-                  <View style={styles.intelText}>
-                    <Text style={styles.intelDish}>{dish.title}</Text>
-                    <Text style={styles.intelMeta}>
-                      {dish.course} • {dish.note}
-                    </Text>
-                  </View>
-                  <View style={styles.intelBadge}>
-                    <Text style={styles.intelBadgeLabel}>{Math.round(dish.confidence * 100)}%</Text>
-                  </View>
-                </View>
-              ))}
-              <Text style={styles.intelFootnote}>
-                We detect courses, extract ingredients, and propose a shopping plan you can edit. Pack sizes match your store locale.
+              <Text style={styles.intelMeta}>
+                Generate recipe cards and a consolidated shopping list before saving them to your pantry.
               </Text>
+              <Pressable
+                style={[styles.previewButton, previewLoading && styles.disabledButton]}
+                disabled={previewLoading}
+                onPress={handleGeneratePreview}
+              >
+                <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+                <Text style={styles.previewButtonLabel}>{previewLoading ? 'Generating…' : 'Generate preview'}</Text>
+              </Pressable>
+              {previewError ? <Text style={styles.errorText}>Unable to generate preview. Try again later.</Text> : null}
+              {previewCards.length ? (
+                previewCards.map((card) => (
+                  <View key={card.id} style={styles.previewCard}>
+                    <View style={styles.intelText}>
+                      <Text style={styles.intelDish}>{card.title}</Text>
+                      <Text style={styles.intelMeta}>
+                        {card.course} • Serves {card.people}
+                      </Text>
+                    </View>
+                    {card.listLines.map((line) => (
+                      <Text key={`${card.id}-${line}`} style={styles.previewListLine}>
+                        • {line}
+                      </Text>
+                    ))}
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.intelMeta}>Add dishes or save a menu, then tap Generate preview.</Text>
+              )}
+              {previewList.length ? (
+                <View style={styles.previewSummary}>
+                  <Text style={styles.intelTitle}>Consolidated list</Text>
+                  {previewList.map((line, index) => (
+                    <Text key={`${line.name}-${index}`} style={styles.previewListLine}>
+                      • {formatListLineSummary(line)}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
             </View>
           </View>
 
@@ -1026,6 +1087,41 @@ function mapRecipeToCard(recipe: MenuRecipe, overridePeople?: number): DisplayCa
     requiresPremium: Boolean(recipe.premium_required),
     recipe
   };
+}
+
+function mapPromptCardToDisplayCard(card: MenuPromptResponse['cards'][number]): DisplayCard {
+  const people = card.servings?.people_count ?? 1;
+  const listLines = Array.isArray(card.list_lines)
+    ? card.list_lines.map((line) => formatListLineSummary(line))
+    : ['Ingredients coming soon'];
+  const packagingGuidance =
+    (card.packaging_guidance ?? [])
+      .map((entry) =>
+        typeof entry === 'string' ? entry : entry.text ?? entry.label ?? entry.packaging ?? ''
+      )
+      .filter(Boolean) ?? [];
+  return {
+    id: `preview-${card.id}`,
+    title: card.title,
+    course: card.course ?? 'Course',
+    cuisine: card.cuisine_style ?? 'Cuisine',
+    portion: card.summary_footer ?? `Serves ${people}`,
+    people,
+    basePeople: people,
+    listLines,
+    packagingNote: null,
+    packagingGuidance,
+    requiresPremium: false
+  };
+}
+
+function formatListLineSummary(line: ConsolidatedLine) {
+  const qty =
+    typeof line.quantity === 'number'
+      ? `${line.quantity}${line.unit ? ` ${line.unit}` : ''}`
+      : line.unit ?? '';
+  const notes = line.notes ? ` (${line.notes})` : '';
+  return [line.name, qty].filter(Boolean).join(' - ').trim() + notes;
 }
 
 function formatPackagingGuidance(entry: PackagingGuidanceEntry): string | null {
@@ -1685,6 +1781,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#475569',
     lineHeight: 18
+  },
+  previewButton: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#0F172A'
+  },
+  previewButtonLabel: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 12
+  },
+  previewCard: {
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0'
+  },
+  previewListLine: {
+    fontSize: 12,
+    color: '#475569'
+  },
+  previewSummary: {
+    marginTop: 6,
+    gap: 4
   },
   menuCard: {
     marginTop: 10,
