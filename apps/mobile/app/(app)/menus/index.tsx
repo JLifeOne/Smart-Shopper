@@ -90,6 +90,7 @@ export default function MenuInboxScreen() {
   const [showUploadOptions, setShowUploadOptions] = useState(false);
   const [dishDraft, setDishDraft] = useState('');
   const [savedDishes, setSavedDishes] = useState<{ id: string; title: string; titleOnly: boolean }[]>([]);
+  const [titleOnlyDishes, setTitleOnlyDishes] = useState<{ id: string; title: string }[]>([]);
   const [sortOpen, setSortOpen] = useState(false);
   const [savedSelection, setSavedSelection] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
@@ -123,26 +124,27 @@ export default function MenuInboxScreen() {
   useEffect(() => {
     if (!recipes.length) {
       setCardPeople(FALLBACK_CARDS.reduce((acc, card) => ({ ...acc, [card.id]: card.basePeople }), {}));
-      return;
-    }
-    setCardPeople((prev) => {
-      const next = { ...prev };
-      recipes.forEach((recipe) => {
-        const basePeople = Number(recipe.servings?.people_count ?? recipe.scale_factor ?? 1) || 1;
-        if (!next[recipe.id]) {
-          next[recipe.id] = basePeople;
-        }
+    } else {
+      setCardPeople((prev) => {
+        const next = { ...prev };
+        recipes.forEach((recipe) => {
+          const basePeople = Number(recipe.servings?.people_count ?? recipe.scale_factor ?? 1) || 1;
+          if (!next[recipe.id]) {
+            next[recipe.id] = basePeople;
+          }
+        });
+        return next;
       });
-      return next;
-    });
-    setSavedDishes(
-      recipes.map((recipe) => ({
+    }
+    setSavedDishes([
+      ...recipes.map((recipe) => ({
         id: recipe.id,
         title: recipe.title,
         titleOnly: !isPremium && recipe.premium_required
-      }))
-    );
-  }, [recipes, isPremium]);
+      })),
+      ...titleOnlyDishes.map((dish) => ({ ...dish, titleOnly: true }))
+    ]);
+  }, [recipes, isPremium, titleOnlyDishes]);
 
   useEffect(() => {
     if (!session?.card_ids?.length) {
@@ -348,11 +350,26 @@ export default function MenuInboxScreen() {
     }
     try {
       let titlesOnly = 0;
+      const newTitleOnly: { id: string; title: string }[] = [];
       for (const title of parts) {
         const result = await createRecipe({ title, premium: isPremium });
-        if (result.savedAsTitleOnly) {
+        if (result.savedAsTitleOnly || !result.recipe) {
           titlesOnly += 1;
+          const fallbackId = result.recipe?.id ?? `title-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          newTitleOnly.push({ id: fallbackId, title });
         }
+      }
+      if (newTitleOnly.length) {
+        setTitleOnlyDishes((prev) => {
+          const existingIds = new Set(prev.map((dish) => dish.id));
+          const merged = [...prev];
+          newTitleOnly.forEach((dish) => {
+            if (!existingIds.has(dish.id)) {
+              merged.push(dish);
+            }
+          });
+          return merged;
+        });
       }
       setDishDraft('');
       if (titlesOnly === parts.length) {
