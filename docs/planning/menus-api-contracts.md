@@ -287,3 +287,55 @@ Response `200`
 - **Rate limits**: enforce per-user limits on uploads and conversions to prevent abuse.
 
 These contracts align with the schemas defined in `0011_menu_core.sql` and will unblock Stage 2 (AI pipeline) and Stage 3 (frontend wiring).
+-
+---
+
+## 8. Menu prompt (`POST /menus-llm`)
+
+Endpoint used to generate recipe cards, consolidated shopping lists, and menu suggestions. Currently backed by a stub generator; later wired to the LLM.
+
+Request `POST /menus-llm`
+```json
+{
+  "sessionId": "uuid-optional",
+  "locale": "en_US",
+  "peopleCount": 4,
+  "dishes": [
+    { "title": "Jamaican curry chicken", "cuisineStyle": "Jamaican" },
+    { "title": "Steamed rice" }
+  ],
+  "preferences": {
+    "dietaryTags": ["gluten_free"],
+    "allergenFlags": ["peanut"]
+  },
+  "policy": { "isPremium": true, "blurRecipes": false }
+}
+```
+
+Response `200`
+```json
+{
+  "cards": [
+    {
+      "id": "jamaican-curry-chicken",
+      "title": "Jamaican curry chicken",
+      "course": "Main",
+      "cuisine_style": "en_US",
+      "servings": { "people_count": 4, "portion_size_per_person": "1 plate", "scale_factor": 1 },
+      "lock_scope": false,
+      "ingredients": [{ "name": "Chicken", "quantity": 4, "unit": "unit" }],
+      "method": [{ "step": 1, "text": "Prepare base." }],
+      "total_time_minutes": 30,
+      "tips": ["Adjust seasoning."],
+      "list_lines": [{ "name": "Chicken", "quantity": 4, "unit": "unit" }],
+      "packaging_guidance": ["Buy 4 x 1 unit Chicken"],
+      "summary_footer": "Serves 4 people; portion ~1 plate per person."
+    }
+  ],
+  "consolidated_list": [{ "name": "Chicken", "quantity": 4, "unit": "unit" }],
+  "menus": [{ "id": "menu-auto", "title": "Suggested combo", "dishes": ["Jamaican curry chicken"] }]
+}
+```
+
+- Request payload is validated with Zod; invalid payloads return `400 { error: 'invalid_payload', details: [...] }`.
+- The current implementation is a deterministic stub; integrate the live LLM by replacing the generator while keeping schema validation.
