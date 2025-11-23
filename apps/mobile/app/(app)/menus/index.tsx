@@ -178,18 +178,21 @@ export default function MenuInboxScreen() {
     }
   }, [recipes]);
 
+  const sessionCardIds = session?.card_ids ?? [];
+  const sessionCardIdsKey = sessionCardIds.join('|');
+
   useEffect(() => {
-    if (!session?.card_ids?.length) {
+    if (!sessionCardIds.length) {
       setSessionHighlights([]);
       return;
     }
-    setSessionHighlights(session.card_ids);
+    setSessionHighlights(sessionCardIds);
     setOpenCards((prev) => {
       const next = new Set(prev);
-      session.card_ids.forEach((id) => next.add(id));
+      sessionCardIds.forEach((id) => next.add(id));
       return next;
     });
-  }, [session?.card_ids]);
+  }, [sessionCardIdsKey]);
 
   useEffect(() => {
     if (showPreferencesSheet && menuPolicy) {
