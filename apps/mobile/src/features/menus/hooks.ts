@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   MenuPairing,
@@ -19,6 +19,14 @@ import {
   updateMenuPreferences,
   uploadMenu
 } from './api';
+import {
+  cacheMenuPolicy,
+  cacheMenuRecipes,
+  cacheMenuPairings,
+  getCachedMenuPolicy,
+  getCachedMenuRecipes,
+  getCachedMenuPairings
+} from '@/src/database/menu-storage';
 
 type UploadArgs = { mode: 'camera' | 'gallery'; premium: boolean };
 
@@ -82,14 +90,34 @@ export function useMenuSession() {
 
 export function useMenuRecipes() {
   const queryClient = useQueryClient();
+  useEffect(() => {
+    getCachedMenuRecipes().then((cached) => {
+      if (cached.length) {
+        queryClient.setQueryData(['menu-recipes'], cached);
+      }
+    });
+  }, [queryClient]);
+
   const recipesQuery = useQuery({
     queryKey: ['menu-recipes'],
-    queryFn: () => listMenuRecipes()
+    queryFn: async () => {
+      try {
+        const remote = await listMenuRecipes();
+        await cacheMenuRecipes(remote);
+        return remote;
+      } catch (error) {
+        const cached = await getCachedMenuRecipes();
+        if (cached.length) {
+          return cached;
+        }
+        throw error;
+      }
+    }
   });
 
   const createMutation = useMutation({
     mutationFn: (payload: SaveDishRequest) => saveDish(payload),
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       if (result.recipe) {
         queryClient.setQueryData<MenuRecipe[] | undefined>(['menu-recipes'], (current = []) => {
           const exists = current.findIndex((item) => item.id === result.recipe!.id);
@@ -100,6 +128,7 @@ export function useMenuRecipes() {
           }
           return [result.recipe!, ...current];
         });
+        await cacheMenuRecipes([result.recipe]);
       } else {
         queryClient.invalidateQueries({ queryKey: ['menu-recipes'] });
       }
@@ -109,7 +138,7 @@ export function useMenuRecipes() {
   const updateMutation = useMutation({
     mutationFn: ({ recipeId, updates }: { recipeId: string; updates: Partial<MenuRecipe> }) =>
       updateMenuRecipe(recipeId, updates),
-    onSuccess: (recipe) => {
+    onSuccess: async (recipe) => {
       queryClient.setQueryData<MenuRecipe[] | undefined>(['menu-recipes'], (current = []) => {
         const index = current.findIndex((item) => item.id === recipe.id);
         if (index >= 0) {
@@ -119,6 +148,7 @@ export function useMenuRecipes() {
         }
         return [recipe, ...current];
       });
+      await cacheMenuRecipes([recipe]);
     }
   });
 
@@ -167,9 +197,29 @@ export function useMenuListConversion() {
 
 export function useMenuPairings(locale?: string) {
   const queryClient = useQueryClient();
+  useEffect(() => {
+    getCachedMenuPairings(locale).then((cached) => {
+      if (cached.length) {
+        queryClient.setQueryData(['menu-pairings', locale ?? 'default'], cached);
+      }
+    });
+  }, [locale, queryClient]);
+
   const pairingsQuery = useQuery({
     queryKey: ['menu-pairings', locale ?? 'default'],
-    queryFn: () => fetchMenuPairings(locale)
+    queryFn: async () => {
+      try {
+        const remote = await fetchMenuPairings(locale);
+        await cacheMenuPairings(remote);
+        return remote;
+      } catch (error) {
+        const cached = await getCachedMenuPairings(locale);
+        if (cached.length) {
+          return cached;
+        }
+        throw error;
+      }
+    }
   });
 
   const saveMutation = useMutation({
@@ -195,9 +245,29 @@ export function useMenuPairings(locale?: string) {
 
 export function useMenuPolicy() {
   const queryClient = useQueryClient();
+  useEffect(() => {
+    getCachedMenuPolicy().then((cached) => {
+      if (cached) {
+        queryClient.setQueryData(['menu-policy'], cached);
+      }
+    });
+  }, [queryClient]);
+
   const policyQuery = useQuery({
     queryKey: ['menu-policy'],
-    queryFn: () => fetchMenuPolicy()
+    queryFn: async () => {
+      try {
+        const remote = await fetchMenuPolicy();
+        await cacheMenuPolicy(remote);
+        return remote;
+      } catch (error) {
+        const cached = await getCachedMenuPolicy();
+        if (cached) {
+          return cached;
+        }
+        throw error;
+      }
+    }
   });
 
   const updateMutation = useMutation({
@@ -212,7 +282,11 @@ export function useMenuPolicy() {
     loading: policyQuery.isLoading,
     error: policyQuery.error ? String(policyQuery.error) : null,
     refresh: policyQuery.refetch,
-    updatePreferences: updateMutation.mutateAsync,
+    updatePreferences: async (input: Parameters<typeof updateMenuPreferences>[0]) => {
+      const result = await updateMutation.mutateAsync(input);
+      await cacheMenuPolicy(result);
+      return result;
+    },
     updatingPreferences: updateMutation.isPending
   };
 }

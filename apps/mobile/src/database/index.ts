@@ -9,7 +9,11 @@ import {
   Product,
   ReceiptUpload,
   SyncEvent,
-  CategorySignal
+  CategorySignal,
+  MenuRecipe,
+  MenuSession,
+  MenuPair,
+  MenuPreference
 } from './models';
 
 const adapter = new SQLiteAdapter({
@@ -24,7 +28,19 @@ const adapter = new SQLiteAdapter({
 
 export const database = new Database({
   adapter,
-  modelClasses: [List, ListItem, Product, PriceSnapshot, ReceiptUpload, SyncEvent, CategorySignal]
+  modelClasses: [
+    List,
+    ListItem,
+    Product,
+    PriceSnapshot,
+    ReceiptUpload,
+    SyncEvent,
+    CategorySignal,
+    MenuRecipe,
+    MenuSession,
+    MenuPair,
+    MenuPreference
+  ]
 });
 
 export async function resetDatabase() {
