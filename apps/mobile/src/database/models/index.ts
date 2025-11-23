@@ -5,3 +5,7 @@ export * from './price-snapshot';
 export * from './receipt-upload';
 export * from './sync-event';
 export * from './category-signal';
+export * from './menu-recipe';
+export * from './menu-session';
+export * from './menu-pair';
+export * from './menu-preference';

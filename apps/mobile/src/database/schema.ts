@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const schema = appSchema({
-  version: 8,
+  version: 9,
   tables: [
     tableSchema({
       name: 'lists',
@@ -122,6 +122,71 @@ export const schema = appSchema({
         { name: 'retry_count', type: 'number' },
         { name: 'created_at', type: 'number' },
         { name: 'last_attempt_at', type: 'number', isOptional: true }
+      ]
+    }),
+    tableSchema({
+      name: 'menu_recipes',
+      columns: [
+        { name: 'remote_id', type: 'string', isIndexed: true },
+        { name: 'title', type: 'string' },
+        { name: 'course', type: 'string', isOptional: true },
+        { name: 'cuisine_style', type: 'string', isOptional: true },
+        { name: 'servings_json', type: 'string' },
+        { name: 'ingredients_json', type: 'string' },
+        { name: 'method_json', type: 'string' },
+        { name: 'tips', type: 'string', isOptional: true },
+        { name: 'packaging_notes', type: 'string', isOptional: true },
+        { name: 'packaging_guidance', type: 'string', isOptional: true },
+        { name: 'premium_required', type: 'boolean' },
+        { name: 'dietary_tags', type: 'string', isOptional: true },
+        { name: 'allergen_tags', type: 'string', isOptional: true },
+        { name: 'people_count', type: 'number' },
+        { name: 'lock_scope', type: 'boolean', isOptional: true },
+        { name: 'last_synced_at', type: 'number', isOptional: true },
+        { name: 'updated_at', type: 'number' }
+      ]
+    }),
+    tableSchema({
+      name: 'menu_sessions',
+      columns: [
+        { name: 'remote_id', type: 'string', isIndexed: true },
+        { name: 'status', type: 'string' },
+        { name: 'source_asset_url', type: 'string', isOptional: true },
+        { name: 'intent_route', type: 'string', isOptional: true },
+        { name: 'dish_titles', type: 'string', isOptional: true },
+        { name: 'warnings', type: 'string', isOptional: true },
+        { name: 'payload', type: 'string', isOptional: true },
+        { name: 'created_at', type: 'number' },
+        { name: 'updated_at', type: 'number' },
+        { name: 'last_synced_at', type: 'number', isOptional: true }
+      ]
+    }),
+    tableSchema({
+      name: 'menu_pairs',
+      columns: [
+        { name: 'remote_id', type: 'string', isIndexed: true },
+        { name: 'title', type: 'string' },
+        { name: 'description', type: 'string', isOptional: true },
+        { name: 'dish_ids', type: 'string' },
+        { name: 'locale', type: 'string', isOptional: true },
+        { name: 'is_default', type: 'boolean' },
+        { name: 'updated_at', type: 'number' },
+        { name: 'last_synced_at', type: 'number', isOptional: true }
+      ]
+    }),
+    tableSchema({
+      name: 'menu_preferences',
+      columns: [
+        { name: 'remote_id', type: 'string', isIndexed: true },
+        { name: 'locale', type: 'string', isOptional: true },
+        { name: 'dietary_tags', type: 'string', isOptional: true },
+        { name: 'allergen_flags', type: 'string', isOptional: true },
+        { name: 'default_people_count', type: 'number' },
+        { name: 'auto_scale', type: 'boolean' },
+        { name: 'allow_card_lock', type: 'boolean' },
+        { name: 'blur_recipes', type: 'boolean' },
+        { name: 'access_level', type: 'string' },
+        { name: 'updated_at', type: 'number' }
       ]
     })
   ]
