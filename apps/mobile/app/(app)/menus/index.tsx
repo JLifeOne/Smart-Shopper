@@ -94,7 +94,6 @@ export default function MenuInboxScreen() {
   );
   const [showUploadOptions, setShowUploadOptions] = useState(false);
   const [dishDraft, setDishDraft] = useState('');
-  const [savedDishes, setSavedDishes] = useState<{ id: string; title: string; titleOnly: boolean }[]>([]);
   const [titleOnlyDishes, setTitleOnlyDishes] = useState<{ id: string; title: string }[]>([]);
   const [titleLimit, setTitleLimit] = useState<{ date: string; count: number }>({ date: '', count: 0 });
   const titleLoadRef = useRef(false);
@@ -127,6 +126,17 @@ export default function MenuInboxScreen() {
   const { runPrompt, preview, previewLoading, previewError } = useMenuPrompt();
   const dietaryTags = menuPolicy?.preferences.dietaryTags ?? [];
   const allergenFlags = menuPolicy?.preferences.allergenFlags ?? [];
+  const savedDishes = useMemo(
+    () => [
+      ...recipes.map((recipe) => ({
+        id: recipe.id,
+        title: recipe.title,
+        titleOnly: !isPremium && recipe.premium_required
+      })),
+      ...titleOnlyDishes.map((dish) => ({ ...dish, titleOnly: true }))
+    ],
+    [recipes, isPremium, titleOnlyDishes]
+  );
 
   useEffect(() => {
     if (titleLoadRef.current) {
@@ -166,16 +176,7 @@ export default function MenuInboxScreen() {
         return next;
       });
     }
-    setSavedDishes((prev) => {
-      const recipeEntries = recipes.map((recipe) => ({
-        id: recipe.id,
-        title: recipe.title,
-        titleOnly: !isPremium && recipe.premium_required
-      }));
-      const titleEntries = titleOnlyDishes.map((dish) => ({ ...dish, titleOnly: true }));
-      return [...recipeEntries, ...titleEntries];
-    });
-  }, [recipes, isPremium, titleOnlyDishes]);
+  }, [recipes]);
 
   useEffect(() => {
     if (!session?.card_ids?.length) {
