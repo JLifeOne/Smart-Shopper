@@ -89,6 +89,8 @@ const FALLBACK_PAIRINGS = [
 const TITLE_ONLY_STORAGE_KEY = 'menus_title_only_dishes';
 const TITLE_LIMIT_STORAGE_KEY = 'menus_title_limit';
 const TITLE_LIMIT_PER_DAY = 3;
+const UPGRADE_COLOR = '#C75A0E';
+const UPGRADE_SHADOW = '#8F3A04';
 
 export default function MenuInboxScreen() {
   const featurePremium = featureFlags.menuIngestion ?? false;
@@ -115,6 +117,8 @@ export default function MenuInboxScreen() {
   const [showPreferencesSheet, setShowPreferencesSheet] = useState(false);
   const [dietaryDraft, setDietaryDraft] = useState('');
   const [allergenDraft, setAllergenDraft] = useState('');
+  const [limitPromptVisible, setLimitPromptVisible] = useState(false);
+  const [limitPromptCount, setLimitPromptCount] = useState(TITLE_LIMIT_PER_DAY);
 
   const {
     session,
@@ -476,7 +480,8 @@ export default function MenuInboxScreen() {
         for (const title of parts) {
           const allowed = await consumeTitleSlot();
           if (!allowed) {
-            Toast.show(`Limit reached. Non-premium can save ${TITLE_LIMIT_PER_DAY} dishes per day.`, 2000);
+            setLimitPromptVisible(true);
+            setLimitPromptCount(TITLE_LIMIT_PER_DAY);
             break;
           }
           titlesOnly += 1;
@@ -780,6 +785,34 @@ export default function MenuInboxScreen() {
             </View>
             <Pressable style={styles.uploadClose} onPress={() => setShowUploadOptions(false)}>
               <Text style={styles.uploadCloseLabel}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+      {limitPromptVisible ? (
+        <View style={styles.uploadOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setLimitPromptVisible(false)} />
+          <View style={styles.limitModal}>
+            <View style={styles.limitIcon}>
+              <Ionicons name="alert-circle" size={20} color="#0F172A" />
+            </View>
+            <Text style={styles.limitTitle}>Daily save limit reached</Text>
+            <Text style={styles.limitSubtitle}>
+              You can save up to {limitPromptCount} dishes per day while on the free plan. Upgrade to unlock full menu
+              recipes, unlimited saves, and auto shopping plans.
+            </Text>
+            <Pressable
+              style={[styles.primary, styles.upgradeFancy, styles.limitUpgrade]}
+              onPress={() => {
+                setLimitPromptVisible(false);
+                handleUpgradePress();
+              }}
+            >
+              <Ionicons name="sparkles" size={16} color="#FFFFFF" />
+              <Text style={styles.primaryLabel}>Upgrade</Text>
+            </Pressable>
+            <Pressable style={styles.limitDismiss} onPress={() => setLimitPromptVisible(false)}>
+              <Text style={styles.limitDismissLabel}>Close</Text>
             </Pressable>
           </View>
         </View>
@@ -1088,7 +1121,8 @@ export default function MenuInboxScreen() {
                     <Pressable
                       style={[
                         styles.menuChip,
-                        (conversionLoading || cardLocked) && styles.menuChipDisabled
+                        conversionLoading && styles.menuChipDisabled,
+                        cardLocked && styles.menuChipUpgrade
                       ]}
                       onPress={() => {
                         if (cardLocked) {
@@ -1100,7 +1134,7 @@ export default function MenuInboxScreen() {
                       disabled={conversionLoading}
                     >
                       <Ionicons name="cart" size={14} color="#0C1D37" />
-                      <Text style={[styles.menuChipLabel, cardLocked && styles.menuChipLabelDisabled]}>
+                      <Text style={[styles.menuChipLabel, cardLocked && styles.menuChipLabelUpgrade]}>
                         {cardLocked ? 'Upgrade' : 'Add to list'}
                       </Text>
                     </Pressable>
@@ -1423,9 +1457,9 @@ const styles = StyleSheet.create({
     borderColor: '#0C1D37'
   },
   quickActionUpgrade: {
-    backgroundColor: '#FB923C',
-    borderColor: '#FB923C',
-    shadowColor: '#EA580C',
+    backgroundColor: UPGRADE_COLOR,
+    borderColor: UPGRADE_COLOR,
+    shadowColor: UPGRADE_SHADOW,
     shadowOpacity: 0.22,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 6 },
@@ -1525,6 +1559,45 @@ const styles = StyleSheet.create({
   uploadCloseLabel: {
     fontSize: 13,
     fontWeight: '700',
+    color: '#0C1D37'
+  },
+  limitModal: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 18,
+    gap: 10,
+    alignItems: 'flex-start',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.1,
+    shadowRadius: 18,
+    elevation: 8
+  },
+  limitIcon: {
+    marginBottom: 4
+  },
+  limitTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  limitSubtitle: {
+    fontSize: 14,
+    color: '#475569'
+  },
+  limitUpgrade: {
+    alignSelf: 'stretch',
+    justifyContent: 'center'
+  },
+  limitDismiss: {
+    alignSelf: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12
+  },
+  limitDismissLabel: {
+    fontSize: 14,
+    fontWeight: '600',
     color: '#0C1D37'
   },
   errorBanner: {
@@ -1877,9 +1950,9 @@ const styles = StyleSheet.create({
     gap: 8
   },
   upgradeFancy: {
-    backgroundColor: '#FB923C',
-    borderColor: '#FB923C',
-    shadowColor: '#EA580C',
+    backgroundColor: UPGRADE_COLOR,
+    borderColor: UPGRADE_COLOR,
+    shadowColor: UPGRADE_SHADOW,
     shadowOpacity: 0.22,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 6 },
@@ -2066,13 +2139,17 @@ const styles = StyleSheet.create({
   menuChipDisabled: {
     opacity: 0.6
   },
+  menuChipUpgrade: {
+    backgroundColor: UPGRADE_COLOR,
+    borderColor: UPGRADE_COLOR
+  },
   menuChipLabel: {
     fontSize: 12,
     fontWeight: '700',
     color: '#0C1D37'
   },
-  menuChipLabelDisabled: {
-    color: '#B45309'
+  menuChipLabelUpgrade: {
+    color: '#FFFFFF'
   },
   menuBody: {
     gap: 6

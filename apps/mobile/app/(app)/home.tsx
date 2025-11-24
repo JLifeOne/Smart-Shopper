@@ -54,6 +54,8 @@ const FALLBACK_SUGGESTED_ITEMS = ['Milk', 'Butter', 'Bananas', 'Yogurt', 'Olive 
 
 const CREATE_LIST_DRAFT_KEY = '@smart-shopper:create-list-draft';
 const CUSTOM_STORES_KEY = '@smart-shopper:custom-stores';
+const UPGRADE_COLOR = '#C75A0E';
+const UPGRADE_SHADOW = '#8F3A04';
 
 type AuthContextValue = ReturnType<typeof useAuth>;
 type TabKey = 'home' | 'insights' | 'promos' | 'lists' | 'receipts';
@@ -2247,12 +2249,12 @@ const drawerStyles = StyleSheet.create({
     alignSelf: 'flex-start',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#0F766E',
+    backgroundColor: UPGRADE_COLOR,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
     marginBottom: 16,
-    shadowColor: '#0F766E',
+    shadowColor: UPGRADE_SHADOW,
     shadowOpacity: 0.22,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 6 },
@@ -3005,9 +3007,9 @@ const newStyles = StyleSheet.create({
     marginRight: 4
   },
   upgradeButton: {
-    backgroundColor: '#FB923C',
-    borderColor: '#FB923C',
-    shadowColor: '#EA580C',
+    backgroundColor: UPGRADE_COLOR,
+    borderColor: UPGRADE_COLOR,
+    shadowColor: UPGRADE_SHADOW,
     shadowOpacity: 0.25,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 6 },
