@@ -29,7 +29,7 @@ import {
   updateListItemDetails
 } from '@/src/features/list-items/mutations';
 import { setListStore } from '@/src/features/lists/mutations';
-import { useSearchOverlay } from '@/src/providers/SearchOverlayProvider';
+import { useSearchOverlay } from '@/src/providers/SearchOverlayContext';
 import { trackEvent } from '@/src/lib/analytics';
 import { parseListInput, enrichParsedEntries, type EnrichedListEntry } from '@/src/features/lists/parse-list-input';
 import { recordCategoryTelemetry } from '@/src/lib/category-telemetry';

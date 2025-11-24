@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HEADER_HEIGHT } from '@/src/constants/layout';
-import { useSearchOverlay } from '@/src/providers/SearchOverlayProvider';
+import { useSearchOverlay } from '@/src/providers/SearchOverlayContext';
 import { useTopBarController } from '@/src/providers/TopBarProvider';
 import { useSearchStore } from '@/src/shared/search/store';
 import { trackEvent } from '@/src/lib/analytics';

@@ -38,7 +38,7 @@ import { detectRegion } from '@/src/catalog/catalogService';
 import { Toast } from '@/src/components/search/Toast';
 import { useTopBar } from '@/src/providers/TopBarProvider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Audio } from 'expo-av';
+import { Audio } from 'expo-audio';
 import { startVoiceCapture, cancelVoiceCapture, finalizeVoiceCapture } from '@/src/features/capture/voice-capture';
 import { captureListFromCamera } from '@/src/features/capture/camera-capture';
 import { normalizeName } from '@/src/categorization';

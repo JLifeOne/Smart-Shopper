@@ -1,23 +1,10 @@
-import React, { createContext, useContext, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { searchService } from '@/src/shared/search/searchService';
 import { trackEvent } from '@/src/lib/analytics';
 import { useSearchStore } from '@/src/shared/search/store';
 import { SearchOverlay } from '@/src/components/search/SearchOverlay';
 import { ensureCatalogSeeded } from '@/src/catalog';
-
-type SearchOverlayContextValue = {
-  openSearch: (initialQuery?: string) => void;
-  closeSearch: () => void;
-  setActiveListId: (listId: string | null) => void;
-};
-
-const SearchOverlayContext = createContext<SearchOverlayContextValue>({
-  openSearch: () => {},
-  closeSearch: () => {},
-  setActiveListId: () => {}
-});
-
-export const useSearchOverlay = () => useContext(SearchOverlayContext);
+import { SearchOverlayContext, type SearchOverlayContextValue } from './SearchOverlayContext';
 
 type ProviderProps = React.PropsWithChildren<{ topOffset?: number }>;
 

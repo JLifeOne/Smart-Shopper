@@ -93,7 +93,7 @@ const UPGRADE_COLOR = '#C75A0E';
 const UPGRADE_SHADOW = '#8F3A04';
 
 export default function MenuInboxScreen() {
-  const featurePremium = featureFlags.menuIngestion ?? false;
+  const featurePremium = featureFlags.menuIngestion ?? __DEV__;
   const [sortMode, setSortMode] = useState<SortMode>('alpha');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
@@ -134,7 +134,9 @@ export default function MenuInboxScreen() {
   const { convert, conversionLoading, conversionResult, conversionError, resetConversion } = useMenuListConversion();
   const { pairings, pairingsLoading, pairingsError, savePairing } = useMenuPairings();
   const { policy: menuPolicy, updatePreferences, updatingPreferences } = useMenuPolicy();
-  const isPremium = menuPolicy?.policy.isPremium ?? featurePremium;
+  const policyPremium = menuPolicy?.policy.isPremium ?? false;
+  const isPremium = featurePremium || policyPremium;
+  const blurRecipes = menuPolicy?.policy.blurRecipes ?? !isPremium;
   const { runPrompt, preview, previewLoading, previewError } = useMenuPrompt();
   const dietaryTags = menuPolicy?.preferences.dietaryTags ?? [];
   const allergenFlags = menuPolicy?.preferences.allergenFlags ?? [];
@@ -260,11 +262,11 @@ export default function MenuInboxScreen() {
   }, [showPreferencesSheet, menuPolicy, dietaryTags, allergenFlags]);
 
   useEffect(() => {
-    if (menuPolicy?.policy.isPremium) {
+    if (isPremium) {
       setShowUpgradeOverlay(false);
       setOverlayCollapsed(true);
     }
-  }, [menuPolicy?.policy.isPremium]);
+  }, [isPremium]);
 
   const cardsSource = useMemo(() => {
     if (!recipes.length) {
@@ -619,9 +621,7 @@ export default function MenuInboxScreen() {
         peopleCount: menuPolicy?.preferences.defaultPeopleCount ?? 1,
         dishes,
         preferences: { dietaryTags, allergenFlags },
-        policy: menuPolicy
-          ? { isPremium: menuPolicy.policy.isPremium, blurRecipes: menuPolicy.policy.blurRecipes }
-          : { isPremium, blurRecipes: !isPremium }
+        policy: { isPremium, blurRecipes }
       });
       Toast.show('Generated menu preview.', 1200);
     } catch (error) {

@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { searchService } from '@/src/shared/search/searchService';
 import { useSearchStore } from '@/src/shared/search/store';
 import type { SearchEntity } from '@/src/shared/search/types';
-import { useSearchOverlay } from '@/src/providers/SearchOverlayProvider';
+import { useSearchOverlay } from '@/src/providers/SearchOverlayContext';
 import { AddFab } from './AddFab';
 import { Toast } from './Toast';
 
