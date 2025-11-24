@@ -95,9 +95,11 @@ export default function MenuInboxScreen() {
   const [sortMode, setSortMode] = useState<SortMode>('alpha');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
-  const [cardPeople, setCardPeople] = useState<Record<string, number>>(
-    FALLBACK_CARDS.reduce((acc, card) => ({ ...acc, [card.id]: card.basePeople }), {})
+  const FALLBACK_CARD_PEOPLE = useMemo(
+    () => FALLBACK_CARDS.reduce<Record<string, number>>((acc, card) => ({ ...acc, [card.id]: card.basePeople }), {}),
+    []
   );
+  const [cardPeople, setCardPeople] = useState<Record<string, number>>(FALLBACK_CARD_PEOPLE);
   const [showUploadOptions, setShowUploadOptions] = useState(false);
   const [dishDraft, setDishDraft] = useState('');
   const [titleOnlyDishes, setTitleOnlyDishes] = useState<{ id: string; title: string }[]>([]);
@@ -156,6 +158,23 @@ export default function MenuInboxScreen() {
     [recipes, isPremium, titleOnlyDishes]
   );
 
+  const recipeSignature = useMemo(() => {
+    if (!recipes.length) {
+      return 'none';
+    }
+    return recipes
+      .map((recipe) => {
+        const base = Number(recipe.servings?.people_count ?? recipe.scale_factor ?? 1) || 1;
+        return `${recipe.id}:${base}`;
+      })
+      .join('|');
+  }, [recipes]);
+  const recipesRef = useRef(recipes);
+  useEffect(() => {
+    recipesRef.current = recipes;
+  }, [recipes]);
+  const recipeSignatureRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (titleLoadRef.current) {
       return;
@@ -180,21 +199,38 @@ export default function MenuInboxScreen() {
   }, []);
 
   useEffect(() => {
-    if (!recipes.length) {
-      setCardPeople(FALLBACK_CARDS.reduce((acc, card) => ({ ...acc, [card.id]: card.basePeople }), {}));
-    } else {
-      setCardPeople((prev) => {
-        const next = { ...prev };
-        recipes.forEach((recipe) => {
-          const basePeople = Number(recipe.servings?.people_count ?? recipe.scale_factor ?? 1) || 1;
-          if (!next[recipe.id]) {
-            next[recipe.id] = basePeople;
-          }
-        });
-        return next;
-      });
+    const currentSignature = recipeSignature;
+    if (recipeSignatureRef.current === currentSignature) {
+      return;
     }
-  }, [recipes]);
+    recipeSignatureRef.current = currentSignature;
+    const currentRecipes = recipesRef.current;
+    if (!currentRecipes.length) {
+      setCardPeople((prev) => {
+        const sameKeys = Object.keys(prev).length === Object.keys(FALLBACK_CARD_PEOPLE).length;
+        if (sameKeys) {
+          const unchanged = Object.entries(FALLBACK_CARD_PEOPLE).every(([key, value]) => prev[key] === value);
+          if (unchanged) {
+          return prev;
+        }
+      }
+      return FALLBACK_CARD_PEOPLE;
+    });
+    return;
+  }
+    setCardPeople((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      currentRecipes.forEach((recipe) => {
+        const basePeople = Number(recipe.servings?.people_count ?? recipe.scale_factor ?? 1) || 1;
+        if (!next[recipe.id]) {
+          next[recipe.id] = basePeople;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [recipeSignature, FALLBACK_CARD_PEOPLE]);
 
   const sessionCardIds = session?.card_ids ?? [];
   const sessionCardIdsKey = sessionCardIds.join('|');

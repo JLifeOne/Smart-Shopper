@@ -140,6 +140,19 @@ export async function resolveMenuClarifications(sessionId: string) {
   });
 }
 
+export async function submitMenuClarifications(
+  sessionId: string,
+  answers: Array<{ dishKey: string; answer: string }>
+) {
+  return callMenuFunction<{ session: MenuSession }>(`menu-sessions/${sessionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      payload: { clarifications: answers },
+      status: 'processing'
+    })
+  });
+}
+
 export async function saveDish(request: SaveDishRequest): Promise<SaveDishResponse> {
   const payload = await callMenuFunction<{ recipe?: MenuRecipe | null }>('menu-recipes', {
     method: 'POST',

@@ -36,6 +36,7 @@ import {
 type UploadArgs = { mode: 'camera' | 'gallery'; premium: boolean };
 
 const TERMINAL_SESSION_STATUSES = new Set(['completed', 'ready', 'title_only', 'failed', 'canceled', 'cancelled']);
+const EMPTY_RECIPES: MenuRecipe[] = [];
 
 const sessionShouldPoll = (status?: string | null) => {
   if (!status) {
@@ -189,8 +190,10 @@ export function useMenuRecipes() {
     }
   });
 
+  const recipes = recipesQuery.data ?? EMPTY_RECIPES;
+
   return {
-    recipes: recipesQuery.data ?? [],
+    recipes,
     recipesLoading: recipesQuery.isLoading,
     recipesError: recipesQuery.error ? String(recipesQuery.error) : null,
     refreshRecipes: recipesQuery.refetch,
