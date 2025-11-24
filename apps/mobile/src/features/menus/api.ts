@@ -129,6 +129,17 @@ export async function fetchMenuSession(sessionId: string) {
   return result.session;
 }
 
+export async function resolveMenuClarifications(sessionId: string) {
+  return callMenuFunction<{ session: MenuSession }>(`menu-sessions/${sessionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      status: 'processing',
+      warnings: [],
+      payload: { clarifications: [] }
+    })
+  });
+}
+
 export async function saveDish(request: SaveDishRequest): Promise<SaveDishResponse> {
   const payload = await callMenuFunction<{ recipe?: MenuRecipe | null }>('menu-recipes', {
     method: 'POST',

@@ -12,7 +12,13 @@ import {
   useMenuPolicy,
   useMenuPrompt
 } from '@/src/features/menus/hooks';
-import type { ConsolidatedLine, MenuRecipe, PackagingGuidanceEntry, MenuPromptResponse } from '@/src/features/menus/api';
+import type {
+  ConsolidatedLine,
+  MenuRecipe,
+  PackagingGuidanceEntry,
+  MenuPromptResponse
+} from '@/src/features/menus/api';
+import { resolveMenuClarifications } from '@/src/features/menus/api';
 
 type SortMode = 'alpha' | 'course' | 'cuisine';
 
@@ -126,6 +132,18 @@ export default function MenuInboxScreen() {
   const { runPrompt, preview, previewLoading, previewError } = useMenuPrompt();
   const dietaryTags = menuPolicy?.preferences.dietaryTags ?? [];
   const allergenFlags = menuPolicy?.preferences.allergenFlags ?? [];
+  const handleResolveClarifications = async () => {
+    if (!session?.id) {
+      return;
+    }
+    try {
+      await resolveMenuClarifications(session.id);
+      Toast.show('Clarifications marked as resolved. Continue processing.', 1500);
+      refreshSession();
+    } catch (error) {
+      Toast.show('Unable to resolve clarifications right now.', 1700);
+    }
+  };
   const savedDishes = useMemo(
     () => [
       ...recipes.map((recipe) => ({
@@ -248,6 +266,10 @@ export default function MenuInboxScreen() {
   const sessionStatusLabel = session ? describeSessionStatus(session.status) : null;
   const sessionDishTitles = session?.dish_titles ?? [];
   const sessionWarnings = session?.warnings ?? [];
+  const clarifications = useMemo(() => {
+    const payload = (session as any)?.payload ?? {};
+    return Array.isArray(payload?.clarifications) ? payload.clarifications : [];
+  }, [session?.id, session?.updated_at]);
   const sessionUpdatedAt = session ? new Date(session.updated_at).toLocaleTimeString() : null;
   const showConversionSummary = Boolean(conversionResult && conversionMeta);
   const conversionErrorLabel = conversionError
@@ -816,6 +838,20 @@ export default function MenuInboxScreen() {
             <View style={styles.sessionWarnings}>
               <Ionicons name="alert-circle" size={14} color="#B45309" />
               <Text style={styles.sessionWarningText}>{sessionWarnings.join(' ')}</Text>
+            </View>
+          ) : null}
+          {clarifications.length ? (
+            <View style={styles.sessionClarifications}>
+              <Text style={styles.sessionListLabel}>Clarifications needed</Text>
+              {clarifications.map((clarification: any) => (
+                <Text key={clarification.dishKey} style={styles.sessionWarningText}>
+                  • {clarification.question}
+                </Text>
+              ))}
+              <Pressable style={styles.secondaryInline} onPress={() => handleResolveClarifications()}>
+                <Ionicons name="checkmark-circle" size={14} color="#0C1D37" />
+                <Text style={styles.secondaryInlineLabel}>Mark resolved</Text>
+              </Pressable>
             </View>
           ) : null}
           {sessionHighlights.length ? (
@@ -1628,6 +1664,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#B45309',
     flex: 1
+  },
+  sessionClarifications: {
+    marginTop: 8,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: '#FFF7ED',
+    gap: 4
   },
   sessionHighlight: {
     fontSize: 12,
