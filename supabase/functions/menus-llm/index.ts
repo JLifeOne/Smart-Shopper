@@ -30,6 +30,36 @@ async function getAuthedClient(req: Request) {
   return { client, userId: data.user.id };
 }
 
+function normalizeKey(value: string) {
+  return value
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^a-z0-9\s]/g, '')
+    .trim();
+}
+
+async function fetchPackagingLabel(
+  client: ReturnType<typeof createClient>,
+  ingredient: string,
+  locale?: string
+) {
+  const key = normalizeKey(ingredient);
+  if (!key.length) {
+    return null;
+  }
+  const { data } = await client
+    .from('menu_packaging_units')
+    .select('pack_size, pack_unit, display_label')
+    .eq('ingredient_key', key)
+    .limit(1)
+    .maybeSingle();
+  if (data) {
+    return data.display_label ?? `Buy ${data.pack_size} ${data.pack_unit}`;
+  }
+  return null;
+}
+
 function buildStubRecipe(input: { dish: string; people: number; locale?: string }): MenuPromptResponse['cards'][number] {
   const baseTitle = input.dish.trim();
   const slug = baseTitle.toLowerCase().replace(/\s+/g, '-');
@@ -67,6 +97,19 @@ function buildStubRecipe(input: { dish: string; people: number; locale?: string 
   };
 }
 
+function findClarifications(payload: MenuPromptInput) {
+  const clarifications: { dishKey: string; question: string }[] = [];
+  payload.dishes.forEach((dish) => {
+    if (!dish.cuisineStyle && /curry|rice|stew|jerk/i.test(dish.title)) {
+      clarifications.push({
+        dishKey: normalizeKey(dish.title) || dish.title,
+        question: `Which style best matches ${dish.title}?`
+      });
+    }
+  });
+  return clarifications;
+}
+
 function buildResponse(payload: MenuPromptInput): MenuPromptResponse {
   const cards = payload.dishes.map((dish) => buildStubRecipe({
     dish: dish.title,
@@ -85,6 +128,7 @@ function buildResponse(payload: MenuPromptInput): MenuPromptResponse {
       }
       return acc;
     }, []);
+  const clarifications = findClarifications(payload);
   return {
     cards,
     consolidated_list: consolidated,
@@ -95,8 +139,30 @@ function buildResponse(payload: MenuPromptInput): MenuPromptResponse {
         dishes: cards.map((card) => card.title),
         list_lines: consolidated
       }
-    ]
+    ],
+    clarification_needed: clarifications.length ? clarifications : undefined
   };
+}
+
+async function applyPackagingGuidance(
+  client: ReturnType<typeof createClient>,
+  response: MenuPromptResponse,
+  locale?: string
+) {
+  for (const card of response.cards) {
+    const guidance: string[] = [];
+    for (const ingredient of card.ingredients) {
+      const label = await fetchPackagingLabel(client, ingredient.name, locale);
+      if (label) {
+        guidance.push(label);
+      } else if (ingredient.quantity) {
+        guidance.push(
+          `Buy ${ingredient.quantity}${ingredient.unit ? ` ${ingredient.unit}` : ''} of ${ingredient.name}`
+        );
+      }
+    }
+    card.packaging_guidance = guidance;
+  }
 }
 
 serve(async (req) => {
@@ -104,8 +170,12 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  let supabase;
+  let userId;
   try {
-    await getAuthedClient(req); // validate auth
+    const auth = await getAuthedClient(req); // validate auth
+    supabase = auth.client;
+    userId = auth.userId;
   } catch (error) {
     const message = error instanceof Error ? error.message : 'auth_error';
     const status = message === 'auth_required' ? 401 : 500;
@@ -120,12 +190,34 @@ serve(async (req) => {
     const raw = await req.json();
     const parsed = menuPromptInputSchema.parse(raw);
     const response = buildResponse(parsed);
+    await applyPackagingGuidance(supabase, response, parsed.locale);
     const validated = menuPromptResponseSchema.parse(response);
+    if (parsed.sessionId) {
+      const updatePayload: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+        card_ids: validated.cards.map((card) => card.id)
+      };
+      if (validated.clarification_needed?.length) {
+        updatePayload.status = 'needs_clarification';
+        updatePayload.warnings = validated.clarification_needed.map((item) => item.question);
+        updatePayload.payload = { clarifications: validated.clarification_needed };
+      } else {
+        updatePayload.status = 'ready';
+        updatePayload.warnings = [];
+        updatePayload.payload = {};
+      }
+      await supabase
+        .from('menu_sessions')
+        .update(updatePayload)
+        .eq('id', parsed.sessionId)
+        .eq('owner_id', userId);
+    }
     console.log(
       JSON.stringify({
         event: 'menu_llm_stub',
         dishCount: parsed.dishes.length,
-        people: parsed.peopleCount
+        people: parsed.peopleCount,
+        clarifications: validated.clarification_needed?.length ?? 0
       })
     );
     return jsonResponse(validated);
