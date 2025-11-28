@@ -9,3 +9,4 @@ export * from './menu-recipe';
 export * from './menu-session';
 export * from './menu-pair';
 export * from './menu-preference';
+export * from './menu-review';

@@ -360,8 +360,13 @@ export default function MenuInboxScreen() {
   }, [session?.id, session?.updated_at]);
   useEffect(() => {
     if (reviews.length) {
-      const queued = reviews.filter((item) => item.status === 'pending' || item.status === 'queued');
-      setReviewFlags(new Set(queued.map((item) => item.card_id).filter(Boolean) as string[]));
+      const map: Record<string, string> = {};
+      reviews.forEach((item) => {
+        if (item.card_id) {
+          map[item.card_id] = item.status;
+        }
+      });
+      setReviewStatusMap(map);
     }
   }, [reviews]);
   const sessionUpdatedAt = session ? new Date(session.updated_at).toLocaleTimeString() : null;
@@ -488,7 +493,7 @@ export default function MenuInboxScreen() {
       return { ...prev, [cardId]: next };
     });
   };
-  const [reviewFlags, setReviewFlags] = useState<Set<string>>(new Set());
+  const [reviewStatusMap, setReviewStatusMap] = useState<Record<string, string>>({});
 
   const persistTitleOnly = async (next: { id: string; title: string }[]) => {
     setTitleOnlyDishes(next);
@@ -1192,7 +1197,8 @@ export default function MenuInboxScreen() {
               const cardLocked = !isPremium && card.requiresPremium;
               const isNewCard = highlightSet.has(card.id);
               const shouldBlur = blurRecipes && !isPremium;
-              const reviewQueued = reviewFlags.has(card.id);
+              const reviewStatus = reviewStatusMap[card.id];
+              const reviewQueued = reviewStatus === 'pending' || reviewStatus === 'queued';
               return (
                 <Pressable
                   key={card.id}
@@ -1315,9 +1321,12 @@ export default function MenuInboxScreen() {
                             style={[
                               styles.reviewChip,
                               reviewing === card.id && styles.disabledButton,
-                              reviewFlags.has(card.id) && styles.reviewChipQueued
+                              reviewQueued && styles.reviewChipQueued,
+                              reviewStatus === 'resolved' || reviewStatus === 'acknowledged'
+                                ? styles.reviewChipResolved
+                                : null
                             ]}
-                            disabled={reviewing === card.id || reviewFlags.has(card.id)}
+                            disabled={reviewing === card.id || reviewQueued}
                             onPress={async () => {
                               try {
                                 setReviewing(card.id);
@@ -1328,8 +1337,8 @@ export default function MenuInboxScreen() {
                                   reason: 'user_flag',
                                   note: 'Flagged from mobile UI'
                                 });
-                        setReviewFlags((prev) => new Set(prev).add(card.id));
-                        refreshReviews();
+                                setReviewStatusMap((prev) => ({ ...prev, [card.id]: 'queued' }));
+                                refreshReviews();
                                 Toast.show('Sent for review.', 1400);
                               } catch {
                                 Toast.show('Unable to send review right now.', 1600);
@@ -1339,7 +1348,13 @@ export default function MenuInboxScreen() {
                             }}
                           >
                             <Ionicons name="alert-circle-outline" size={14} color="#0C1D37" />
-                            <Text style={styles.reviewChipLabel}>{reviewQueued ? 'Queued' : 'Flag for review'}</Text>
+                            <Text style={styles.reviewChipLabel}>
+                              {reviewStatus === 'resolved' || reviewStatus === 'acknowledged'
+                                ? 'Reviewed'
+                                : reviewQueued
+                                  ? 'Queued'
+                                  : 'Flag for review'}
+                            </Text>
                           </Pressable>
                           <Text style={styles.menuFooter}>Serves {people} people; portion ~{card.portion}.</Text>
                         </>
@@ -2463,6 +2478,10 @@ const styles = StyleSheet.create({
     color: '#0C1D37',
     fontWeight: '700',
     fontSize: 12
+  },
+  reviewChipResolved: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#A3E635'
   },
   menuFooter: {
     marginTop: 4,

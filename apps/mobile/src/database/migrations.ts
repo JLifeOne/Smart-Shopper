@@ -189,6 +189,26 @@ export const migrations = schemaMigrations({
           ]
         })
       ]
+    },
+    {
+      toVersion: 10,
+      steps: [
+        createTable({
+          name: 'menu_reviews',
+          columns: [
+            { name: 'remote_id', type: 'string', isIndexed: true },
+            { name: 'status', type: 'string' },
+            { name: 'card_id', type: 'string', isOptional: true },
+            { name: 'session_id', type: 'string', isOptional: true },
+            { name: 'dish_title', type: 'string', isOptional: true },
+            { name: 'reason', type: 'string', isOptional: true },
+            { name: 'note', type: 'string', isOptional: true },
+            { name: 'reviewed_at', type: 'number', isOptional: true },
+            { name: 'created_at', type: 'number' },
+            { name: 'last_synced_at', type: 'number', isOptional: true }
+          ]
+        })
+      ]
     }
   ]
 });

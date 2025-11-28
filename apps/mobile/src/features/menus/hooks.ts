@@ -33,6 +33,7 @@ import {
   getCachedMenuSessions
 } from '@/src/database/menu-storage';
 import { fetchMenuReviews, MenuReview } from './api';
+import { cacheMenuReviews, getCachedMenuReviews } from '@/src/database/menu-storage';
 
 type UploadArgs = { mode: 'camera' | 'gallery'; premium: boolean };
 
@@ -138,14 +139,24 @@ export function useMenuReviews(filters: { sessionId?: string; cardId?: string } 
     try {
       const items = await fetchMenuReviews(filters);
       setReviews(items);
+      await cacheMenuReviews(items);
     } catch (err) {
       setError(err ? String(err) : 'review_fetch_failed');
+      const cached = await getCachedMenuReviews(filters);
+      if (cached.length) {
+        setReviews(cached);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    getCachedMenuReviews(filters).then((cached) => {
+      if (cached.length) {
+        setReviews(cached);
+      }
+    });
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.sessionId, filters.cardId]);

@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const schema = appSchema({
-  version: 9,
+  version: 10,
   tables: [
     tableSchema({
       name: 'lists',
@@ -187,6 +187,21 @@ export const schema = appSchema({
         { name: 'blur_recipes', type: 'boolean' },
         { name: 'access_level', type: 'string' },
         { name: 'updated_at', type: 'number' }
+      ]
+    }),
+    tableSchema({
+      name: 'menu_reviews',
+      columns: [
+        { name: 'remote_id', type: 'string', isIndexed: true },
+        { name: 'status', type: 'string' },
+        { name: 'card_id', type: 'string', isOptional: true },
+        { name: 'session_id', type: 'string', isOptional: true },
+        { name: 'dish_title', type: 'string', isOptional: true },
+        { name: 'reason', type: 'string', isOptional: true },
+        { name: 'note', type: 'string', isOptional: true },
+        { name: 'reviewed_at', type: 'number', isOptional: true },
+        { name: 'created_at', type: 'number' },
+        { name: 'last_synced_at', type: 'number', isOptional: true }
       ]
     })
   ]

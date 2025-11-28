@@ -13,7 +13,8 @@ import {
   MenuRecipe,
   MenuSession,
   MenuPair,
-  MenuPreference
+  MenuPreference,
+  MenuReview
 } from './models';
 
 const adapter = new SQLiteAdapter({
@@ -39,7 +40,8 @@ export const database = new Database({
     MenuRecipe,
     MenuSession,
     MenuPair,
-    MenuPreference
+    MenuPreference,
+    MenuReview
   ]
 });
 

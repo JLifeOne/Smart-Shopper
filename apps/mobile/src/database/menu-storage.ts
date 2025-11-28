@@ -3,13 +3,15 @@ import {
   MenuPreference,
   MenuRecipe as MenuRecipeModel,
   MenuSession as MenuSessionModel,
-  MenuPair as MenuPairModel
+  MenuPair as MenuPairModel,
+  MenuReview as MenuReviewModel
 } from './models';
 import type {
   MenuPolicy,
   MenuRecipe as ApiMenuRecipe,
   MenuPairing as ApiMenuPairing,
   MenuSession as ApiMenuSession,
+  MenuReview,
   MenuServings
 } from '@/src/features/menus/api';
 
@@ -178,6 +180,55 @@ export async function getCachedMenuPairings(locale?: string): Promise<ApiMenuPai
       locale: record.locale ?? null,
       is_default: record.isDefault
     }));
+}
+
+export async function cacheMenuReviews(reviews: MenuReview[]) {
+  await database.write(async () => {
+    const collection = database.get<MenuReviewModel>('menu_reviews');
+    const existing = await collection.query().fetch();
+    const map = new Map(existing.map((record) => [record.remoteId, record]));
+    for (const review of reviews) {
+      const payload = {
+        remote_id: review.id,
+        status: review.status,
+        card_id: review.card_id ?? null,
+        session_id: review.session_id ?? null,
+        dish_title: review.dish_title ?? null,
+        reason: review.reason ?? null,
+        note: review.note ?? null,
+        reviewed_at: review.reviewed_at ? new Date(review.reviewed_at).getTime() : null,
+        created_at: review.created_at ? new Date(review.created_at).getTime() : Date.now(),
+        last_synced_at: Date.now()
+      };
+      const record = map.get(review.id);
+      if (record) {
+        await record.update((rec) => Object.assign(rec, payload));
+      } else {
+        await collection.create((rec) => Object.assign(rec, payload));
+      }
+    }
+  });
+}
+
+export async function getCachedMenuReviews(filters: { cardId?: string; sessionId?: string } = {}) {
+  const records = await database.get<MenuReviewModel>('menu_reviews').query().fetch();
+  return records
+    .filter((record) => {
+      if (filters.cardId && record.cardId !== filters.cardId) return false;
+      if (filters.sessionId && record.sessionId !== filters.sessionId) return false;
+      return true;
+    })
+    .map((record) => ({
+      id: record.remoteId,
+      status: record.status,
+      card_id: record.cardId ?? null,
+      session_id: record.sessionId ?? null,
+      dish_title: record.dishTitle ?? null,
+      reason: record.reason ?? null,
+      note: record.note ?? null,
+      created_at: new Date(record.createdAt).toISOString(),
+      reviewed_at: record.reviewedAt ? new Date(record.reviewedAt).toISOString() : null
+    })) as MenuReview[];
 }
 
 export async function cacheMenuSessions(sessions: ApiMenuSession[]) {

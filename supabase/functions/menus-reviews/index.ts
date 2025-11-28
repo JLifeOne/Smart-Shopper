@@ -73,13 +73,12 @@ serve(async (req) => {
       const { data, error } = await supabase
         .from("menu_review_queue")
         .select("id, status, card_id, session_id, dish_title, reason, note, created_at, reviewed_at")
-        .eq("owner_id", userId)
-        .maybeSingle();
+        .eq("owner_id", userId);
       if (error) {
         console.error("menu_review_queue fetch failed", error);
         return jsonResponse({ items: [] });
       }
-      const items = Array.isArray(data) ? (data as ReviewRecord[]) : data ? [data as ReviewRecord] : [];
+      const items = Array.isArray(data) ? (data as ReviewRecord[]) : [];
       const filtered = items.filter((item) => {
         if (cardId && item.card_id !== cardId) return false;
         if (sessionId && item.session_id !== sessionId) return false;
