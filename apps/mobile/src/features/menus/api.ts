@@ -147,7 +147,7 @@ export async function submitMenuClarifications(
   return callMenuFunction<{ session: MenuSession }>(`menu-sessions/${sessionId}`, {
     method: 'PATCH',
     body: JSON.stringify({
-      payload: { clarifications: answers },
+      clarification_answers: answers,
       status: 'processing'
     })
   });

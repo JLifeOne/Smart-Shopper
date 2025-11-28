@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { SafeAreaView, StyleSheet, Text, View, Pressable, TextInput, Alert, ActivityIndicator } from 'react-native';
+import { SafeAreaView, StyleSheet, Text, View, Pressable, TextInput, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { featureFlags } from '@/src/lib/env';
 import { Toast } from '@/src/components/search/Toast';
@@ -18,7 +18,7 @@ import type {
   PackagingGuidanceEntry,
   MenuPromptResponse
 } from '@/src/features/menus/api';
-import { resolveMenuClarifications } from '@/src/features/menus/api';
+import { resolveMenuClarifications, submitMenuClarifications } from '@/src/features/menus/api';
 
 type SortMode = 'alpha' | 'course' | 'cuisine';
 
@@ -117,6 +117,23 @@ export default function MenuInboxScreen() {
   const [showPreferencesSheet, setShowPreferencesSheet] = useState(false);
   const [dietaryDraft, setDietaryDraft] = useState('');
   const [allergenDraft, setAllergenDraft] = useState('');
+  const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
+  const dietaryOptions = useMemo(
+    () => [
+      'dairy_free',
+      'egg_free',
+      'fish_free',
+      'gluten_free',
+      'halal',
+      'kosher',
+      'nut_free',
+      'pescatarian',
+      'shellfish_free',
+      'vegan',
+      'vegetarian'
+    ],
+    []
+  );
   const [limitPromptVisible, setLimitPromptVisible] = useState(false);
   const [limitPromptCount, setLimitPromptCount] = useState(TITLE_LIMIT_PER_DAY);
 
@@ -150,6 +167,28 @@ export default function MenuInboxScreen() {
       refreshSession();
     } catch (error) {
       Toast.show('Unable to resolve clarifications right now.', 1700);
+    }
+  };
+  const handleSubmitClarifications = async () => {
+    if (!session?.id || !clarifications.length) {
+      return;
+    }
+    const answers = (clarifications as Array<{ dishKey: string; question: string }>)
+      .map((item) => ({
+        dishKey: item.dishKey,
+        answer: clarificationAnswers[item.dishKey] ?? ''
+      }))
+      .filter((item) => item.answer.trim().length);
+    if (!answers.length) {
+      Toast.show('Select an answer for each clarification.', 1400);
+      return;
+    }
+    try {
+      await submitMenuClarifications(session.id, answers);
+      Toast.show('Submitted clarifications. Regenerating cards...', 1600);
+      await refreshSession();
+    } catch (error) {
+      Toast.show('Unable to submit clarifications right now.', 1700);
     }
   };
   const savedDishes = useMemo(
@@ -425,6 +464,15 @@ export default function MenuInboxScreen() {
     setCardPeople((prev) => {
       const next = Math.max(1, (prev[id] ?? 1) + delta);
       return { ...prev, [id]: next };
+    });
+  };
+  const [cardDietaryTags, setCardDietaryTags] = useState<Record<string, string[]>>({});
+  const toggleCardDietary = (cardId: string, tag: string) => {
+    setCardDietaryTags((prev) => {
+      const current = prev[cardId] ?? [];
+      const exists = current.includes(tag);
+      const next = exists ? current.filter((t) => t !== tag) : [...current, tag];
+      return { ...prev, [cardId]: next };
     });
   };
 
@@ -913,14 +961,46 @@ export default function MenuInboxScreen() {
             <View style={styles.sessionClarifications}>
               <Text style={styles.sessionListLabel}>Clarifications needed</Text>
               {clarifications.map((clarification: any) => (
-                <Text key={clarification.dishKey} style={styles.sessionWarningText}>
-                  • {clarification.question}
-                </Text>
+                <View key={clarification.dishKey} style={styles.clarificationRow}>
+                  <Text style={styles.sessionWarningText}>• {clarification.question}</Text>
+                  <View style={styles.clarificationDropdown}>
+                    <ScrollView style={styles.clarificationScroll}>
+                      {dietaryOptions.map((option) => (
+                        <Pressable
+                          key={option}
+                          style={[
+                            styles.clarificationOption,
+                            clarificationAnswers[clarification.dishKey] === option && styles.clarificationOptionSelected
+                          ]}
+                          onPress={() =>
+                            setClarificationAnswers((prev) => ({ ...prev, [clarification.dishKey]: option }))
+                          }
+                        >
+                          <Text
+                            style={[
+                              styles.clarificationOptionLabel,
+                              clarificationAnswers[clarification.dishKey] === option &&
+                                styles.clarificationOptionLabelSelected
+                            ]}
+                          >
+                            {option.replace(/_/g, ' ')}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
+                </View>
               ))}
-              <Pressable style={styles.secondaryInline} onPress={() => handleResolveClarifications()}>
-                <Ionicons name="checkmark-circle" size={14} color="#0C1D37" />
-                <Text style={styles.secondaryInlineLabel}>Mark resolved</Text>
-              </Pressable>
+              <View style={styles.clarificationActions}>
+                <Pressable style={styles.secondaryInline} onPress={handleSubmitClarifications}>
+                  <Ionicons name="checkmark-circle" size={14} color="#0C1D37" />
+                  <Text style={styles.secondaryInlineLabel}>Submit answers</Text>
+                </Pressable>
+                <Pressable style={styles.secondaryInline} onPress={() => handleResolveClarifications()}>
+                  <Ionicons name="refresh" size={14} color="#0C1D37" />
+                  <Text style={styles.secondaryInlineLabel}>Mark resolved</Text>
+                </Pressable>
+              </View>
             </View>
           ) : null}
           {sessionHighlights.length ? (
@@ -1090,16 +1170,34 @@ export default function MenuInboxScreen() {
                   onPress={() => toggleSelected(card.id)}
                 >
                   <View style={styles.menuHeader}>
-                    <View style={styles.menuTitleBlock}>
-                      <Text style={styles.menuTitle}>{card.title}</Text>
-                      <Text style={styles.menuMeta}>
-                        {card.course} • {card.cuisine} • Serves {people} (base {card.basePeople})
-                      </Text>
-                      {isNewCard ? (
-                        <View style={styles.menuBadge}>
-                          <Text style={styles.menuBadgeLabel}>New</Text>
-                        </View>
-                      ) : null}
+                  <View style={styles.menuTitleBlock}>
+                    <Text style={styles.menuTitle}>{card.title}</Text>
+                    <Text style={styles.menuMeta}>
+                      {card.course} • {card.cuisine} • Serves {people} (base {card.basePeople})
+                    </Text>
+                    <View style={styles.dietaryRow}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        {(cardDietaryTags[card.id] ?? []).map((tag) => (
+                          <Pressable
+                            key={tag}
+                            style={styles.dietaryChipActive}
+                            onPress={() => toggleCardDietary(card.id, tag)}
+                          >
+                            <Text style={styles.dietaryChipLabelActive}>{tag.replace(/_/g, ' ')}</Text>
+                          </Pressable>
+                        ))}
+                        {dietaryOptions.map((tag) => (
+                          <Pressable key={tag} style={styles.dietaryChip} onPress={() => toggleCardDietary(card.id, tag)}>
+                            <Text style={styles.dietaryChipLabel}>{tag.replace(/_/g, ' ')}</Text>
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+                    </View>
+                    {isNewCard ? (
+                      <View style={styles.menuBadge}>
+                        <Text style={styles.menuBadgeLabel}>New</Text>
+                      </View>
+                    ) : null}
                     </View>
                     <View style={styles.menuPeople}>
                       <Pressable style={styles.sessionButton} onPress={() => handleCardPeopleChange(card.id, -1)}>
@@ -1781,6 +1879,38 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF7ED',
     gap: 4
   },
+  clarificationRow: {
+    gap: 4
+  },
+  clarificationDropdown: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    maxHeight: 160
+  },
+  clarificationScroll: {
+    maxHeight: 160
+  },
+  clarificationOption: {
+    paddingHorizontal: 10,
+    paddingVertical: 8
+  },
+  clarificationOptionSelected: {
+    backgroundColor: '#E2E8F0'
+  },
+  clarificationOptionLabel: {
+    fontSize: 12,
+    color: '#0C1D37'
+  },
+  clarificationOptionLabelSelected: {
+    fontWeight: '700'
+  },
+  clarificationActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 6
+  },
   sessionHighlight: {
     fontSize: 12,
     color: '#0369A1',
@@ -2096,6 +2226,35 @@ const styles = StyleSheet.create({
   menuMeta: {
     fontSize: 12,
     color: '#475569'
+  },
+  dietaryRow: {
+    marginTop: 4
+  },
+  dietaryChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    marginRight: 6,
+    backgroundColor: '#FFFFFF'
+  },
+  dietaryChipActive: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    marginRight: 6,
+    backgroundColor: '#0F172A'
+  },
+  dietaryChipLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  dietaryChipLabelActive: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF'
   },
   menuLockedText: {
     fontSize: 12,

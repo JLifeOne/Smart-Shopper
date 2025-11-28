@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { Audio } from 'expo-audio';
+import * as Audio from 'expo-audio';
 import { File } from 'expo-file-system';
 import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { withTimeout } from '@/src/lib/retry';
@@ -18,8 +18,11 @@ export type VoiceCaptureOptions = {
 };
 
 async function ensurePermissions() {
-  const permission = await Audio.requestPermissionsAsync();
-  if (!permission.granted) {
+  const audio: any = Audio;
+  const permission = (audio.requestPermissionsAsync
+    ? await audio.requestPermissionsAsync()
+    : { granted: true }) as { granted: boolean };
+  if (!permission?.granted) {
     throw new AppError({
       code: 'input/validation',
       message: 'microphone-permission-denied',
@@ -30,42 +33,50 @@ async function ensurePermissions() {
 }
 
 async function configureAudioMode() {
-  await Audio.setAudioModeAsync({
-    allowsRecordingIOS: true,
-    playsInSilentModeIOS: true,
-    staysActiveInBackground: false,
-    shouldDuckAndroid: true
-  });
+  const audio: any = Audio;
+  if (audio.setAudioModeAsync) {
+    await audio.setAudioModeAsync({
+      allowsRecording: true,
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true
+    } as any);
+  }
 }
 
-export async function startVoiceCapture(): Promise<Audio.Recording> {
+type Recording = any;
+
+export async function startVoiceCapture(): Promise<Recording> {
   await ensurePermissions();
   await configureAudioMode();
-  const recording = new Audio.Recording();
-  await recording.prepareToRecordAsync(
-    Audio.RecordingOptionsPresets.HIGH_QUALITY ?? {
-      android: {
-        extension: '.m4a',
-        sampleRate: 44100,
-        numberOfChannels: 1,
-        bitRate: 128000
-      },
-      ios: {
-        extension: '.m4a',
-        outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
-        sampleRate: 44100,
-        numberOfChannels: 1,
-        bitRate: 128000,
-        audioQuality: Audio.IOSAudioQuality.HIGH
-      },
-      web: undefined
-    }
-  );
-  await recording.startAsync();
+  const audio: any = Audio;
+  const recording = new (audio.Recording ?? (audio.createRecording ?? Function))();
+  const presets = (audio.RecordingOptionsPresets ?? audio.RecordingPresets ?? {}).HIGH_QUALITY;
+  const fallbackOptions = {
+    android: {
+      extension: '.m4a',
+      sampleRate: 44100,
+      numberOfChannels: 1,
+      bitRate: 128000
+    },
+    ios: {
+      extension: '.m4a',
+      outputFormat: (audio.IOSOutputFormat ?? audio.OutputFormat)?.MPEG4AAC ?? undefined,
+      sampleRate: 44100,
+      numberOfChannels: 1,
+      bitRate: 128000,
+      audioQuality: (audio.IOSAudioQuality ?? audio.AudioQuality)?.HIGH ?? undefined
+    },
+    web: undefined
+  };
+  if (recording.prepareToRecordAsync) {
+    await recording.prepareToRecordAsync(presets ?? fallbackOptions);
+    await recording.startAsync();
+  }
   return recording;
 }
 
-export async function cancelVoiceCapture(recording: Audio.Recording | null) {
+export async function cancelVoiceCapture(recording: Recording | null) {
   if (!recording) {
     return;
   }
@@ -82,7 +93,7 @@ export async function cancelVoiceCapture(recording: Audio.Recording | null) {
 }
 
 export async function finalizeVoiceCapture(
-  recording: Audio.Recording,
+  recording: Recording,
   options: VoiceCaptureOptions = {}
 ): Promise<VoiceCaptureResult> {
   try {

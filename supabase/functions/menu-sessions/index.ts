@@ -32,6 +32,7 @@ type UpdateSessionPayload = {
   cardIds?: string[];
   dishTitles?: string[];
   warnings?: string[];
+  clarification_answers?: Array<{ dishKey: string; answer: string }>;
   payload?: Record<string, unknown>;
   detections?: Array<{
     id?: string;
@@ -226,6 +227,12 @@ serve(async (req) => {
         if (!sessionId) {
           return jsonResponse({ error: "session_id_required" }, { status: 400 });
         }
+        // Fetch existing payload to merge updates
+        const { data: existing } = await client
+          .from("menu_sessions")
+          .select("payload")
+          .eq("id", sessionId)
+          .single();
         const body = (await req.json().catch(() => ({}))) as UpdateSessionPayload;
         const startedAt = performance.now();
         const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -241,8 +248,15 @@ serve(async (req) => {
         if (body.warnings) {
           updates.warnings = body.warnings;
         }
-        if (body.payload) {
-          updates.payload = body.payload;
+        const mergedPayload = {
+          ...(existing?.payload ?? {}),
+          ...(body.payload ?? {})
+        };
+        if (body.clarification_answers) {
+          mergedPayload.clarification_answers = body.clarification_answers;
+        }
+        if (Object.keys(mergedPayload).length) {
+          updates.payload = mergedPayload;
         }
         if (body.detections?.length) {
           await insertDetections(client, userId, sessionId, body.detections);
