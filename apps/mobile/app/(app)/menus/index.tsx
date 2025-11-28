@@ -18,7 +18,7 @@ import type {
   PackagingGuidanceEntry,
   MenuPromptResponse
 } from '@/src/features/menus/api';
-import { resolveMenuClarifications, submitMenuClarifications } from '@/src/features/menus/api';
+import { resolveMenuClarifications, submitMenuClarifications, submitMenuReview } from '@/src/features/menus/api';
 
 type SortMode = 'alpha' | 'course' | 'cuisine';
 
@@ -88,7 +88,7 @@ const FALLBACK_PAIRINGS = [
 
 const TITLE_ONLY_STORAGE_KEY = 'menus_title_only_dishes';
 const TITLE_LIMIT_STORAGE_KEY = 'menus_title_limit';
-const TITLE_LIMIT_PER_DAY = 3;
+const TITLE_LIMIT_PER_DAY = 5;
 const UPGRADE_COLOR = '#C75A0E';
 const UPGRADE_SHADOW = '#8F3A04';
 
@@ -157,6 +157,7 @@ export default function MenuInboxScreen() {
   const { runPrompt, preview, previewLoading, previewError } = useMenuPrompt();
   const dietaryTags = menuPolicy?.preferences.dietaryTags ?? [];
   const allergenFlags = menuPolicy?.preferences.allergenFlags ?? [];
+  const [reviewing, setReviewing] = useState<string | null>(null);
   const handleResolveClarifications = async () => {
     if (!session?.id) {
       return;
@@ -1163,6 +1164,7 @@ export default function MenuInboxScreen() {
               const people = cardPeople[card.id] ?? card.basePeople ?? 1;
               const cardLocked = !isPremium && card.requiresPremium;
               const isNewCard = highlightSet.has(card.id);
+              const shouldBlur = blurRecipes && !isPremium;
               return (
                 <Pressable
                   key={card.id}
@@ -1246,29 +1248,68 @@ export default function MenuInboxScreen() {
                   </View>
                   {open ? (
                     <View style={styles.menuBody}>
-                      <Text style={styles.menuSectionTitle}>Shopping lines</Text>
-                      {card.listLines.map((line: string) => (
-                        <Text key={line} style={styles.menuLine}>
-                          • {line}
-                        </Text>
-                      ))}
-                      {card.packagingNote ? (
+                      {shouldBlur ? (
+                        <View style={styles.blurCard}>
+                          <Text style={styles.blurTitle}>Recipes blurred</Text>
+                          <Text style={styles.blurBody}>
+                            Upgrade to unlock ingredients, methods, and packaging guidance for this card.
+                          </Text>
+                          <Pressable style={styles.upgradeCTA} onPress={handleUpgradePress}>
+                            <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+                            <Text style={styles.upgradeCTALabel}>Upgrade to view</Text>
+                          </Pressable>
+                        </View>
+                      ) : (
                         <>
-                          <Text style={styles.menuSectionTitle}>Packaging</Text>
-                          <Text style={styles.menuPackaging}>{card.packagingNote}</Text>
-                        </>
-                      ) : null}
-                      {card.packagingGuidance.length ? (
-                        <>
-                          <Text style={styles.menuSectionTitle}>Packaging guidance</Text>
-                          {card.packagingGuidance.map((line) => (
+                          <Text style={styles.menuSectionTitle}>Shopping lines</Text>
+                          {card.listLines.map((line: string) => (
                             <Text key={line} style={styles.menuLine}>
                               • {line}
                             </Text>
                           ))}
+                          {card.packagingNote ? (
+                            <>
+                              <Text style={styles.menuSectionTitle}>Packaging</Text>
+                              <Text style={styles.menuPackaging}>{card.packagingNote}</Text>
+                            </>
+                          ) : null}
+                          {card.packagingGuidance.length ? (
+                            <>
+                              <Text style={styles.menuSectionTitle}>Packaging guidance</Text>
+                              {card.packagingGuidance.map((line) => (
+                                <Text key={line} style={styles.menuLine}>
+                                  • {line}
+                                </Text>
+                              ))}
+                            </>
+                          ) : null}
+                          <Pressable
+                            style={[styles.reviewChip, reviewing === card.id && styles.disabledButton]}
+                            disabled={reviewing === card.id}
+                            onPress={async () => {
+                              try {
+                                setReviewing(card.id);
+                                await submitMenuReview({
+                                  sessionId: session?.id,
+                                  cardId: card.id,
+                                  dishTitle: card.title,
+                                  reason: 'user_flag',
+                                  note: 'Flagged from mobile UI'
+                                });
+                                Toast.show('Sent for review.', 1400);
+                              } catch {
+                                Toast.show('Unable to send review right now.', 1600);
+                              } finally {
+                                setReviewing(null);
+                              }
+                            }}
+                          >
+                            <Ionicons name="alert-circle-outline" size={14} color="#0C1D37" />
+                            <Text style={styles.reviewChipLabel}>Flag for review</Text>
+                          </Pressable>
+                          <Text style={styles.menuFooter}>Serves {people} people; portion ~{card.portion}.</Text>
                         </>
-                      ) : null}
-                      <Text style={styles.menuFooter}>Serves {people} people; portion ~{card.portion}.</Text>
+                      )}
                     </View>
                   ) : null}
                 </Pressable>
@@ -2313,6 +2354,45 @@ const styles = StyleSheet.create({
   menuBody: {
     gap: 6
   },
+  blurCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    backgroundColor: '#FFFBEB',
+    padding: 12,
+    gap: 6
+  },
+  blurTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#92400E'
+  },
+  blurBody: {
+    fontSize: 12,
+    color: '#92400E',
+    lineHeight: 18
+  },
+  upgradeCTA: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: UPGRADE_COLOR,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 12,
+    shadowColor: UPGRADE_SHADOW,
+    shadowOpacity: 0.3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 3,
+    elevation: 2
+  },
+  upgradeCTALabel: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 12
+  },
   menuSectionTitle: {
     fontSize: 13,
     fontWeight: '700',
@@ -2327,6 +2407,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#475569',
     lineHeight: 18
+  },
+  reviewChip: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1'
+  },
+  reviewChipLabel: {
+    color: '#0C1D37',
+    fontWeight: '700',
+    fontSize: 12
   },
   menuFooter: {
     marginTop: 4,

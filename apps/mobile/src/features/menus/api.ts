@@ -311,3 +311,22 @@ export async function updateMenuPreferences(input: UpdateMenuPreferencesInput) {
   });
   return result;
 }
+
+export async function submitMenuReview(input: {
+  sessionId?: string | null;
+  cardId?: string | null;
+  dishTitle?: string | null;
+  reason?: string;
+  note?: string;
+}) {
+  return callMenuFunction<{ status: 'ok' }>('menus-reviews', {
+    method: 'POST',
+    body: JSON.stringify({
+      sessionId: input.sessionId ?? null,
+      cardId: input.cardId ?? null,
+      dishTitle: input.dishTitle ?? null,
+      reason: input.reason ?? 'flagged',
+      note: input.note ?? null
+    })
+  });
+}
