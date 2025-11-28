@@ -84,7 +84,8 @@ export const menuPromptResponseSchema = z.object({
     .array(
       z.object({
         dishKey: z.string(),
-        question: z.string()
+        question: z.string(),
+        options: z.array(z.string()).optional()
       })
     )
     .optional()

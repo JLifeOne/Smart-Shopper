@@ -87,7 +87,7 @@ serve(async (req) => {
       })
     );
 
-    return jsonResponse({ status: "ok" });
+    return jsonResponse({ status: "queued" });
   } catch (error) {
     console.error("menus-reviews failure", error);
     return jsonResponse({ error: "internal_error" }, { status: 500 });

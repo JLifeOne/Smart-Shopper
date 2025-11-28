@@ -480,6 +480,7 @@ export default function MenuInboxScreen() {
       return { ...prev, [cardId]: next };
     });
   };
+  const [reviewFlags, setReviewFlags] = useState<Set<string>>(new Set());
 
   const persistTitleOnly = async (next: { id: string; title: string }[]) => {
     setTitleOnlyDishes(next);
@@ -511,6 +512,16 @@ export default function MenuInboxScreen() {
   };
 
   const handleUpload = async (mode: 'camera' | 'gallery') => {
+    if (!isPremium) {
+      const today = new Date().toISOString().slice(0, 10);
+      const current =
+        titleLimit.date === today ? titleLimit.count : 0;
+      if (current >= limitPerDay) {
+        setLimitPromptVisible(true);
+        setLimitPromptCount(limitPerDay);
+        return;
+      }
+    }
     setShowUploadOptions(false);
     try {
       await startSession({ mode, premium: isPremium });
@@ -971,7 +982,10 @@ export default function MenuInboxScreen() {
                   <Text style={styles.sessionWarningText}>• {clarification.question}</Text>
                   <View style={styles.clarificationDropdown}>
                     <ScrollView style={styles.clarificationScroll}>
-                      {dietaryOptions.map((option) => (
+                      {(Array.isArray(clarification.options) && clarification.options.length
+                        ? clarification.options
+                        : dietaryOptions
+                      ).map((option: string) => (
                         <Pressable
                           key={option}
                           style={[
@@ -1289,8 +1303,12 @@ export default function MenuInboxScreen() {
                             </>
                           ) : null}
                           <Pressable
-                            style={[styles.reviewChip, reviewing === card.id && styles.disabledButton]}
-                            disabled={reviewing === card.id}
+                            style={[
+                              styles.reviewChip,
+                              reviewing === card.id && styles.disabledButton,
+                              reviewFlags.has(card.id) && styles.reviewChipQueued
+                            ]}
+                            disabled={reviewing === card.id || reviewFlags.has(card.id)}
                             onPress={async () => {
                               try {
                                 setReviewing(card.id);
@@ -1301,6 +1319,7 @@ export default function MenuInboxScreen() {
                                   reason: 'user_flag',
                                   note: 'Flagged from mobile UI'
                                 });
+                                setReviewFlags((prev) => new Set(prev).add(card.id));
                                 Toast.show('Sent for review.', 1400);
                               } catch {
                                 Toast.show('Unable to send review right now.', 1600);
@@ -1310,7 +1329,9 @@ export default function MenuInboxScreen() {
                             }}
                           >
                             <Ionicons name="alert-circle-outline" size={14} color="#0C1D37" />
-                            <Text style={styles.reviewChipLabel}>Flag for review</Text>
+                            <Text style={styles.reviewChipLabel}>
+                              {reviewFlags.has(card.id) ? 'Queued' : 'Flag for review'}
+                            </Text>
                           </Pressable>
                           <Text style={styles.menuFooter}>Serves {people} people; portion ~{card.portion}.</Text>
                         </>
@@ -2424,6 +2445,10 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: '#EEF2FF',
     borderWidth: 1,
+    borderColor: '#CBD5E1'
+  },
+  reviewChipQueued: {
+    backgroundColor: '#E2E8F0',
     borderColor: '#CBD5E1'
   },
   reviewChipLabel: {

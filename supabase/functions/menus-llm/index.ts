@@ -103,13 +103,22 @@ function buildStubRecipe(input: { dish: string; people: number; locale?: string 
   };
 }
 
+function clarificationOptionsFor(title: string) {
+  if (/curry/i.test(title)) return ['Jamaican', 'Indian', 'Thai'];
+  if (/rice|pilaf|pilau|pulao/i.test(title)) return ['Jasmine', 'Basmati', 'Long grain', 'Brown'];
+  if (/stew|jerk/i.test(title)) return ['Jamaican', 'Creole', 'West African'];
+  return ['Classic', 'Spicy', 'Mild'];
+}
+
 function findClarifications(payload: MenuPromptInput) {
-  const clarifications: { dishKey: string; question: string }[] = [];
+  const clarifications: { dishKey: string; question: string; options?: string[] }[] = [];
   payload.dishes.forEach((dish) => {
     if (!dish.cuisineStyle && /curry|rice|stew|jerk/i.test(dish.title)) {
+      const dishKey = normalizeKey(dish.title) || dish.title;
       clarifications.push({
-        dishKey: normalizeKey(dish.title) || dish.title,
-        question: `Which style best matches ${dish.title}?`
+        dishKey,
+        question: `Which style best matches ${dish.title}?`,
+        options: clarificationOptionsFor(dish.title)
       });
     }
   });
