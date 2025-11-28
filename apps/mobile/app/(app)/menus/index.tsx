@@ -1222,7 +1222,25 @@ export default function MenuInboxScreen() {
                 >
                   <View style={styles.menuHeader}>
                   <View style={styles.menuTitleBlock}>
-                    <Text style={styles.menuTitle}>{card.title}</Text>
+                    <View style={styles.menuTitleRow}>
+                      <Text style={styles.menuTitle}>{card.title}</Text>
+                      {reviewStatus ? (
+                        <View
+                          style={[
+                            styles.reviewBadge,
+                            reviewStatus === 'confirmed' || reviewStatus === 'resolved'
+                              ? styles.reviewBadgeConfirmed
+                              : styles.reviewBadgeQueued
+                          ]}
+                        >
+                          <Text style={styles.reviewBadgeLabel}>
+                            {reviewStatus === 'confirmed' || reviewStatus === 'resolved'
+                              ? 'Confirmed'
+                              : 'Queued'}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
                     <Text style={styles.menuMeta}>
                       {card.course} • {card.cuisine} • Serves {people} (base {card.basePeople})
                     </Text>
@@ -2332,7 +2350,14 @@ const styles = StyleSheet.create({
     gap: 6
   },
   menuTitleBlock: {
-    flex: 1
+    flex: 1,
+    gap: 6
+  },
+  menuTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap'
   },
   menuTitle: {
     fontSize: 15,
@@ -2512,6 +2537,25 @@ const styles = StyleSheet.create({
   reviewStatusText: {
     fontSize: 11,
     color: '#475569'
+  },
+  reviewBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1
+  },
+  reviewBadgeQueued: {
+    backgroundColor: '#E0F2FE',
+    borderColor: '#7DD3FC'
+  },
+  reviewBadgeConfirmed: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#A3E635'
+  },
+  reviewBadgeLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0F172A'
   },
   menuFooter: {
     marginTop: 4,
