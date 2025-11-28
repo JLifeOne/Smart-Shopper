@@ -94,7 +94,7 @@ const UPGRADE_COLOR = '#C75A0E';
 const UPGRADE_SHADOW = '#8F3A04';
 
 export default function MenuInboxScreen() {
-  const featurePremium = featureFlags.menuIngestion ?? __DEV__;
+  const featurePremium = featureFlags.menuIngestion || __DEV__;
   const [sortMode, setSortMode] = useState<SortMode>('alpha');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
