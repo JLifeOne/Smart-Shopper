@@ -89,7 +89,7 @@ const FALLBACK_PAIRINGS = [
 
 const TITLE_ONLY_STORAGE_KEY = 'menus_title_only_dishes';
 const TITLE_LIMIT_STORAGE_KEY = 'menus_title_limit';
-const TITLE_LIMIT_FALLBACK = 5;
+const TITLE_LIMIT_FALLBACK = 3;
 const UPGRADE_COLOR = '#C75A0E';
 const UPGRADE_SHADOW = '#8F3A04';
 
@@ -368,6 +368,20 @@ export default function MenuInboxScreen() {
       });
       setReviewStatusMap(map);
     }
+  }, [reviews]);
+
+  const reviewMeta = useMemo(() => {
+    const map: Record<string, { status: string; reviewedAt?: string; createdAt?: string }> = {};
+    reviews.forEach((item) => {
+      if (item.card_id) {
+        map[item.card_id] = {
+          status: item.status,
+          reviewedAt: item.reviewed_at ?? undefined,
+          createdAt: item.created_at ?? undefined
+        };
+      }
+    });
+    return map;
   }, [reviews]);
   const sessionUpdatedAt = session ? new Date(session.updated_at).toLocaleTimeString() : null;
   const showConversionSummary = Boolean(conversionResult && conversionMeta);
@@ -1199,6 +1213,7 @@ export default function MenuInboxScreen() {
               const shouldBlur = blurRecipes && !isPremium;
               const reviewStatus = reviewStatusMap[card.id];
               const reviewQueued = reviewStatus === 'pending' || reviewStatus === 'queued';
+              const reviewTimestamps = reviewMeta[card.id];
               return (
                 <Pressable
                   key={card.id}
@@ -1349,13 +1364,24 @@ export default function MenuInboxScreen() {
                           >
                             <Ionicons name="alert-circle-outline" size={14} color="#0C1D37" />
                             <Text style={styles.reviewChipLabel}>
-                              {reviewStatus === 'resolved' || reviewStatus === 'acknowledged'
+                              {reviewStatus === 'resolved' || reviewStatus === 'confirmed'
                                 ? 'Reviewed'
                                 : reviewQueued
                                   ? 'Queued'
                                   : 'Flag for review'}
                             </Text>
                           </Pressable>
+                          {reviewStatus ? (
+                            <Text style={styles.reviewStatusText}>
+                              {reviewStatus === 'resolved' || reviewStatus === 'confirmed'
+                                ? reviewTimestamps?.reviewedAt
+                                  ? `Reviewed ${new Date(reviewTimestamps.reviewedAt).toLocaleString()}`
+                                  : 'Reviewed'
+                                : reviewTimestamps?.createdAt
+                                  ? `Queued ${new Date(reviewTimestamps.createdAt).toLocaleString()}`
+                                  : 'Queued'}
+                            </Text>
+                          ) : null}
                           <Text style={styles.menuFooter}>Serves {people} people; portion ~{card.portion}.</Text>
                         </>
                       )}
@@ -2482,6 +2508,10 @@ const styles = StyleSheet.create({
   reviewChipResolved: {
     backgroundColor: '#DCFCE7',
     borderColor: '#A3E635'
+  },
+  reviewStatusText: {
+    fontSize: 11,
+    color: '#475569'
   },
   menuFooter: {
     marginTop: 4,

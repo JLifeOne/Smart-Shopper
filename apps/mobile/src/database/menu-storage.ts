@@ -70,7 +70,7 @@ export async function getCachedMenuPolicy(): Promise<MenuPolicy | null> {
       limits:
         pref.accessLevel === 'full'
           ? { maxUploadsPerDay: 25, concurrentSessions: 5, maxListCreates: 25 }
-          : { maxUploadsPerDay: 5, concurrentSessions: 1, maxListCreates: 1 },
+          : { maxUploadsPerDay: 3, concurrentSessions: 1, maxListCreates: 1 },
       allowListCreation: pref.accessLevel === 'full',
       allowTemplateCards: true
     },
