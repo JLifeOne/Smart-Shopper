@@ -120,7 +120,12 @@ serve(async (req) => {
 
     const preferences = preferencesRecord ?? null;
 
-    const isPremium = Boolean(user.app_metadata?.is_menu_premium ?? false);
+    const isPremium = Boolean(
+      user.app_metadata?.is_menu_premium ??
+        user.app_metadata?.is_developer ??
+        user.app_metadata?.dev ??
+        false
+    );
     const policy: PolicyResponse["policy"] = {
       isPremium,
       accessLevel: isPremium ? "full" : "title_only",

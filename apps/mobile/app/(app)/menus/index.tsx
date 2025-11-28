@@ -88,7 +88,7 @@ const FALLBACK_PAIRINGS = [
 
 const TITLE_ONLY_STORAGE_KEY = 'menus_title_only_dishes';
 const TITLE_LIMIT_STORAGE_KEY = 'menus_title_limit';
-const TITLE_LIMIT_PER_DAY = 5;
+const TITLE_LIMIT_FALLBACK = 5;
 const UPGRADE_COLOR = '#C75A0E';
 const UPGRADE_SHADOW = '#8F3A04';
 
@@ -135,7 +135,7 @@ export default function MenuInboxScreen() {
     []
   );
   const [limitPromptVisible, setLimitPromptVisible] = useState(false);
-  const [limitPromptCount, setLimitPromptCount] = useState(TITLE_LIMIT_PER_DAY);
+  const [limitPromptCount, setLimitPromptCount] = useState(TITLE_LIMIT_FALLBACK);
 
   const {
     session,
@@ -154,6 +154,10 @@ export default function MenuInboxScreen() {
   const policyPremium = menuPolicy?.policy.isPremium ?? false;
   const isPremium = featurePremium || policyPremium;
   const blurRecipes = menuPolicy?.policy.blurRecipes ?? !isPremium;
+  const limitPerDay = menuPolicy?.policy.limits.maxUploadsPerDay ?? TITLE_LIMIT_FALLBACK;
+  useEffect(() => {
+    setLimitPromptCount(limitPerDay);
+  }, [limitPerDay]);
   const { runPrompt, preview, previewLoading, previewError } = useMenuPrompt();
   const dietaryTags = menuPolicy?.preferences.dietaryTags ?? [];
   const allergenFlags = menuPolicy?.preferences.allergenFlags ?? [];
@@ -492,7 +496,8 @@ export default function MenuInboxScreen() {
     if (current.date !== today) {
       current = { date: today, count: 0 };
     }
-    if (current.count >= TITLE_LIMIT_PER_DAY) {
+    const dailyLimit = limitPerDay;
+    if (current.count >= dailyLimit) {
       return false;
     }
     const next = { date: today, count: current.count + 1 };
@@ -532,7 +537,7 @@ export default function MenuInboxScreen() {
           const allowed = await consumeTitleSlot();
           if (!allowed) {
             setLimitPromptVisible(true);
-            setLimitPromptCount(TITLE_LIMIT_PER_DAY);
+            setLimitPromptCount(limitPerDay);
             break;
           }
           titlesOnly += 1;
