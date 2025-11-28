@@ -330,3 +330,24 @@ export async function submitMenuReview(input: {
     })
   });
 }
+
+export type MenuReview = {
+  id: string;
+  status: string;
+  card_id: string | null;
+  session_id: string | null;
+  dish_title: string | null;
+  reason: string | null;
+  note: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+};
+
+export async function fetchMenuReviews(filters: { cardId?: string; sessionId?: string } = {}) {
+  const params = new URLSearchParams();
+  if (filters.cardId) params.set('cardId', filters.cardId);
+  if (filters.sessionId) params.set('sessionId', filters.sessionId);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const result = await callMenuFunction<{ items: MenuReview[] }>(`menus-reviews${query}`, { method: 'GET' });
+  return result.items ?? [];
+}

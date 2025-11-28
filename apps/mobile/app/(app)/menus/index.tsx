@@ -10,7 +10,8 @@ import {
   useMenuRecipes,
   useMenuSession,
   useMenuPolicy,
-  useMenuPrompt
+  useMenuPrompt,
+  useMenuReviews
 } from '@/src/features/menus/hooks';
 import type {
   ConsolidatedLine,
@@ -162,6 +163,7 @@ export default function MenuInboxScreen() {
   const dietaryTags = menuPolicy?.preferences.dietaryTags ?? [];
   const allergenFlags = menuPolicy?.preferences.allergenFlags ?? [];
   const [reviewing, setReviewing] = useState<string | null>(null);
+  const { reviews, refreshReviews } = useMenuReviews({ sessionId: session?.id ?? undefined });
   const handleResolveClarifications = async () => {
     if (!session?.id) {
       return;
@@ -356,6 +358,12 @@ export default function MenuInboxScreen() {
     const payload = (session as any)?.payload ?? {};
     return Array.isArray(payload?.clarifications) ? payload.clarifications : [];
   }, [session?.id, session?.updated_at]);
+  useEffect(() => {
+    if (reviews.length) {
+      const queued = reviews.filter((item) => item.status === 'pending' || item.status === 'queued');
+      setReviewFlags(new Set(queued.map((item) => item.card_id).filter(Boolean) as string[]));
+    }
+  }, [reviews]);
   const sessionUpdatedAt = session ? new Date(session.updated_at).toLocaleTimeString() : null;
   const showConversionSummary = Boolean(conversionResult && conversionMeta);
   const conversionErrorLabel = conversionError
@@ -1184,6 +1192,7 @@ export default function MenuInboxScreen() {
               const cardLocked = !isPremium && card.requiresPremium;
               const isNewCard = highlightSet.has(card.id);
               const shouldBlur = blurRecipes && !isPremium;
+              const reviewQueued = reviewFlags.has(card.id);
               return (
                 <Pressable
                   key={card.id}
@@ -1319,7 +1328,8 @@ export default function MenuInboxScreen() {
                                   reason: 'user_flag',
                                   note: 'Flagged from mobile UI'
                                 });
-                                setReviewFlags((prev) => new Set(prev).add(card.id));
+                        setReviewFlags((prev) => new Set(prev).add(card.id));
+                        refreshReviews();
                                 Toast.show('Sent for review.', 1400);
                               } catch {
                                 Toast.show('Unable to send review right now.', 1600);
@@ -1329,9 +1339,7 @@ export default function MenuInboxScreen() {
                             }}
                           >
                             <Ionicons name="alert-circle-outline" size={14} color="#0C1D37" />
-                            <Text style={styles.reviewChipLabel}>
-                              {reviewFlags.has(card.id) ? 'Queued' : 'Flag for review'}
-                            </Text>
+                            <Text style={styles.reviewChipLabel}>{reviewQueued ? 'Queued' : 'Flag for review'}</Text>
                           </Pressable>
                           <Text style={styles.menuFooter}>Serves {people} people; portion ~{card.portion}.</Text>
                         </>

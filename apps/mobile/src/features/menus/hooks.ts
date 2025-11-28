@@ -32,6 +32,7 @@ import {
   getCachedMenuPairings,
   getCachedMenuSessions
 } from '@/src/database/menu-storage';
+import { fetchMenuReviews, MenuReview } from './api';
 
 type UploadArgs = { mode: 'camera' | 'gallery'; premium: boolean };
 
@@ -124,6 +125,32 @@ export function useMenuSession() {
     refreshSession: sessionQuery.refetch,
     clearSession
   };
+}
+
+export function useMenuReviews(filters: { sessionId?: string; cardId?: string } = {}) {
+  const [reviews, setReviews] = useState<MenuReview[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const items = await fetchMenuReviews(filters);
+      setReviews(items);
+    } catch (err) {
+      setError(err ? String(err) : 'review_fetch_failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.sessionId, filters.cardId]);
+
+  return { reviews, reviewsLoading: loading, reviewsError: error, refreshReviews: load };
 }
 
 export function useMenuRecipes() {

@@ -17,6 +17,18 @@ type ReviewPayload = {
   note?: string | null;
 };
 
+type ReviewRecord = {
+  id: string;
+  status: string;
+  card_id: string | null;
+  session_id: string | null;
+  dish_title: string | null;
+  reason: string | null;
+  note: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+};
+
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
     headers: { "content-type": "application/json", ...corsHeaders },
@@ -52,25 +64,62 @@ serve(async (req) => {
     return jsonResponse({ error: message }, { status });
   }
 
-  if (req.method !== "POST") {
-    return jsonResponse({ error: "method_not_allowed" }, { status: 405 });
-  }
+  const url = new URL(req.url);
 
   try {
+    if (req.method === "GET") {
+      const cardId = url.searchParams.get("cardId");
+      const sessionId = url.searchParams.get("sessionId");
+      const { data, error } = await supabase
+        .from("menu_review_queue")
+        .select("id, status, card_id, session_id, dish_title, reason, note, created_at, reviewed_at")
+        .eq("owner_id", userId)
+        .maybeSingle();
+      if (error) {
+        console.error("menu_review_queue fetch failed", error);
+        return jsonResponse({ items: [] });
+      }
+      const items = Array.isArray(data) ? (data as ReviewRecord[]) : data ? [data as ReviewRecord] : [];
+      const filtered = items.filter((item) => {
+        if (cardId && item.card_id !== cardId) return false;
+        if (sessionId && item.session_id !== sessionId) return false;
+        return true;
+      });
+      return jsonResponse({ items: filtered });
+    }
+
+    if (req.method !== "POST") {
+      return jsonResponse({ error: "method_not_allowed" }, { status: 405 });
+    }
+
     const payload = (await req.json().catch(() => ({}))) as ReviewPayload;
     const now = new Date().toISOString();
 
-    // Attempt to persist to a review table if present; otherwise log and return.
-    const { error } = await supabase.from("menu_review_queue").insert({
-      owner_id: userId,
-      session_id: payload.sessionId ?? null,
-      card_id: payload.cardId ?? null,
-      dish_title: payload.dishTitle ?? null,
-      reason: payload.reason ?? "flagged",
-      note: payload.note ?? null,
-      status: "pending",
-      created_at: now
-    });
+    const existing = await supabase
+      .from("menu_review_queue")
+      .select("id, status, card_id, session_id, dish_title, reason, note, created_at, reviewed_at")
+      .eq("owner_id", userId)
+      .eq("card_id", payload.cardId ?? "")
+      .maybeSingle();
+
+    if (!existing.error && existing.data) {
+      return jsonResponse({ status: existing.data.status ?? "queued", item: existing.data });
+    }
+
+    const { data, error } = await supabase
+      .from("menu_review_queue")
+      .insert({
+        owner_id: userId,
+        session_id: payload.sessionId ?? null,
+        card_id: payload.cardId ?? null,
+        dish_title: payload.dishTitle ?? null,
+        reason: payload.reason ?? "flagged",
+        note: payload.note ?? null,
+        status: "pending",
+        created_at: now
+      })
+      .select("id, status, card_id, session_id, dish_title, reason, note, created_at, reviewed_at")
+      .single();
 
     if (error) {
       console.error("menu_review_queue insert failed", error);
@@ -87,7 +136,7 @@ serve(async (req) => {
       })
     );
 
-    return jsonResponse({ status: "queued" });
+    return jsonResponse({ status: "queued", item: data ?? null });
   } catch (error) {
     console.error("menus-reviews failure", error);
     return jsonResponse({ error: "internal_error" }, { status: 500 });
