@@ -209,6 +209,9 @@ export function useMenuRecipes() {
         queryClient.invalidateQueries({ queryKey: ['menu-recipes'] });
       }
     }
+  , onError: (error, variables) => {
+      console.warn('menus: createRecipe failed', { error: String(error), variables });
+    }
   });
 
   const updateMutation = useMutation({
