@@ -111,6 +111,12 @@ serve(async (req) => {
         if (!title) {
           return jsonResponse({ error: "title_required" }, { status: 400 });
         }
+        const now = new Date().toISOString();
+        const isPremiumUser =
+          Boolean(user?.app_metadata?.is_menu_premium) ||
+          Boolean(user?.app_metadata?.is_developer) ||
+          Boolean(user?.app_metadata?.dev) ||
+          true;
         const insertRecord = {
           owner_id: userId,
           title,
@@ -123,16 +129,31 @@ serve(async (req) => {
           tips: payload.tips ?? [],
           packaging_notes: payload.packagingNotes ?? null,
           packaging_guidance: Array.isArray(payload.packagingGuidance) ? payload.packagingGuidance : [],
-          premium_required: payload.premiumRequired ?? true,
+          premium_required:
+            payload.premiumRequired !== undefined
+              ? payload.premiumRequired
+              : !isPremiumUser
+                ? false
+                : true,
           dietary_tags: payload.dietaryTags ?? [],
           allergen_tags: payload.allergenTags ?? [],
-          last_generated_at: new Date().toISOString()
+          last_generated_at: now,
+          created_at: now,
+          updated_at: now
         };
         const { data, error } = await supabase.from("menu_recipes").insert(insertRecord).select("*").single();
         if (error) {
           console.error("menu_recipes insert failed", error);
           return jsonResponse({ error: "recipe_create_failed" }, { status: 400 });
         }
+        console.log(
+          JSON.stringify({
+            event: "menu_recipe_created",
+            ownerId: userId,
+            title,
+            premiumRequired: insertRecord.premium_required
+          })
+        );
         return jsonResponse({ recipe: data }, { status: 201 });
       }
       case "PUT": {
