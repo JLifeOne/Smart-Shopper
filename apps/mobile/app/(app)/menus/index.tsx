@@ -590,11 +590,16 @@ export default function MenuInboxScreen() {
         }
       } else {
         for (const title of parts) {
-          const result = await createRecipe({ title, premium: isPremium });
-          if (result.savedAsTitleOnly || !result.recipe) {
+          try {
+            const result = await createRecipe({ title, premium: isPremium });
+            if (result.savedAsTitleOnly || !result.recipe) {
+              titlesOnly += 1;
+              const fallbackId = result.recipe?.id ?? `title-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+              newTitleOnly.push({ id: fallbackId, title });
+            }
+          } catch {
             titlesOnly += 1;
-            const fallbackId = result.recipe?.id ?? `title-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-            newTitleOnly.push({ id: fallbackId, title });
+            newTitleOnly.push({ id: `title-${Date.now()}-${Math.random().toString(36).slice(2)}`, title });
           }
         }
       }
@@ -1741,19 +1746,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
-    backgroundColor: 'rgba(12,29,55,0.25)'
+    backgroundColor: 'rgba(12,29,55,0.35)'
   },
   uploadModal: {
-    width: '100%',
-    maxWidth: 360,
+    width: '90%',
+    maxWidth: 400,
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    gap: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 6
+    borderRadius: 18,
+    padding: 18,
+    gap: 12,
+    shadowColor: '#101828',
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 8,
+    alignSelf: 'center'
   },
   uploadTitle: {
     fontSize: 16,
