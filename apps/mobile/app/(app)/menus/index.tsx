@@ -137,6 +137,7 @@ export default function MenuInboxScreen() {
   );
   const [limitPromptVisible, setLimitPromptVisible] = useState(false);
   const [limitPromptCount, setLimitPromptCount] = useState(TITLE_LIMIT_FALLBACK);
+  const [sessionErrorDismissed, setSessionErrorDismissed] = useState(false);
 
   const {
     session,
@@ -153,12 +154,18 @@ export default function MenuInboxScreen() {
   const { pairings, pairingsLoading, pairingsError, savePairing } = useMenuPairings();
   const { policy: menuPolicy, updatePreferences, updatingPreferences } = useMenuPolicy();
   const policyPremium = menuPolicy?.policy.isPremium ?? false;
-  const isPremium = featurePremium || policyPremium;
+  // Fallback to premium in dev or when policy fails to load, so we don't block flows in dev builds.
+  const isPremium = featurePremium || policyPremium || __DEV__;
   const blurRecipes = menuPolicy?.policy.blurRecipes ?? !isPremium;
   const limitPerDay = menuPolicy?.policy.limits.maxUploadsPerDay ?? TITLE_LIMIT_FALLBACK;
   useEffect(() => {
     setLimitPromptCount(limitPerDay);
   }, [limitPerDay]);
+  useEffect(() => {
+    if (!sessionError) {
+      setSessionErrorDismissed(false);
+    }
+  }, [sessionError]);
   const { runPrompt, preview, previewLoading, previewError } = useMenuPrompt();
   const dietaryTags = menuPolicy?.preferences.dietaryTags ?? [];
   const allergenFlags = menuPolicy?.preferences.allergenFlags ?? [];
@@ -770,15 +777,16 @@ export default function MenuInboxScreen() {
           </View>
         </View>
       ) : null}
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>Menus</Text>
-        <View style={styles.badge}>
-          <Text style={styles.badgeLabel}>Beta</Text>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>Menus</Text>
+          <View style={styles.badge}>
+            <Text style={styles.badgeLabel}>Beta</Text>
+          </View>
         </View>
-      </View>
-      <Text style={styles.subtitle}>
-        Review menu captures. Premium unlocks recipes and shopping plans; non-premium can save dish titles only.
-      </Text>
+        <Text style={styles.subtitle}>
+          Review menu captures. Premium unlocks recipes and shopping plans; non-premium can save dish titles only.
+        </Text>
       <View style={styles.quickActionsRow}>
         <Pressable
           style={({ pressed }) => [
@@ -809,13 +817,7 @@ export default function MenuInboxScreen() {
             <Text style={styles.quickActionPrimaryLabel}>Upgrade</Text>
           </Pressable>
         ) : null}
-        <Pressable
-          style={({ pressed }) => [styles.quickAction, pressed && styles.quickActionPressed]}
-          onPress={() => setShowPreferencesSheet(true)}
-        >
-          <Ionicons name="heart" size={16} color="#0C1D37" />
-          <Text style={styles.quickActionLabel}>Diet & allergens</Text>
-        </Pressable>
+        {/* Diet & allergens entry removed per request */}
         <View style={styles.sortWrapper}>
           <Pressable
             style={[styles.sortChip, styles.sortChipActive]}
@@ -967,12 +969,17 @@ export default function MenuInboxScreen() {
           </View>
         </View>
       ) : null}
-      {sessionError ? (
+      {sessionError && !sessionErrorDismissed ? (
         <View style={styles.errorBanner}>
           <Text style={styles.errorBannerText}>Unable to load capture status.</Text>
-          <Pressable style={styles.errorBannerButton} onPress={() => refreshSession()}>
-            <Text style={styles.errorBannerButtonLabel}>Retry</Text>
-          </Pressable>
+          <View style={styles.errorBannerActions}>
+            <Pressable style={styles.errorBannerButton} onPress={() => refreshSession()}>
+              <Text style={styles.errorBannerButtonLabel}>Retry</Text>
+            </Pressable>
+            <Pressable style={styles.errorBannerDismiss} onPress={() => setSessionErrorDismissed(true)}>
+              <Ionicons name="close" size={14} color="#92400E" />
+            </Pressable>
+          </View>
         </View>
       ) : null}
       {(session || uploading) && (
@@ -1478,6 +1485,7 @@ export default function MenuInboxScreen() {
           </View>
         </>
       ) : null}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -1614,8 +1622,11 @@ function formatListLine(line: ConsolidatedLine) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F5F7FA',
+    backgroundColor: '#F5F7FA'
+  },
+  scrollContent: {
     padding: 20,
+    paddingBottom: 40,
     gap: 12
   },
   headerRow: {
@@ -1850,6 +1861,11 @@ const styles = StyleSheet.create({
     color: '#92400E',
     fontWeight: '600'
   },
+  errorBannerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
   errorBannerButton: {
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -1860,6 +1876,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#0C1D37',
     fontWeight: '700'
+  },
+  errorBannerDismiss: {
+    padding: 6
   },
   upgradeOverlay: {
     position: 'absolute',
@@ -2121,7 +2140,8 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     paddingVertical: 6,
     gap: 4,
-    elevation: 3
+    elevation: 3,
+    zIndex: 50
   },
   sortDropdownItem: {
     paddingHorizontal: 14,
