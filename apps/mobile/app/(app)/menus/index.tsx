@@ -590,16 +590,10 @@ export default function MenuInboxScreen() {
         }
       } else {
         for (const title of parts) {
-          try {
-            const result = await createRecipe({ title, premium: isPremium });
-            if (result.savedAsTitleOnly || !result.recipe) {
-              titlesOnly += 1;
-              const fallbackId = result.recipe?.id ?? `title-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-              newTitleOnly.push({ id: fallbackId, title });
-            }
-          } catch {
-            titlesOnly += 1;
-            newTitleOnly.push({ id: `title-${Date.now()}-${Math.random().toString(36).slice(2)}`, title });
+          const result = await createRecipe({ title, premium: true });
+          if (result.savedAsTitleOnly || !result.recipe) {
+            Toast.show('Unable to save recipe right now. Please retry.', 1800);
+            return;
           }
         }
       }
@@ -735,6 +729,28 @@ export default function MenuInboxScreen() {
 
   return (
     <SafeAreaView style={styles.screen}>
+      {showUploadOptions ? (
+        <View style={styles.uploadOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowUploadOptions(false)} />
+          <View style={styles.uploadModal}>
+            <Text style={styles.uploadTitle}>Upload menus</Text>
+            <Text style={styles.uploadSubtitle}>Use your camera or pick photos to capture dishes.</Text>
+            <View style={styles.uploadOptionsModal}>
+              <Pressable style={styles.uploadOptionRow} onPress={() => handleUpload('camera')}>
+                <Ionicons name="camera" size={16} color="#0C1D37" />
+                <Text style={styles.uploadOptionLabel}>Use camera</Text>
+              </Pressable>
+              <Pressable style={styles.uploadOptionRow} onPress={() => handleUpload('gallery')}>
+                <Ionicons name="images-outline" size={16} color="#0C1D37" />
+                <Text style={styles.uploadOptionLabel}>Choose photos</Text>
+              </Pressable>
+            </View>
+            <Pressable style={styles.uploadClose} onPress={() => setShowUploadOptions(false)}>
+              <Text style={styles.uploadCloseLabel}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
       {!isPremium && showUpgradeOverlay && !overlayCollapsed ? (
         <View style={styles.upgradeOverlay}>
           <View style={styles.upgradeCard}>
@@ -867,26 +883,7 @@ export default function MenuInboxScreen() {
         ) : null}
       </View>
       {showUploadOptions ? (
-        <View style={styles.uploadOverlay}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowUploadOptions(false)} />
-          <View style={styles.uploadModal}>
-            <Text style={styles.uploadTitle}>Upload menus</Text>
-            <Text style={styles.uploadSubtitle}>Use your camera or pick photos to capture dishes.</Text>
-            <View style={styles.uploadOptionsModal}>
-              <Pressable style={styles.uploadOptionRow} onPress={() => handleUpload('camera')}>
-                <Ionicons name="camera" size={16} color="#0C1D37" />
-                <Text style={styles.uploadOptionLabel}>Use camera</Text>
-              </Pressable>
-              <Pressable style={styles.uploadOptionRow} onPress={() => handleUpload('gallery')}>
-                <Ionicons name="images-outline" size={16} color="#0C1D37" />
-                <Text style={styles.uploadOptionLabel}>Choose photos</Text>
-              </Pressable>
-            </View>
-            <Pressable style={styles.uploadClose} onPress={() => setShowUploadOptions(false)}>
-              <Text style={styles.uploadCloseLabel}>Close</Text>
-            </Pressable>
-          </View>
-        </View>
+        <View />
       ) : null}
       {limitPromptVisible ? (
         <View style={styles.uploadOverlay}>
