@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView, StyleSheet, Text, View, Pressable, TextInput, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { featureFlags } from '@/src/lib/env';
 import { Toast } from '@/src/components/search/Toast';
@@ -545,23 +546,62 @@ export default function MenuInboxScreen() {
     return true;
   };
 
-  const handleUpload = async (mode: 'camera' | 'gallery') => {
+  const canUseUploadSlot = async () => {
     if (!isPremium) {
       const today = new Date().toISOString().slice(0, 10);
-      const current =
-        titleLimit.date === today ? titleLimit.count : 0;
+      const current = titleLimit.date === today ? titleLimit.count : 0;
       if (current >= limitPerDay) {
         setLimitPromptVisible(true);
         setLimitPromptCount(limitPerDay);
-        return;
+        return false;
       }
     }
+    return true;
+  };
+
+  const handleCameraUpload = async () => {
     setShowUploadOptions(false);
+    const allowed = await canUseUploadSlot();
+    if (!allowed) return;
     try {
-      await startSession({ mode, premium: isPremium });
-      Toast.show('Upload started. We will notify you when recipes are ready.', 1500);
+      const { granted } = await (ImagePicker as any).requestCameraPermissionsAsync();
+      if (!granted) {
+        Toast.show('Camera permission is required.', 1500);
+        return;
+      }
+      const result: any = await (ImagePicker as any).launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.85
+      });
+      if (result.canceled) return;
+      const uri = result.assets?.[0]?.uri ?? null;
+      await startSession({ mode: 'camera', premium: isPremium, sourceUri: uri ?? undefined });
+      Toast.show('Camera capture started. Parsing menus…', 1600);
     } catch (error) {
-      Toast.show('Unable to start upload. Try again.', 1700);
+      Toast.show('Unable to open camera. Try again.', 1700);
+    }
+  };
+
+  const handleGalleryUpload = async () => {
+    setShowUploadOptions(false);
+    const allowed = await canUseUploadSlot();
+    if (!allowed) return;
+    try {
+      const { granted } = await (ImagePicker as any).requestMediaLibraryPermissionsAsync();
+      if (!granted) {
+        Toast.show('Gallery permission is required.', 1500);
+        return;
+      }
+      const result: any = await (ImagePicker as any).launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.85
+      });
+      if (result.canceled) return;
+      const uri = result.assets?.[0]?.uri ?? null;
+      await startSession({ mode: 'gallery', premium: isPremium, sourceUri: uri ?? undefined });
+      Toast.show('Import started. Parsing menus…', 1600);
+    } catch (error) {
+      Toast.show('Unable to open gallery. Try again.', 1700);
     }
   };
 
@@ -736,11 +776,11 @@ export default function MenuInboxScreen() {
             <Text style={styles.uploadTitle}>Upload menus</Text>
             <Text style={styles.uploadSubtitle}>Use your camera or pick photos to capture dishes.</Text>
             <View style={styles.uploadOptionsModal}>
-              <Pressable style={styles.uploadOptionRow} onPress={() => handleUpload('camera')}>
+              <Pressable style={styles.uploadOptionRow} onPress={handleCameraUpload}>
                 <Ionicons name="camera" size={16} color="#0C1D37" />
                 <Text style={styles.uploadOptionLabel}>Use camera</Text>
               </Pressable>
-              <Pressable style={styles.uploadOptionRow} onPress={() => handleUpload('gallery')}>
+              <Pressable style={styles.uploadOptionRow} onPress={handleGalleryUpload}>
                 <Ionicons name="images-outline" size={16} color="#0C1D37" />
                 <Text style={styles.uploadOptionLabel}>Choose photos</Text>
               </Pressable>
@@ -871,11 +911,11 @@ export default function MenuInboxScreen() {
         </View>
         {showUploadOptions ? (
           <View style={styles.uploadOptions}>
-            <Pressable style={styles.uploadOption} onPress={() => handleUpload('camera')}>
+            <Pressable style={styles.uploadOption} onPress={handleCameraUpload}>
               <Ionicons name="camera" size={14} color="#0C1D37" />
               <Text style={styles.uploadOptionLabel}>Use camera</Text>
             </Pressable>
-            <Pressable style={styles.uploadOption} onPress={() => handleUpload('gallery')}>
+            <Pressable style={styles.uploadOption} onPress={handleGalleryUpload}>
               <Ionicons name="images-outline" size={14} color="#0C1D37" />
               <Text style={styles.uploadOptionLabel}>Choose photos</Text>
             </Pressable>

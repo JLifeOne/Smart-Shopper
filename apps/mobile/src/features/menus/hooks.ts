@@ -35,7 +35,7 @@ import {
 import { fetchMenuReviews, MenuReview } from './api';
 import { cacheMenuReviews, getCachedMenuReviews } from '@/src/database/menu-storage';
 
-type UploadArgs = { mode: 'camera' | 'gallery'; premium: boolean };
+type UploadArgs = { mode: 'camera' | 'gallery'; premium: boolean; sourceUri?: string | null };
 
 const TERMINAL_SESSION_STATUSES = new Set(['completed', 'ready', 'title_only', 'failed', 'canceled', 'cancelled']);
 const EMPTY_RECIPES: MenuRecipe[] = [];
@@ -92,7 +92,7 @@ export function useMenuSession() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: (args: UploadArgs) => uploadMenu(args.mode, args.premium),
+    mutationFn: (args: UploadArgs) => uploadMenu(args.mode, args.premium, args.sourceUri),
     onSuccess: async (session) => {
       await cacheMenuSessions([session]);
       setSessionId(session.id);

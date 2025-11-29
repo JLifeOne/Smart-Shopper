@@ -7,6 +7,7 @@ export type SaveDishRequest = {
 };
 
 export type UploadMode = 'camera' | 'gallery';
+export type UploadArgs = { mode: UploadMode; premium: boolean; sourceUri?: string | null };
 
 export type MenuSession = {
   id: string;
@@ -111,11 +112,11 @@ async function callMenuFunction<T>(path: string, init: RequestInit): Promise<T> 
   return payload as T;
 }
 
-export async function uploadMenu(mode: UploadMode, premium: boolean) {
+export async function uploadMenu(mode: UploadMode, premium: boolean, sourceUri?: string | null) {
   const result = await callMenuFunction<{ session: MenuSession }>('menu-sessions', {
     method: 'POST',
     body: JSON.stringify({
-      source: { type: mode },
+      source: { type: mode, uri: sourceUri ?? null },
       isPremium: premium
     })
   });
