@@ -9,6 +9,8 @@ const corsHeaders = {
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+const llmUrl = Deno.env.get("MENU_LLM_URL");
+const llmApiKey = Deno.env.get("MENU_LLM_API_KEY");
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -279,6 +281,36 @@ async function applyPackagingGuidance(
   }
 }
 
+async function callLLM(payload: MenuPromptInput, requestId: string) {
+  if (!llmUrl) {
+    throw new Error("llm_url_missing");
+  }
+  const startedAt = performance.now();
+  const response = await fetch(llmUrl, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(llmApiKey ? { Authorization: `Bearer ${llmApiKey}` } : {})
+    },
+    body: JSON.stringify(payload)
+  });
+  const text = await response.text();
+  let json: unknown = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    console.error("llm_invalid_json", { requestId, text: text.slice(0, 500) });
+    throw new Error("llm_invalid_json");
+  }
+  if (!response.ok) {
+    console.error("llm_error", { requestId, status: response.status, body: json });
+    throw new Error("llm_failed");
+  }
+  const durationMs = Math.round(performance.now() - startedAt);
+  console.log(JSON.stringify({ event: "menu_llm_call", requestId, durationMs }));
+  return json as unknown;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -312,9 +344,24 @@ serve(async (req) => {
         return { ...dish, cuisineStyle: style ?? undefined };
       })
     };
-    const response = buildResponse(hydrated);
-    await applyPackagingGuidance(supabase, response, parsed.locale);
-    const validated = menuPromptResponseSchema.parse(response);
+    const requestId = crypto.randomUUID();
+    let generated: MenuPromptResponse | null = null;
+    let usedFallback = false;
+    try {
+      const llmPayload = {
+        ...hydrated,
+        preferences: hydrated.preferences ?? {},
+        policy: hydrated.policy ?? {}
+      };
+      const llmRaw = await callLLM(llmPayload, requestId);
+      generated = menuPromptResponseSchema.parse(llmRaw);
+    } catch (error) {
+      console.error("llm_parse_failed", { requestId, error: String(error) });
+      generated = buildResponse(hydrated);
+      usedFallback = true;
+    }
+    await applyPackagingGuidance(supabase, generated, parsed.locale);
+    const validated = menuPromptResponseSchema.parse(generated);
     if (parsed.sessionId) {
       const updatePayload: Record<string, unknown> = {
         updated_at: new Date().toISOString(),
@@ -340,7 +387,8 @@ serve(async (req) => {
         event: 'menu_llm_stub',
         dishCount: parsed.dishes.length,
         people: parsed.peopleCount,
-        clarifications: validated.clarification_needed?.length ?? 0
+        clarifications: validated.clarification_needed?.length ?? 0,
+        usedFallback
       })
     );
     return jsonResponse(validated);
