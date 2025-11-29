@@ -254,6 +254,17 @@ serve(async (req) => {
         };
         if (body.clarification_answers) {
           mergedPayload.clarification_answers = body.clarification_answers;
+          const styleRows = body.clarification_answers
+            .filter((ans) => ans.dishKey && ans.answer)
+            .map((ans) => ({
+              owner_id: userId,
+              dish_key: ans.dishKey.toLowerCase(),
+              style_choice: ans.answer,
+              last_used_at: new Date().toISOString()
+            }));
+          if (styleRows.length) {
+            await client.from("menu_style_choices").upsert(styleRows, { onConflict: "owner_id,dish_key" });
+          }
         }
         if (Object.keys(mergedPayload).length) {
           updates.payload = mergedPayload;

@@ -66,6 +66,27 @@ function formatPackagingLabel(meta: IngredientMeta, unit?: Pick<PackagingUnit, '
   return `Buy ${sizeLabel} of ${meta.name}`;
 }
 
+async function loadStyleChoices(
+  client: ReturnType<typeof createClient>,
+  userId: string,
+  dishes: { title: string; cuisineStyle?: string | null }[]
+) {
+  const keys = dishes.map((d) => normalizeKey(d.title)).filter(Boolean);
+  if (!keys.length) return {};
+  const { data, error } = await client
+    .from('menu_style_choices')
+    .select('dish_key, style_choice')
+    .eq('owner_id', userId)
+    .in('dish_key', keys);
+  if (error || !data) {
+    return {};
+  }
+  return data.reduce<Record<string, string>>((acc, row) => {
+    acc[row.dish_key] = row.style_choice;
+    return acc;
+  }, {});
+}
+
 function buildStubRecipe(input: { dish: string; people: number; locale?: string }): MenuPromptResponse['cards'][number] {
   const baseTitle = input.dish.trim();
   const slug = baseTitle.toLowerCase().replace(/\s+/g, '-');
@@ -126,11 +147,13 @@ function findClarifications(payload: MenuPromptInput) {
 }
 
 function buildResponse(payload: MenuPromptInput): MenuPromptResponse {
-  const cards = payload.dishes.map((dish) => buildStubRecipe({
-    dish: dish.title,
-    people: payload.peopleCount,
-    locale: payload.locale
-  }));
+  const cards = payload.dishes.map((dish) =>
+    buildStubRecipe({
+      dish: dish.title,
+      people: payload.peopleCount,
+      locale: dish.cuisineStyle ?? payload.locale
+    })
+  );
   const consolidated = cards
     .flatMap((card) => card.list_lines)
     .reduce<MenuPromptResponse['consolidated_list']>((acc, line) => {
@@ -280,7 +303,16 @@ serve(async (req) => {
   try {
     const raw = await req.json();
     const parsed = menuPromptInputSchema.parse(raw);
-    const response = buildResponse(parsed);
+    const styleChoices = await loadStyleChoices(supabase, userId, parsed.dishes);
+    const hydrated = {
+      ...parsed,
+      dishes: parsed.dishes.map((dish) => {
+        const key = normalizeKey(dish.title);
+        const style = dish.cuisineStyle ?? (key ? styleChoices[key] : undefined) ?? dish.cuisineStyle ?? null;
+        return { ...dish, cuisineStyle: style ?? undefined };
+      })
+    };
+    const response = buildResponse(hydrated);
     await applyPackagingGuidance(supabase, response, parsed.locale);
     const validated = menuPromptResponseSchema.parse(response);
     if (parsed.sessionId) {
