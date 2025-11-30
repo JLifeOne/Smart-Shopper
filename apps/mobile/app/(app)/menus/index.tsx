@@ -664,7 +664,8 @@ export default function MenuInboxScreen() {
         Toast.show(`Saved ${parts.length} recipe${parts.length === 1 ? '' : 's'}.`, 1500);
       }
     } catch (error) {
-      Toast.show('Unable to save dish right now.', 1700);
+      const message = error instanceof Error ? error.message : 'Unable to save dish right now.';
+      Toast.show(message, 1800);
     }
   };
 

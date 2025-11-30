@@ -65,10 +65,12 @@ serve(async (req) => {
 
   let supabase;
   let userId;
+  let user;
   try {
     const auth = await getAuthedClient(req);
     supabase = auth.client;
     userId = auth.userId;
+    user = auth.user;
   } catch (error) {
     const message = error instanceof Error ? error.message : "auth_error";
     const status = message === "auth_required" ? 401 : 500;
@@ -115,8 +117,7 @@ serve(async (req) => {
         const isPremiumUser =
           Boolean(user?.app_metadata?.is_menu_premium) ||
           Boolean(user?.app_metadata?.is_developer) ||
-          Boolean(user?.app_metadata?.dev) ||
-          true;
+          Boolean(user?.app_metadata?.dev);
         const insertRecord = {
           owner_id: userId,
           title,
@@ -144,7 +145,7 @@ serve(async (req) => {
         const { data, error } = await supabase.from("menu_recipes").insert(insertRecord).select("*").single();
         if (error) {
           console.error("menu_recipes insert failed", error);
-          return jsonResponse({ error: "recipe_create_failed" }, { status: 400 });
+          return jsonResponse({ error: error.message ?? "recipe_create_failed" }, { status: 400 });
         }
         console.log(
           JSON.stringify({
