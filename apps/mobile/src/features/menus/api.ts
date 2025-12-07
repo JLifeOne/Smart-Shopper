@@ -4,6 +4,15 @@ import { ensureSupabaseClient } from '@/src/lib/supabase';
 export type SaveDishRequest = {
   title: string;
   premium: boolean;
+  idempotencyKey?: string;
+};
+
+type MenuFunctionInit = RequestInit & { idempotencyKey?: string };
+
+const generateIdempotencyKey = (seed?: string) => {
+  const random = Math.random().toString(36).slice(2, 10);
+  const stamp = Date.now().toString(36);
+  return [seed ?? 'menu', stamp, random].filter(Boolean).join('-');
 };
 
 export type UploadMode = 'camera' | 'gallery';
@@ -89,7 +98,7 @@ export type SaveDishResponse = {
   recipe: MenuRecipe | null;
 };
 
-async function callMenuFunction<T>(path: string, init: RequestInit): Promise<T> {
+async function callMenuFunction<T>(path: string, init: MenuFunctionInit): Promise<T> {
   const client = ensureSupabaseClient();
   const { data } = await client.auth.getSession();
   const token = data.session?.access_token;
@@ -97,13 +106,18 @@ async function callMenuFunction<T>(path: string, init: RequestInit): Promise<T> 
     throw new Error('auth_required');
   }
   const endpoint = `${supabaseEnv.supabaseUrl}/functions/v1/${path}`;
+  const method = (init.method ?? 'GET').toString().toUpperCase();
+  const headers = new Headers(init.headers ?? {});
+  headers.set('content-type', headers.get('content-type') ?? 'application/json');
+  headers.set('Authorization', `Bearer ${token}`);
+  if (method !== 'GET' && !headers.has('Idempotency-Key')) {
+    const key = init.idempotencyKey ?? generateIdempotencyKey(path);
+    headers.set('Idempotency-Key', key);
+  }
+  const { idempotencyKey: _ignored, ...fetchInit } = init;
   const response = await fetch(endpoint, {
-    ...init,
-    headers: {
-      'content-type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...(init.headers ?? {})
-    }
+    ...fetchInit,
+    headers
   });
   const payload: any = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -155,12 +169,16 @@ export async function submitMenuClarifications(
 }
 
 export async function saveDish(request: SaveDishRequest): Promise<SaveDishResponse> {
+  if (!request.idempotencyKey) {
+    request.idempotencyKey = generateIdempotencyKey(`menu-recipes:${request.title}`);
+  }
   const payload = await callMenuFunction<{ recipe?: MenuRecipe | null }>('menu-recipes', {
     method: 'POST',
     body: JSON.stringify({
       title: request.title,
       premiumRequired: request.premium
-    })
+    }),
+    idempotencyKey: request.idempotencyKey
   });
   const recipe = payload?.recipe ?? null;
   return {
@@ -244,10 +262,12 @@ export async function listMenuRecipes(cursor?: string) {
   return result.recipes;
 }
 
-export async function updateMenuRecipe(recipeId: string, updates: Partial<MenuRecipe>) {
+export async function updateMenuRecipe(recipeId: string, updates: Partial<MenuRecipe>, idempotencyKey?: string) {
+  const key = idempotencyKey ?? generateIdempotencyKey(`menu-recipes:update:${recipeId}`);
   const result = await callMenuFunction<{ recipe: MenuRecipe }>(`menu-recipes/${recipeId}`, {
     method: 'PUT',
-    body: JSON.stringify(updates)
+    body: JSON.stringify(updates),
+    idempotencyKey: key
   });
   return result.recipe;
 }
