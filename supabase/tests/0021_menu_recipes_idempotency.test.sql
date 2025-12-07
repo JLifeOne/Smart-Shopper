@@ -69,6 +69,9 @@ resolved_owner as (
   select id from owner
   limit 1
 ),
+jwt_claim as (
+  select set_config('request.jwt.claim.sub', id::text, true) from resolved_owner
+),
 inserted as (
   insert into public.menu_recipes (owner_id, title, idempotency_key)
   select id, 'Idempotency smoke test', 'menu-idempotency-' || gen_random_uuid()
