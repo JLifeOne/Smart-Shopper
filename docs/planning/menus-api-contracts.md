@@ -1,6 +1,6 @@
 # Menus API Contracts (Stage 1)
 
-This document formalizes the Supabase edge-function contracts needed to move Menus from a UI demo to production. All endpoints require a valid Supabase JWT and respect RLS policies introduced in `0011_menu_core.sql` and `0017_menu_intel_foundation.sql`.
+This document formalizes the Supabase edge-function contracts needed to move Menus from a UI demo to production. All endpoints require a valid Supabase JWT and respect RLS policies introduced in `0012_menu_core.sql` and `0019_menu_intel_foundation.sql`.
 
 ---
 
@@ -286,7 +286,7 @@ Response `200`
 - **Idempotency**: For actions that mutate (`/menus/lists`, `/menu-recipes`), require `Idempotency-Key` header.
 - **Rate limits**: enforce per-user limits on uploads and conversions to prevent abuse.
 
-These contracts align with the schemas defined in `0011_menu_core.sql` and will unblock Stage 2 (AI pipeline) and Stage 3 (frontend wiring).
+These contracts align with the schemas defined in `0012_menu_core.sql` and will unblock Stage 2 (AI pipeline) and Stage 3 (frontend wiring).
 -
 ---
 

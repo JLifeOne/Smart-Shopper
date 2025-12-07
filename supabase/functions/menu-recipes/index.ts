@@ -385,14 +385,13 @@ serve(async (req) => {
           return jsonResponse({ error: "stale_update" }, { status: 409 });
         }
 
-        const now = new Date().toISOString();
+        const baseVersion = typeof existing.data.version === "number" ? existing.data.version : 1;
         const targetServings =
           parsed.data.servings || parsed.data.scaleFactor !== undefined
             ? buildServings(parsed.data.servings, parsed.data.scaleFactor, existing.data.servings)
             : null;
         const updates: Record<string, unknown> = {
-          updated_at: now,
-          version: (existing.data.version ?? 1) + 1,
+          version: baseVersion + 1,
         };
         if (parsed.data.title !== undefined) updates.title = parsed.data.title;
         if (parsed.data.course !== undefined) updates.course = parsed.data.course ?? null;
@@ -442,14 +441,18 @@ serve(async (req) => {
           updates.source = parsed.data.source ?? "user";
         }
 
-        const { data, error } = await supabase
-          .from("menu_recipes")
-          .update(updates)
-          .eq("id", recipeId)
-          .eq("owner_id", userId)
-          .select("*")
-          .single();
+        let updateQuery = supabase.from("menu_recipes").update(updates).eq("id", recipeId).eq("owner_id", userId);
+        updateQuery =
+          parsed.data.expectedUpdatedAt !== undefined
+            ? updateQuery.eq("updated_at", parsed.data.expectedUpdatedAt)
+            : updateQuery.eq("version", baseVersion);
+
+        const { data, error } = await updateQuery.select("*").single();
         if (error) {
+          if (error.code === "PGRST116") {
+            const conflictError = parsed.data.expectedUpdatedAt ? "stale_update" : "version_conflict";
+            return jsonResponse({ error: conflictError }, { status: 409 });
+          }
           console.error("menu_recipes update failed", { error, requestId });
           return jsonResponse({ error: "recipe_update_failed" }, { status: 400 });
         }

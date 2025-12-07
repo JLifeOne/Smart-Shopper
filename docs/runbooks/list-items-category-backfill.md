@@ -1,7 +1,7 @@
 # Runbook — Backfill `list_items` Category Metadata
 
 ## Context
-Migration `0014_list_items_category_fields.sql` introduced five optional columns on `public.list_items` to store the classifier output:
+Migration `0015_list_items_category_fields.sql` introduced five optional columns on `public.list_items` to store the classifier output:
 
 | Column | Purpose |
 | --- | --- |

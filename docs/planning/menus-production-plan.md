@@ -10,8 +10,8 @@
    - `menu_packaging_profiles` + `menu_packaging_units` – locale/store pack-size mappings.
    - `menu_user_preferences` – locale, dietary/allergen tags, default people count, scaling flags.
    - `menu_feature_vectors` – owner-scoped embeddings/metadata for ML routing.
-   - `menu_recipes` dietary/allergen fields (migration `0018_menu_recipe_dietary.sql`).
-   - RLS policies & indexes for each table (migrations `0011_menu_core.sql`, `0017_menu_intel_foundation.sql`, `0018_menu_recipe_dietary.sql`).
+   - `menu_recipes` dietary/allergen fields (migration `0020_menu_recipe_dietary.sql`).
+   - RLS policies & indexes for each table (migrations `0012_menu_core.sql`, `0019_menu_intel_foundation.sql`, `0020_menu_recipe_dietary.sql`).
 2. **Supabase functions/contracts**
    - `/menu-sessions` POST/GET/PATCH (creates session, polls OCR/ML status, updates cards) with premium enforcement.
    - `/menu-recipes` CRUD endpoints for persisted cards + smart edits.
