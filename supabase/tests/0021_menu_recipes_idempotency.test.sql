@@ -54,33 +54,37 @@ select ok(
   'menu_recipes_version_bump trigger present'
 );
 
-do $$
-declare
-  v_owner uuid;
-  v_recipe uuid;
-  v_version integer;
-  v_updated_at timestamptz;
-  v_updated_at_2 timestamptz;
-  v_idempotency_key text := 'menu-idempotency-key-' || gen_random_uuid();
-begin
-  select id into v_owner from auth.users limit 1;
-  if v_owner is null then
-    insert into auth.users (id, email)
-    values (gen_random_uuid(), 'menu-idempotency@example.com')
-    returning id into v_owner;
-  end if;
-
+with owner as (
+  select id from auth.users limit 1
+),
+maybe_insert as (
+  insert into auth.users (id, email)
+  select gen_random_uuid(), 'menu-idempotency@example.com'
+  where not exists (select 1 from owner)
+  returning id
+),
+resolved_owner as (
+  select id from maybe_insert
+  union all
+  select id from owner
+  limit 1
+),
+inserted as (
   insert into public.menu_recipes (owner_id, title, idempotency_key)
-  values (v_owner, 'Idempotency smoke test', v_idempotency_key)
-  returning id, version, updated_at into v_recipe, v_version, v_updated_at;
-
-  perform ok(v_version = 1, 'version seeded to 1 on insert');
-
+  select id, 'Idempotency smoke test', 'menu-idempotency-' || gen_random_uuid()
+  from resolved_owner
+  returning id, version, updated_at
+),
+updated as (
   update public.menu_recipes
-    set title = 'Updated title'
-  where id = v_recipe
-  returning version, updated_at into v_version, v_updated_at_2;
-
-  perform ok(v_version = 2, 'version increments on update');
-  perform ok(v_updated_at_2 > v_updated_at, 'updated_at refreshed on update');
-end $$;
+  set title = 'Updated title'
+  where id = (select id from inserted)
+  returning version, updated_at
+)
+select * from (
+  select ok(inserted.version = 1, 'version seeded to 1 on insert') from inserted
+  union all
+  select ok(updated.version = 2, 'version increments on update') from updated
+  union all
+  select ok(updated.updated_at > inserted.updated_at, 'updated_at refreshed on update') from inserted, updated
+) as tap_results;
