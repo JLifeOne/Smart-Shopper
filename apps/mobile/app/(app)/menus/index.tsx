@@ -347,7 +347,9 @@ export default function MenuInboxScreen() {
     if (!recipes.length) {
       return FALLBACK_CARDS;
     }
-    return recipes.map((recipe) => mapRecipeToCard(recipe, cardPeople[recipe.id]));
+    return recipes
+      .map((recipe) => mapRecipeToCard(recipe, cardPeople[recipe.id]))
+      .filter((card): card is DisplayCard => Boolean(card));
   }, [recipes, cardPeople]);
 
   const sortedCards = useMemo(() => {
@@ -1563,7 +1565,11 @@ export default function MenuInboxScreen() {
   );
 }
 
-function mapRecipeToCard(recipe: MenuRecipe, overridePeople?: number): DisplayCard {
+function mapRecipeToCard(recipe: MenuRecipe, overridePeople?: number): DisplayCard | null {
+  const trimmedId = (recipe.id ?? '').toString().trim();
+  if (!trimmedId) {
+    return null;
+  }
   const servings = recipe.servings ?? null;
   const basePeople = Number(servings?.people_count ?? recipe.scale_factor ?? 1) || 1;
   const people = overridePeople ?? basePeople;
@@ -1593,7 +1599,7 @@ function mapRecipeToCard(recipe: MenuRecipe, overridePeople?: number): DisplayCa
         .filter((line): line is string => Boolean(line))
     : [];
   return {
-    id: recipe.id,
+    id: trimmedId,
     title: recipe.title,
     course: recipe.course ?? 'Course',
     cuisine: recipe.cuisine_style ?? 'Cuisine',
