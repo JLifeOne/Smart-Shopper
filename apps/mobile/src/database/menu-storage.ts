@@ -237,6 +237,12 @@ export async function cacheMenuSessions(sessions: ApiMenuSession[]) {
     const existing = await collection.query().fetch();
     const map = new Map(existing.map((record) => [record.remoteId, record]));
     for (const session of sessions) {
+      const payloadSource = (session as any).payload ?? {};
+      const payloadWithMeta = {
+        ...payloadSource,
+        card_ids: (session as any).card_ids ?? session.card_ids ?? [],
+        is_premium: (session as any).is_premium ?? session.is_premium ?? false
+      };
       const payload = {
         remote_id: session.id,
         status: session.status,
@@ -244,7 +250,7 @@ export async function cacheMenuSessions(sessions: ApiMenuSession[]) {
         intent_route: (session as any).intent_route ?? null,
         dish_titles: JSON.stringify((session as any).dish_titles ?? []),
         warnings: JSON.stringify((session as any).warnings ?? []),
-        payload: JSON.stringify((session as any).payload ?? {}),
+        payload: JSON.stringify(payloadWithMeta),
         created_at: new Date((session as any).created_at ?? Date.now()).getTime(),
         updated_at: new Date((session as any).updated_at ?? Date.now()).getTime(),
         last_synced_at: Date.now()
@@ -266,8 +272,8 @@ export async function getCachedMenuSessions(): Promise<ApiMenuSession[]> {
     status: record.status as ApiMenuSession['status'],
     dish_titles: JSON_FALLBACK(record.dishTitles, []),
     warnings: JSON_FALLBACK(record.warnings, []),
-    card_ids: [],
-    is_premium: false,
+    card_ids: JSON_FALLBACK(record.payload, {}).card_ids ?? [],
+    is_premium: Boolean(JSON_FALLBACK(record.payload, {}).is_premium ?? false),
     created_at: new Date(record.createdAt).toISOString(),
     updated_at: new Date(record.updatedAt).toISOString()
   }));

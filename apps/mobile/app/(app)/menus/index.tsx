@@ -93,6 +93,7 @@ const TITLE_LIMIT_STORAGE_KEY = 'menus_title_limit';
 const TITLE_LIMIT_FALLBACK = 3;
 const UPGRADE_COLOR = '#C75A0E';
 const UPGRADE_SHADOW = '#8F3A04';
+const UI_STATE_STORAGE_KEY = 'menus_ui_state';
 
 const normalizeTitleOnlyDishes = (items: any[]): { id: string; title: string }[] => {
   const seen = new Set<string>();
@@ -137,6 +138,7 @@ export default function MenuInboxScreen() {
   const [overlayCollapsed, setOverlayCollapsed] = useState(false);
   const [conversionMeta, setConversionMeta] = useState<ConversionMeta | null>(null);
   const [sessionHighlights, setSessionHighlights] = useState<string[]>([]);
+  const [restoredUI, setRestoredUI] = useState(false);
   const [showPreferencesSheet, setShowPreferencesSheet] = useState(false);
   const [dietaryDraft, setDietaryDraft] = useState('');
   const [allergenDraft, setAllergenDraft] = useState('');
@@ -317,6 +319,26 @@ export default function MenuInboxScreen() {
   const sessionCardIdsKey = sessionCardIds.join('|');
 
   useEffect(() => {
+    // Restore persisted UI state once
+    if (!restoredUI) {
+      AsyncStorage.getItem(UI_STATE_STORAGE_KEY)
+        .then((raw) => (raw ? JSON.parse(raw) : null))
+        .then((state) => {
+          if (state) {
+            if (Array.isArray(state.highlights)) {
+              setSessionHighlights(state.highlights);
+            }
+            if (Array.isArray(state.openCards)) {
+              setOpenCards(new Set(state.openCards));
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(() => setRestoredUI(true));
+    }
+  }, [restoredUI]);
+
+  useEffect(() => {
     if (!sessionCardIds.length) {
       setSessionHighlights([]);
       return;
@@ -328,6 +350,17 @@ export default function MenuInboxScreen() {
       return next;
     });
   }, [sessionCardIdsKey]);
+
+  useEffect(() => {
+    if (!restoredUI) return;
+    AsyncStorage.setItem(
+      UI_STATE_STORAGE_KEY,
+      JSON.stringify({
+        highlights: sessionHighlights,
+        openCards: Array.from(openCards)
+      })
+    ).catch(() => {});
+  }, [sessionHighlights, openCards, restoredUI]);
 
   useEffect(() => {
     if (showPreferencesSheet && menuPolicy) {
