@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   MenuPairing,
   MenuRecipe,
@@ -36,6 +37,7 @@ import { fetchMenuReviews, MenuReview } from './api';
 import { cacheMenuReviews, getCachedMenuReviews } from '@/src/database/menu-storage';
 
 type UploadArgs = { mode: 'camera' | 'gallery'; premium: boolean; sourceUri?: string | null };
+const SESSION_STORAGE_KEY = 'menus_active_session';
 
 const TERMINAL_SESSION_STATUSES = new Set(['completed', 'ready', 'title_only', 'failed', 'canceled', 'cancelled']);
 const EMPTY_RECIPES: MenuRecipe[] = [];
@@ -53,16 +55,52 @@ export function useMenuSession() {
   const queryClient = useQueryClient();
   const bootstrappedRef = useRef(false);
 
+  const persistSessionSnapshot = async (session: MenuSession | null) => {
+    if (!session) {
+      await AsyncStorage.removeItem(SESSION_STORAGE_KEY);
+      return;
+    }
+    await AsyncStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({
+        sessionId: session.id,
+        session
+      })
+    );
+  };
+
   useEffect(() => {
     if (bootstrappedRef.current) {
       return;
     }
     bootstrappedRef.current = true;
-    getCachedMenuSessions().then((cached) => {
-      if (cached.length) {
-        queryClient.setQueryData(['menu-session', cached[0].id], cached[0]);
+    (async () => {
+      let restoredId: string | null = null;
+      try {
+        const stored = await AsyncStorage.getItem(SESSION_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed?.sessionId) {
+            restoredId = parsed.sessionId;
+            if (parsed.session) {
+              queryClient.setQueryData(['menu-session', parsed.sessionId], parsed.session as MenuSession);
+            }
+          }
+        }
+      } catch {
+        // swallow and fallback
       }
-    });
+      if (!restoredId) {
+        const cached = await getCachedMenuSessions();
+        if (cached.length) {
+          restoredId = cached[0].id;
+          queryClient.setQueryData(['menu-session', cached[0].id], cached[0]);
+        }
+      }
+      if (restoredId) {
+        setSessionId(restoredId);
+      }
+    })();
   }, [queryClient]);
 
   const sessionQuery = useQuery({
@@ -74,11 +112,13 @@ export function useMenuSession() {
       try {
         const remote = await fetchMenuSession(sessionId);
         await cacheMenuSessions([remote]);
+        await persistSessionSnapshot(remote);
         return remote;
       } catch (error) {
         const cached = await getCachedMenuSessions();
         const match = cached.find((session) => session.id === sessionId);
         if (match) {
+          await persistSessionSnapshot(match);
           return match;
         }
         throw error;
@@ -96,6 +136,7 @@ export function useMenuSession() {
     onSuccess: async (session) => {
       await cacheMenuSessions([session]);
       setSessionId(session.id);
+      await persistSessionSnapshot(session);
     }
   });
 
@@ -104,6 +145,7 @@ export function useMenuSession() {
       queryClient.removeQueries({ queryKey: ['menu-session', sessionId] });
     }
     setSessionId(null);
+    persistSessionSnapshot(null).catch(() => {});
   };
 
   const sessionError = sessionQuery.error

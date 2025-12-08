@@ -94,6 +94,27 @@ const TITLE_LIMIT_FALLBACK = 3;
 const UPGRADE_COLOR = '#C75A0E';
 const UPGRADE_SHADOW = '#8F3A04';
 
+const normalizeTitleOnlyDishes = (items: any[]): { id: string; title: string }[] => {
+  const seen = new Set<string>();
+  const now = Date.now();
+  return items.reduce<{ id: string; title: string }[]>((acc, item, index) => {
+    const title = typeof item?.title === 'string' ? item.title.trim() : '';
+    if (!title) {
+      return acc;
+    }
+    let id =
+      typeof item?.id === 'string' && item.id.trim().length
+        ? item.id.trim()
+        : `title-${now}-${index}-${Math.random().toString(36).slice(2, 8)}`;
+    if (seen.has(id)) {
+      id = `${id}-${index}`;
+    }
+    seen.add(id);
+    acc.push({ id, title });
+    return acc;
+  }, []);
+};
+
 export default function MenuInboxScreen() {
   const featurePremium = featureFlags.menuIngestion || __DEV__;
   const [sortMode, setSortMode] = useState<SortMode>('alpha');
@@ -244,7 +265,7 @@ export default function MenuInboxScreen() {
       .then((raw) => (raw ? JSON.parse(raw) : []))
       .then((parsed) => {
         if (Array.isArray(parsed)) {
-          setTitleOnlyDishes(parsed);
+          setTitleOnlyDishes(normalizeTitleOnlyDishes(parsed));
         }
       })
       .catch(() => {});
@@ -1137,9 +1158,9 @@ export default function MenuInboxScreen() {
         </Pressable>
         {savedDishes.length ? (
           <View style={styles.savedList}>
-            {savedDishes.map((dish) => (
+            {savedDishes.map((dish, index) => (
               <Pressable
-                key={dish.id}
+                key={dish.id || `${dish.title || 'dish'}-${index}`}
                 style={[
                   styles.savedRow,
                   selectionMode && savedSelection.has(dish.id) && styles.savedRowSelected
@@ -1379,11 +1400,14 @@ export default function MenuInboxScreen() {
                       ) : (
                         <>
                           <Text style={styles.menuSectionTitle}>Shopping lines</Text>
-                          {card.listLines.map((line: string) => (
-                            <Text key={line} style={styles.menuLine}>
-                              • {line}
-                            </Text>
-                          ))}
+                          {card.listLines
+                            .map((line) => line?.trim())
+                            .filter(Boolean)
+                            .map((line, index) => (
+                              <Text key={`${card.id}-line-${index}`} style={styles.menuLine}>
+                                • {line}
+                              </Text>
+                            ))}
                           {card.packagingNote ? (
                             <>
                               <Text style={styles.menuSectionTitle}>Packaging</Text>
@@ -1393,11 +1417,14 @@ export default function MenuInboxScreen() {
                           {card.packagingGuidance.length ? (
                             <>
                               <Text style={styles.menuSectionTitle}>Packaging guidance</Text>
-                              {card.packagingGuidance.map((line) => (
-                                <Text key={line} style={styles.menuLine}>
-                                  • {line}
-                                </Text>
-                              ))}
+                          {card.packagingGuidance
+                            .map((line) => line?.trim())
+                            .filter(Boolean)
+                            .map((line, index) => (
+                              <Text key={`${card.id}-pack-${index}`} style={styles.menuLine}>
+                                • {line}
+                              </Text>
+                            ))}
                             </>
                           ) : null}
                           <Pressable
@@ -1485,11 +1512,14 @@ export default function MenuInboxScreen() {
                         {card.course} • Serves {card.people}
                       </Text>
                     </View>
-                    {card.listLines.map((line) => (
-                      <Text key={`${card.id}-${line}`} style={styles.previewListLine}>
-                        • {line}
-                      </Text>
-                    ))}
+                    {card.listLines
+                      .map((line) => line?.trim())
+                      .filter(Boolean)
+                      .map((line, index) => (
+                        <Text key={`${card.id}-preview-${index}`} style={styles.previewListLine}>
+                          • {line}
+                        </Text>
+                      ))}
                   </View>
                 ))
               ) : (
