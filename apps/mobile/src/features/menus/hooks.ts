@@ -42,6 +42,29 @@ const SESSION_STORAGE_KEY = 'menus_active_session';
 const TERMINAL_SESSION_STATUSES = new Set(['completed', 'ready', 'title_only', 'failed', 'canceled', 'cancelled']);
 const EMPTY_RECIPES: MenuRecipe[] = [];
 
+const normalizeRecipes = (items: MenuRecipe[]): MenuRecipe[] => {
+  const map = new Map<string, MenuRecipe>();
+  items.forEach((recipe, index) => {
+    const trimmedId = (recipe.id ?? '').toString().trim();
+    const key = trimmedId || `${recipe.title || 'recipe'}-${recipe.updated_at ?? index}`;
+    if (!key) {
+      return;
+    }
+    const next = { ...recipe, id: trimmedId || key };
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, next);
+      return;
+    }
+    const existingUpdated = Date.parse(existing.updated_at ?? '') || 0;
+    const nextUpdated = Date.parse(next.updated_at ?? '') || 0;
+    if (nextUpdated >= existingUpdated) {
+      map.set(key, next);
+    }
+  });
+  return Array.from(map.values());
+};
+
 const sessionShouldPoll = (status?: string | null) => {
   if (!status) {
     return true;
@@ -220,11 +243,11 @@ export function useMenuRecipes() {
     queryKey: ['menu-recipes'],
     queryFn: async () => {
       try {
-        const remote = await listMenuRecipes();
+        const remote = normalizeRecipes(await listMenuRecipes());
         await cacheMenuRecipes(remote);
         return remote;
       } catch (error) {
-        const cached = await getCachedMenuRecipes();
+        const cached = normalizeRecipes(await getCachedMenuRecipes());
         if (cached.length) {
           return cached;
         }
@@ -238,13 +261,8 @@ export function useMenuRecipes() {
     onSuccess: async (result) => {
       if (result.recipe) {
         queryClient.setQueryData<MenuRecipe[] | undefined>(['menu-recipes'], (current = []) => {
-          const exists = current.findIndex((item) => item.id === result.recipe!.id);
-          if (exists >= 0) {
-            const next = [...current];
-            next[exists] = result.recipe!;
-            return next;
-          }
-          return [result.recipe!, ...current];
+          const next = normalizeRecipes([result.recipe!, ...current]);
+          return next;
         });
         await cacheMenuRecipes([result.recipe]);
       } else {
@@ -261,19 +279,13 @@ export function useMenuRecipes() {
       updateMenuRecipe(recipeId, updates),
     onSuccess: async (recipe) => {
       queryClient.setQueryData<MenuRecipe[] | undefined>(['menu-recipes'], (current = []) => {
-        const index = current.findIndex((item) => item.id === recipe.id);
-        if (index >= 0) {
-          const next = [...current];
-          next[index] = recipe;
-          return next;
-        }
-        return [recipe, ...current];
+        return normalizeRecipes([recipe, ...current]);
       });
       await cacheMenuRecipes([recipe]);
     }
   });
 
-  const recipes = recipesQuery.data ?? EMPTY_RECIPES;
+  const recipes = recipesQuery.data ? normalizeRecipes(recipesQuery.data) : EMPTY_RECIPES;
 
   return {
     recipes,
