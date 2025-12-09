@@ -59,6 +59,18 @@ function parseSessionIdFromUrl(url: URL) {
   return segments[idx + 1] ?? null;
 }
 
+function resolveLimits(user: any) {
+  const isPremium = Boolean(
+    user?.app_metadata?.is_menu_premium ?? user?.app_metadata?.is_developer ?? user?.app_metadata?.dev ?? false
+  );
+  return {
+    isPremium,
+    limits: isPremium
+      ? { maxUploadsPerDay: 25, concurrentSessions: 5, maxListCreates: 25 }
+      : { maxUploadsPerDay: 3, concurrentSessions: 1, maxListCreates: 1 }
+  };
+}
+
 async function insertDetections(
   client: ReturnType<typeof createClient>,
   userId: string,
@@ -144,6 +156,7 @@ serve(async (req) => {
     const status = message === "auth_required" ? 401 : 500;
     return jsonResponse({ error: message }, { status });
   }
+  const { limits, isPremium } = resolveLimits(user);
 
   const url = new URL(req.url);
   const sessionId = parseSessionIdFromUrl(url);
@@ -153,6 +166,46 @@ serve(async (req) => {
       case "POST": {
         const startedAt = performance.now();
         const payload = (await req.json().catch(() => ({}))) as CreateSessionPayload;
+
+        const today = new Date().toISOString().slice(0, 10);
+        try {
+          const { data: usageRows, error: usageError } = await client.rpc("increment_menu_usage", {
+            _owner_id: userId,
+            _usage_date: today,
+            _uploads_inc: 1,
+            _list_inc: 0,
+            _upload_limit: limits.maxUploadsPerDay,
+            _list_limit: limits.maxListCreates
+          });
+          if (usageError) {
+            console.error("menu_usage increment failed", usageError);
+            if (usageError.message?.includes("limit_exceeded")) {
+              return jsonResponse(
+                { error: "limit_exceeded", limit: limits.maxUploadsPerDay, remaining: 0, scope: "uploads" },
+                { status: 429 }
+              );
+            }
+            return jsonResponse({ error: "usage_tracking_failed" }, { status: 400 });
+          }
+          const usageRow = usageRows?.[0];
+          if (!usageRow) {
+            return jsonResponse(
+              { error: "limit_exceeded", limit: limits.maxUploadsPerDay, remaining: 0, scope: "uploads" },
+              { status: 429 }
+            );
+          }
+          const remaining = Math.max(0, limits.maxUploadsPerDay - (usageRow.uploads ?? 0));
+          if (remaining < 0) {
+            return jsonResponse(
+              { error: "limit_exceeded", limit: limits.maxUploadsPerDay, remaining: 0, scope: "uploads" },
+              { status: 429 }
+            );
+          }
+        } catch (usageErr) {
+          console.error("menu_usage increment error", usageErr);
+          return jsonResponse({ error: "usage_tracking_failed" }, { status: 400 });
+        }
+
         const insertPayload = {
           owner_id: userId,
           status: "pending" as SessionStatus,
@@ -162,7 +215,7 @@ serve(async (req) => {
           card_ids: [],
           warnings: [],
           detected_document_type: payload.source?.type ?? null,
-          is_premium: Boolean(payload.isPremium ?? user?.app_metadata?.is_menu_premium ?? false),
+          is_premium: Boolean(payload.isPremium ?? isPremium),
           intent_route: null as IntentRoute | null
         };
 

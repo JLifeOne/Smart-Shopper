@@ -41,7 +41,7 @@ async function getAuthedClient(req: Request) {
   });
   const { data, error } = await client.auth.getUser();
   if (error || !data?.user) throw new Error("auth_invalid");
-  return { client, userId: data.user.id };
+  return { client, userId: data.user.id, user: data.user };
 }
 
 function aggregateIngredients(recipes: any[], peopleOverride?: number) {
@@ -75,6 +75,18 @@ function aggregateIngredients(recipes: any[], peopleOverride?: number) {
   }));
 }
 
+function resolveLimits(user: any) {
+  const isPremium = Boolean(
+    user?.app_metadata?.is_menu_premium ?? user?.app_metadata?.is_developer ?? user?.app_metadata?.dev ?? false
+  );
+  return {
+    isPremium,
+    limits: isPremium
+      ? { maxUploadsPerDay: 25, concurrentSessions: 5, maxListCreates: 25 }
+      : { maxUploadsPerDay: 3, concurrentSessions: 1, maxListCreates: 1 }
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -82,10 +94,12 @@ serve(async (req) => {
 
   let supabase;
   let userId;
+  let user;
   try {
     const auth = await getAuthedClient(req);
     supabase = auth.client;
     userId = auth.userId;
+    user = auth.user;
   } catch (error) {
     const message = error instanceof Error ? error.message : "auth_error";
     const status = message === "auth_required" ? 401 : 500;
@@ -97,6 +111,7 @@ serve(async (req) => {
   }
 
   try {
+    const { limits } = resolveLimits(user);
     const payload = (await req.json().catch(() => ({}))) as ConvertPayload;
     const dishIds = Array.isArray(payload.dishIds) ? payload.dishIds.filter(Boolean) : [];
     if (!dishIds.length) {
@@ -169,6 +184,42 @@ serve(async (req) => {
     let listId: string | null = null;
 
     if (payload.persistList) {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: usageRows, error: usageError } = await supabase.rpc("increment_menu_usage", {
+        _owner_id: userId,
+        _usage_date: today,
+        _uploads_inc: 0,
+        _list_inc: 1,
+        _upload_limit: limits.maxUploadsPerDay,
+        _list_limit: limits.maxListCreates
+      });
+      const usageRow = usageRows?.[0];
+      if (usageError || !usageRow) {
+        const isLimit =
+          usageError?.message?.includes("limit_exceeded") ||
+          (usageRow && usageRow.list_creates > limits.maxListCreates);
+        return jsonResponse(
+          {
+            error: isLimit ? "limit_exceeded" : "usage_tracking_failed",
+            scope: "list_creates",
+            limit: limits.maxListCreates,
+            remaining: Math.max(0, limits.maxListCreates - (usageRow?.list_creates ?? limits.maxListCreates))
+          },
+          { status: isLimit ? 429 : 400 }
+        );
+      }
+      const remainingLists = Math.max(0, limits.maxListCreates - (usageRow.list_creates ?? 0));
+      if (remainingLists <= 0) {
+        return jsonResponse(
+          {
+            error: "limit_exceeded",
+            scope: "list_creates",
+            limit: limits.maxListCreates,
+            remaining: 0
+          },
+          { status: 429 }
+        );
+      }
       const listName = payload.listName?.trim() || `Menu plan ${new Date().toISOString().slice(0, 10)}`;
       const { data: list, error: listError } = await supabase
         .from("lists")
