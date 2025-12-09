@@ -13,6 +13,7 @@ type Extra = {
   featureListSharing?: boolean;
   featureAiSuggestions?: boolean;
   featureMenuIngestion?: boolean;
+  featureMenuDevFullAccess?: boolean;
   recoServiceUrl?: string;
 };
 
@@ -34,7 +35,8 @@ const flags = {
   listParserV2: extra.featureListParserV2 ?? false,
   listSharing: extra.featureListSharing ?? false,
   aiSuggestions: extra.featureAiSuggestions ?? false,
-  menuIngestion: extra.featureMenuIngestion ?? false
+  menuIngestion: extra.featureMenuIngestion ?? false,
+  menuDevFullAccess: extra.featureMenuDevFullAccess ?? false
 };
 
 if (__DEV__) {

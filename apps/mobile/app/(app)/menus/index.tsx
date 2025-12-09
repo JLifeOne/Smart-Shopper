@@ -14,6 +14,7 @@ import {
   useMenuPrompt,
   useMenuReviews
 } from '@/src/features/menus/hooks';
+import { useAuth } from '@/src/context/auth-context';
 import type {
   ConsolidatedLine,
   MenuRecipe,
@@ -94,6 +95,7 @@ const TITLE_LIMIT_FALLBACK = 3;
 const UPGRADE_COLOR = '#C75A0E';
 const UPGRADE_SHADOW = '#8F3A04';
 const UI_STATE_STORAGE_KEY = 'menus_ui_state';
+const getDailyLimitStorageKey = (userId?: string | null) => `${TITLE_LIMIT_STORAGE_KEY}:${userId ?? 'anon'}`;
 
 const normalizeTitleOnlyDishes = (items: any[]): { id: string; title: string }[] => {
   const seen = new Set<string>();
@@ -117,7 +119,9 @@ const normalizeTitleOnlyDishes = (items: any[]): { id: string; title: string }[]
 };
 
 export default function MenuInboxScreen() {
-  const featurePremium = featureFlags.menuIngestion || __DEV__;
+  const devMenuOverride = featureFlags.menuDevFullAccess && __DEV__;
+  const { user } = useAuth();
+  const dailyLimitKey = useMemo(() => getDailyLimitStorageKey(user?.id), [user?.id]);
   const [sortMode, setSortMode] = useState<SortMode>('alpha');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
@@ -129,13 +133,13 @@ export default function MenuInboxScreen() {
   const [showUploadOptions, setShowUploadOptions] = useState(false);
   const [dishDraft, setDishDraft] = useState('');
   const [titleOnlyDishes, setTitleOnlyDishes] = useState<{ id: string; title: string }[]>([]);
-  const [titleLimit, setTitleLimit] = useState<{ date: string; count: number }>({ date: '', count: 0 });
+  const [dailyLimitUsage, setDailyLimitUsage] = useState<{ date: string; count: number }>({ date: '', count: 0 });
   const titleLoadRef = useRef(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [savedSelection, setSavedSelection] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
-  const [showUpgradeOverlay, setShowUpgradeOverlay] = useState(!featurePremium);
-  const [overlayCollapsed, setOverlayCollapsed] = useState(false);
+  const [showUpgradeOverlay, setShowUpgradeOverlay] = useState(!devMenuOverride);
+  const [overlayCollapsed, setOverlayCollapsed] = useState(devMenuOverride);
   const [conversionMeta, setConversionMeta] = useState<ConversionMeta | null>(null);
   const [sessionHighlights, setSessionHighlights] = useState<string[]>([]);
   const [restoredUI, setRestoredUI] = useState(false);
@@ -179,12 +183,38 @@ export default function MenuInboxScreen() {
   const { recipes, recipesLoading, recipesError, createRecipe, creating } = useMenuRecipes();
   const { convert, conversionLoading, conversionResult, conversionError, resetConversion } = useMenuListConversion();
   const { pairings, pairingsLoading, pairingsError, savePairing } = useMenuPairings();
-  const { policy: menuPolicy, updatePreferences, updatingPreferences } = useMenuPolicy();
-  const policyPremium = menuPolicy?.policy.isPremium ?? false;
-  // Fallback to premium in dev or when policy fails to load, so we don't block flows in dev builds.
-  const isPremium = featurePremium || policyPremium || __DEV__;
-  const blurRecipes = menuPolicy?.policy.blurRecipes ?? !isPremium;
-  const limitPerDay = menuPolicy?.policy.limits.maxUploadsPerDay ?? TITLE_LIMIT_FALLBACK;
+  const { policy: menuPolicy, updatePreferences, updatingPreferences, loading: policyLoading, error: policyError } =
+    useMenuPolicy();
+  const entitlements = useMemo(() => {
+    const fallbackLimits = { maxUploadsPerDay: TITLE_LIMIT_FALLBACK, concurrentSessions: 1, maxListCreates: 1 };
+    const policy = menuPolicy?.policy;
+    const limits = policy?.limits ?? fallbackLimits;
+    const base = {
+      isPremium: Boolean(policy?.isPremium && policy?.accessLevel === 'full'),
+      blurRecipes: policy?.blurRecipes ?? true,
+      allowListCreation: policy?.allowListCreation ?? false,
+      limits
+    };
+    if (devMenuOverride) {
+      return {
+        ...base,
+        isPremium: true,
+        blurRecipes: false,
+        allowListCreation: true,
+        limits: {
+          ...limits,
+          maxUploadsPerDay: Math.max(limits.maxUploadsPerDay ?? TITLE_LIMIT_FALLBACK, 50),
+          maxListCreates: Math.max(limits.maxListCreates ?? 1, 50)
+        }
+      };
+    }
+    return base;
+  }, [menuPolicy, devMenuOverride]);
+  const isPremium = entitlements.isPremium;
+  const blurRecipes = entitlements.blurRecipes;
+  const limitPerDay = entitlements.limits.maxUploadsPerDay ?? TITLE_LIMIT_FALLBACK;
+  const allowListCreation = entitlements.allowListCreation;
+  const entitlementsReady = Boolean(menuPolicy) || devMenuOverride;
   useEffect(() => {
     setLimitPromptCount(limitPerDay);
   }, [limitPerDay]);
@@ -290,15 +320,29 @@ export default function MenuInboxScreen() {
         }
       })
       .catch(() => {});
-    AsyncStorage.getItem(TITLE_LIMIT_STORAGE_KEY)
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(dailyLimitKey)
       .then((raw) => (raw ? JSON.parse(raw) : null))
       .then((parsed) => {
+        if (cancelled) return;
         if (parsed && typeof parsed.date === 'string' && typeof parsed.count === 'number') {
-          setTitleLimit(parsed);
+          setDailyLimitUsage(parsed);
+        } else {
+          setDailyLimitUsage({ date: '', count: 0 });
         }
       })
-      .catch(() => {});
-  }, []);
+      .catch(() => {
+        if (!cancelled) {
+          setDailyLimitUsage({ date: '', count: 0 });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dailyLimitKey]);
 
   useEffect(() => {
     const currentSignature = recipeSignature;
@@ -313,13 +357,13 @@ export default function MenuInboxScreen() {
         if (sameKeys) {
           const unchanged = Object.entries(FALLBACK_CARD_PEOPLE).every(([key, value]) => prev[key] === value);
           if (unchanged) {
-          return prev;
+            return prev;
+          }
         }
-      }
-      return FALLBACK_CARD_PEOPLE;
-    });
-    return;
-  }
+        return FALLBACK_CARD_PEOPLE;
+      });
+      return;
+    }
     setCardPeople((prev) => {
       let changed = false;
       const next = { ...prev };
@@ -473,33 +517,38 @@ export default function MenuInboxScreen() {
     : null;
   const highlightSet = useMemo(() => new Set(sessionHighlights), [sessionHighlights]);
 
+  useEffect(() => {
+    if (cardViewerOpen) {
+      return;
+    }
+    if (!openCards.size || !sortedCards.length) {
+      return;
+    }
+    const targetIndex = sortedCards.findIndex((card) => openCards.has(card.id));
+    if (targetIndex < 0) {
+      return;
+    }
+    setCardViewerIndex(targetIndex);
+    setCardViewerOpen(true);
+  }, [openCards, sortedCards, cardViewerOpen]);
+
+  const ensureEntitlementsReady = () => {
+    if (entitlementsReady) {
+      return true;
+    }
+    if (policyLoading) {
+      Toast.show('Loading menu access policy...', 1400);
+    } else if (policyError) {
+      Toast.show('Menu access policy unavailable. Try again shortly.', 1700);
+    } else {
+      Toast.show('Menu access policy not available yet. Please retry.', 1500);
+    }
+    return false;
+  };
+
   const dismissConversionSummary = () => {
     resetConversion();
     setConversionMeta(null);
-  };
-
-  const toggleSelected = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
-
-  const toggleOpen = (id: string) => {
-    setOpenCards((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
   };
 
   const handleUpgradePress = () => {
@@ -507,6 +556,13 @@ export default function MenuInboxScreen() {
   };
 
   const handleAddSingle = async (cardId: string, people: number, label: string) => {
+    if (!ensureEntitlementsReady()) {
+      return;
+    }
+    if (!allowListCreation) {
+      Toast.show('List creation is not allowed for your current plan.', 1700);
+      return;
+    }
     if (!isPremium) {
       handleUpgradePress();
       return;
@@ -549,6 +605,13 @@ export default function MenuInboxScreen() {
     const people = Math.max(1, Math.min(...ids.map((id) => cardPeople[id] ?? 1)));
     if (!ids.length) {
       Toast.show('Select at least one dish.', 1200);
+      return;
+    }
+    if (!ensureEntitlementsReady()) {
+      return;
+    }
+    if (!allowListCreation) {
+      Toast.show('List creation is not allowed for your current plan.', 1700);
       return;
     }
     if (!isPremium) {
@@ -601,9 +664,9 @@ export default function MenuInboxScreen() {
     }
   };
 
-  const consumeTitleSlot = async () => {
+  const consumeDailySlot = async () => {
     const today = new Date().toISOString().slice(0, 10);
-    let current = titleLimit;
+    let current = dailyLimitUsage;
     if (current.date !== today) {
       current = { date: today, count: 0 };
     }
@@ -612,9 +675,9 @@ export default function MenuInboxScreen() {
       return false;
     }
     const next = { date: today, count: current.count + 1 };
-    setTitleLimit(next);
+    setDailyLimitUsage(next);
     try {
-      await AsyncStorage.setItem(TITLE_LIMIT_STORAGE_KEY, JSON.stringify(next));
+      await AsyncStorage.setItem(dailyLimitKey, JSON.stringify(next));
     } catch (error) {
       console.warn('menus: failed to persist title limit', error);
     }
@@ -622,14 +685,15 @@ export default function MenuInboxScreen() {
   };
 
   const canUseUploadSlot = async () => {
-    if (!isPremium) {
-      const today = new Date().toISOString().slice(0, 10);
-      const current = titleLimit.date === today ? titleLimit.count : 0;
-      if (current >= limitPerDay) {
-        setLimitPromptVisible(true);
-        setLimitPromptCount(limitPerDay);
-        return false;
-      }
+    if (!ensureEntitlementsReady()) {
+      return false;
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const current = dailyLimitUsage.date === today ? dailyLimitUsage.count : 0;
+    if (current >= limitPerDay) {
+      setLimitPromptVisible(true);
+      setLimitPromptCount(limitPerDay);
+      return false;
     }
     return true;
   };
@@ -651,6 +715,11 @@ export default function MenuInboxScreen() {
       if (result.canceled) return;
       const uri = result.assets?.[0]?.uri ?? null;
       await startSession({ mode: 'camera', premium: isPremium, sourceUri: uri ?? undefined });
+      const recorded = await consumeDailySlot();
+      if (!recorded) {
+        setLimitPromptVisible(true);
+        setLimitPromptCount(limitPerDay);
+      }
       Toast.show('Camera capture started. Parsing menus…', 1600);
     } catch (error) {
       Toast.show('Unable to open camera. Try again.', 1700);
@@ -674,6 +743,11 @@ export default function MenuInboxScreen() {
       if (result.canceled) return;
       const uri = result.assets?.[0]?.uri ?? null;
       await startSession({ mode: 'gallery', premium: isPremium, sourceUri: uri ?? undefined });
+      const recorded = await consumeDailySlot();
+      if (!recorded) {
+        setLimitPromptVisible(true);
+        setLimitPromptCount(limitPerDay);
+      }
       Toast.show('Import started. Parsing menus…', 1600);
     } catch (error) {
       Toast.show('Unable to open gallery. Try again.', 1700);
@@ -681,6 +755,9 @@ export default function MenuInboxScreen() {
   };
 
   const handleSaveDish = async () => {
+    if (!ensureEntitlementsReady()) {
+      return;
+    }
     if (creating) {
       Toast.show('Saving… please wait.', 1200);
       return;
@@ -705,7 +782,7 @@ export default function MenuInboxScreen() {
       const newTitleOnly: { id: string; title: string }[] = [];
       if (!isPremium) {
         for (const title of parts) {
-          const allowed = await consumeTitleSlot();
+          const allowed = await consumeDailySlot();
           if (!allowed) {
             setLimitPromptVisible(true);
             setLimitPromptCount(limitPerDay);
@@ -766,6 +843,11 @@ export default function MenuInboxScreen() {
       handleUpgradePress();
       return;
     }
+    setOpenCards((prev) => {
+      const next = new Set(prev);
+      next.add(dish.id);
+      return next;
+    });
     const viewerCards = sortedCards;
     const targetIndex = viewerCards.findIndex((card) => card.id === dish.id);
     if (targetIndex < 0) {
@@ -812,6 +894,13 @@ export default function MenuInboxScreen() {
       });
       Toast.show('Opened selected recipes.', 1200);
     } else {
+      if (!ensureEntitlementsReady()) {
+        return;
+      }
+      if (!allowListCreation) {
+        Toast.show('List creation is not allowed for your current plan.', 1700);
+        return;
+      }
       if (!isPremium) {
         handleUpgradePress();
         return;
@@ -836,6 +925,13 @@ export default function MenuInboxScreen() {
   };
 
   const handleGeneratePreview = async () => {
+    if (!ensureEntitlementsReady()) {
+      return;
+    }
+    if (!isPremium) {
+      handleUpgradePress();
+      return;
+    }
     const dishes = sortedCards.slice(0, 5).map((card) => ({
       title: card.title,
       cuisineStyle: card.cuisine
@@ -1223,10 +1319,12 @@ export default function MenuInboxScreen() {
               {savedDishes.map((dish, index) => (
                 <Pressable
                   key={dish.id || `${dish.title || 'dish'}-${index}`}
+                  accessibilityState={{ selected: selectionMode ? savedSelection.has(dish.id) : undefined, expanded: openCards.has(dish.id) }}
                   style={[
                     styles.savedRow,
                     index > 0 && styles.savedRowDivider,
-                    selectionMode && savedSelection.has(dish.id) && styles.savedRowSelected
+                    selectionMode && savedSelection.has(dish.id) && styles.savedRowSelected,
+                    !selectionMode && openCards.has(dish.id) && styles.savedRowOpen
                   ]}
                   onPress={() => {
                     if (selectionMode) {
@@ -1248,7 +1346,7 @@ export default function MenuInboxScreen() {
                       color="#0C1D37"
                     />
                   ) : (
-                    <Ionicons name="arrow-forward" size={14} color="#0C1D37" />
+                    <Ionicons name={openCards.has(dish.id) ? 'eye' : 'arrow-forward'} size={14} color="#0C1D37" />
                   )}
                 </Pressable>
               ))}
@@ -2070,11 +2168,11 @@ const styles = StyleSheet.create({
   },
   sessionCard: {
     marginTop: 8,
-    backgroundColor: '#ECFEFF',
+    backgroundColor: '#98fdeaff',
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#CFFAFE',
+    borderColor: '#adf8ffff',
     gap: 8
   },
   sessionHeader: {
@@ -2097,7 +2195,7 @@ const styles = StyleSheet.create({
     color: '#475569'
   },
   sessionList: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#fd8c8cff',
     borderRadius: 12,
     padding: 10,
     gap: 4
@@ -2185,6 +2283,11 @@ const styles = StyleSheet.create({
   },
   savedRowSelected: {
     backgroundColor: '#ECFEFF',
+    borderRadius: 10,
+    paddingHorizontal: 6
+  },
+  savedRowOpen: {
+    backgroundColor: '#EEF2FF',
     borderRadius: 10,
     paddingHorizontal: 6
   },
