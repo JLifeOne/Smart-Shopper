@@ -947,29 +947,16 @@ export default function MenuInboxScreen() {
             (uploading || sessionLoading) && styles.quickActionDisabled,
             pressed && styles.quickActionPressed
           ]}
-          onPress={() => setShowUploadOptions((prev) => !prev)}
+          onPress={() => setShowUploadOptions(true)}
           disabled={uploading}
         >
-          {uploading ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />}
-          <Text style={styles.quickActionPrimaryLabel}>{uploading ? 'Uploading…' : 'Upload'}</Text>
+          {uploading ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Ionicons name="restaurant" size={16} color="#FFFFFF" />
+          )}
+          <Text style={styles.quickActionPrimaryLabel}>{uploading ? 'Starting…' : 'Scan / Upload'}</Text>
         </Pressable>
-        {!isPremium ? (
-          <Pressable
-            style={({ pressed }) => [
-              styles.quickAction,
-              styles.quickActionUpgrade,
-              pressed && styles.quickActionPressed
-            ]}
-            onPress={() => {
-              setOverlayCollapsed(false);
-              setShowUpgradeOverlay(true);
-            }}
-          >
-            <Ionicons name="sparkles" size={16} color="#FFFFFF" />
-            <Text style={styles.quickActionPrimaryLabel}>Upgrade</Text>
-          </Pressable>
-        ) : null}
-        {/* Diet & allergens entry removed per request */}
         <View style={styles.sortWrapper}>
           <Pressable
             style={[styles.sortChip, styles.sortChipActive]}
@@ -1227,37 +1214,44 @@ export default function MenuInboxScreen() {
         </Pressable>
         {savedDishes.length ? (
           <View style={styles.savedList}>
-            {savedDishes.map((dish, index) => (
-              <Pressable
-                key={dish.id || `${dish.title || 'dish'}-${index}`}
-                style={[
-                  styles.savedRow,
-                  selectionMode && savedSelection.has(dish.id) && styles.savedRowSelected
-                ]}
-                onPress={() => {
-                  if (selectionMode) {
-                    toggleSavedSelection(dish.id);
-                  } else {
-                    handleSavedPress(dish);
-                  }
-                }}
-                onLongPress={() => handleSavedLongPress(dish.id)}
-              >
-                <View>
-                  <Text style={styles.savedTitle}>{dish.title}</Text>
-                  {dish.titleOnly ? <Text style={styles.savedUpsell}>Title only – tap to upgrade</Text> : null}
-                </View>
-                {selectionMode ? (
-                  <Ionicons
-                    name={savedSelection.has(dish.id) ? 'checkbox' : 'square-outline'}
-                    size={16}
-                    color="#0C1D37"
-                  />
-                ) : (
-                  <Ionicons name="arrow-forward" size={14} color="#0C1D37" />
-                )}
-              </Pressable>
-            ))}
+            <View style={styles.savedListHeader}>
+              <Text style={styles.savedListTitle}>Saved dishes</Text>
+              <Text style={styles.savedListMeta}>{savedDishes.length} total</Text>
+            </View>
+            <ScrollView style={styles.savedListScroll} nestedScrollEnabled>
+              {savedDishes.map((dish, index) => (
+                <Pressable
+                  key={dish.id || `${dish.title || 'dish'}-${index}`}
+                  style={[
+                    styles.savedRow,
+                    index > 0 && styles.savedRowDivider,
+                    selectionMode && savedSelection.has(dish.id) && styles.savedRowSelected
+                  ]}
+                  onPress={() => {
+                    if (selectionMode) {
+                      toggleSavedSelection(dish.id);
+                    } else {
+                      handleSavedPress(dish);
+                    }
+                  }}
+                  onLongPress={() => handleSavedLongPress(dish.id)}
+                >
+                  <View>
+                    <Text style={styles.savedTitle}>{formatDishTitle(dish.title)}</Text>
+                    {dish.titleOnly ? <Text style={styles.savedUpsell}>Title only – tap to upgrade</Text> : null}
+                  </View>
+                  {selectionMode ? (
+                    <Ionicons
+                      name={savedSelection.has(dish.id) ? 'checkbox' : 'square-outline'}
+                      size={16}
+                      color="#0C1D37"
+                    />
+                  ) : (
+                    <Ionicons name="arrow-forward" size={14} color="#0C1D37" />
+                  )}
+                </Pressable>
+              ))}
+            </ScrollView>
             {selectionMode ? (
               <View style={styles.savedActions}>
                 <Pressable
@@ -1331,19 +1325,15 @@ export default function MenuInboxScreen() {
       {isPremium ? (
         <>
           <View style={styles.card}>
-            <Ionicons name="restaurant" size={24} color="#0C1D37" />
-            <Text style={styles.cardTitle}>Menu review</Text>
+            <View style={styles.menuReviewHeader}>
+              <Ionicons name="restaurant" size={20} color="#0C1D37" />
+              <Text style={styles.cardTitle}>Menu review</Text>
+            </View>
             {recipesLoading ? <ActivityIndicator size="small" color="#0C1D37" /> : null}
             {recipesError ? <Text style={styles.errorText}>Unable to load menus. Pull to refresh.</Text> : null}
             <Text style={styles.cardBody}>
               Upload or type dishes, scale people, and add all to your list. Packaging matches local store sizes.
             </Text>
-            <Pressable
-              style={styles.primary}
-              onPress={() => Toast.show('Start a menu scan from the New list modal.', 1600)}
-            >
-              <Text style={styles.primaryLabel}>Scan a menu</Text>
-            </Pressable>
             {sortedCards.map((card) => {
               const selected = selectedIds.has(card.id);
               const open = openCards.has(card.id);
@@ -1764,6 +1754,15 @@ function formatListLine(line: ConsolidatedLine) {
   const notes = line.notes ? ` (${line.notes})` : '';
   return `${qtyText || 'Qty pending'}${notes}`;
 }
+
+const formatDishTitle = (title: string) => {
+  if (!title) return '';
+  return title
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
 
 const styles = StyleSheet.create({
   screen: {
@@ -2227,6 +2226,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 6
   },
+  savedRowDivider: {
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0'
+  },
   savedRowSelected: {
     backgroundColor: '#ECFEFF',
     borderRadius: 10,
@@ -2240,6 +2243,25 @@ const styles = StyleSheet.create({
   savedUpsell: {
     fontSize: 11,
     color: '#64748B'
+  },
+  savedListHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    paddingBottom: 4
+  },
+  savedListTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  savedListMeta: {
+    fontSize: 12,
+    color: '#64748B'
+  },
+  savedListScroll: {
+    maxHeight: 240
   },
   savedActions: {
     flexDirection: 'row',
@@ -2505,6 +2527,11 @@ const styles = StyleSheet.create({
   menuCardSelected: {
     borderColor: '#0EA5E9',
     backgroundColor: '#ECFEFF'
+  },
+  menuReviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6
   },
   menuHeader: {
     flexDirection: 'row',
