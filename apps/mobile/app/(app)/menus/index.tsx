@@ -194,11 +194,17 @@ export default function MenuInboxScreen() {
     const fallbackLimits = { maxUploadsPerDay: TITLE_LIMIT_FALLBACK, concurrentSessions: 1, maxListCreates: 1 };
     const policy = menuPolicy?.policy;
     const limits = policy?.limits ?? fallbackLimits;
+    const remainingUploads = policy?.limits?.remainingUploads ?? null;
+    const remainingListCreates = policy?.limits?.remainingListCreates ?? null;
     const base = {
       isPremium: Boolean(policy?.isPremium && policy?.accessLevel === 'full'),
       blurRecipes: policy?.blurRecipes ?? true,
       allowListCreation: policy?.allowListCreation ?? false,
-      limits
+      limits: {
+        ...limits,
+        remainingUploads,
+        remainingListCreates
+      }
     };
     if (devMenuOverride) {
       return {
@@ -218,6 +224,8 @@ export default function MenuInboxScreen() {
   const isPremium = entitlements.isPremium;
   const blurRecipes = entitlements.blurRecipes;
   const limitPerDay = entitlements.limits.maxUploadsPerDay ?? TITLE_LIMIT_FALLBACK;
+  const remainingUploads = entitlements.limits.remainingUploads ?? null;
+  const remainingListCreates = entitlements.limits.remainingListCreates ?? null;
   const allowListCreation = entitlements.allowListCreation;
   const entitlementsReady = Boolean(menuPolicy) || devMenuOverride;
   useEffect(() => {
@@ -635,6 +643,10 @@ export default function MenuInboxScreen() {
       Toast.show('List creation is not allowed for your current plan.', 1700);
       return;
     }
+    if (typeof remainingListCreates === 'number' && remainingListCreates <= 0) {
+      Toast.show('List creation limit reached for today.', 1700);
+      return;
+    }
     if (!isPremium) {
       handleUpgradePress();
       return;
@@ -715,9 +727,10 @@ export default function MenuInboxScreen() {
     }
     const today = new Date().toISOString().slice(0, 10);
     const current = dailyLimitUsage.date === today ? dailyLimitUsage.count : 0;
-    if (current >= limitPerDay) {
+    const remainingServer = typeof remainingUploads === 'number' ? remainingUploads : limitPerDay - current;
+    if (current >= limitPerDay || remainingServer <= 0) {
       setLimitPromptVisible(true);
-      setLimitPromptCount(limitPerDay);
+      setLimitPromptCount(Math.max(0, remainingServer));
       return false;
     }
     return true;
@@ -743,13 +756,13 @@ export default function MenuInboxScreen() {
       const recorded = await consumeDailySlot();
       if (!recorded) {
         setLimitPromptVisible(true);
-        setLimitPromptCount(limitPerDay);
+        setLimitPromptCount(remainingUploads ?? limitPerDay);
       }
       Toast.show('Camera capture started. Parsing menus…', 1600);
     } catch (error) {
       if (isOverLimitError(error)) {
         setLimitPromptVisible(true);
-        setLimitPromptCount(limitPerDay);
+        setLimitPromptCount(remainingUploads ?? limitPerDay);
         Toast.show('Daily upload limit reached.', 1700);
         return;
       }
@@ -777,13 +790,13 @@ export default function MenuInboxScreen() {
       const recorded = await consumeDailySlot();
       if (!recorded) {
         setLimitPromptVisible(true);
-        setLimitPromptCount(limitPerDay);
+        setLimitPromptCount(remainingUploads ?? limitPerDay);
       }
       Toast.show('Import started. Parsing menus…', 1600);
     } catch (error) {
       if (isOverLimitError(error)) {
         setLimitPromptVisible(true);
-        setLimitPromptCount(limitPerDay);
+        setLimitPromptCount(remainingUploads ?? limitPerDay);
         Toast.show('Daily upload limit reached.', 1700);
         return;
       }
@@ -936,6 +949,10 @@ export default function MenuInboxScreen() {
       }
       if (!allowListCreation) {
         Toast.show('List creation is not allowed for your current plan.', 1700);
+        return;
+      }
+      if (typeof remainingListCreates === 'number' && remainingListCreates <= 0) {
+        Toast.show('List creation limit reached for today.', 1700);
         return;
       }
       if (!isPremium) {
@@ -1150,8 +1167,9 @@ export default function MenuInboxScreen() {
             </View>
             <Text style={styles.limitTitle}>Daily save limit reached</Text>
             <Text style={styles.limitSubtitle}>
-              You can save up to {limitPromptCount} dishes per day while on the free plan. Upgrade to unlock full menu
-              recipes, unlimited saves, and auto shopping plans.
+              You can save up to {limitPerDay} dishes per day while on the free plan. Remaining today:{' '}
+              {Math.max(0, limitPromptCount)}. Upgrade to unlock full menu recipes, unlimited saves, and auto shopping
+              plans.
             </Text>
             <Pressable
               style={[styles.primary, styles.upgradeFancy, styles.limitUpgrade]}

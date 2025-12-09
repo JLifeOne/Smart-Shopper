@@ -18,6 +18,8 @@ type PolicyResponse = {
       maxUploadsPerDay: number;
       concurrentSessions: number;
       maxListCreates: number;
+      remainingUploads: number;
+      remainingListCreates: number;
     };
     allowListCreation: boolean;
     allowTemplateCards: boolean;
@@ -37,6 +39,20 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
     headers: { "content-type": "application/json", ...corsHeaders },
     ...init,
   });
+}
+
+async function getUsage(client: any, userId: string) {
+  const today = new Date().toISOString().slice(0, 10);
+  const { data, error } = await client
+    .from("menu_usage_counters")
+    .select("uploads, list_creates")
+    .eq("owner_id", userId)
+    .eq("usage_date", today)
+    .single();
+  if (error && error.code !== "PGRST116") {
+    console.error("menu_usage_counters fetch failed", error);
+  }
+  return { uploads: data?.uploads ?? 0, listCreates: data?.list_creates ?? 0 };
 }
 
 async function getAuthedClient(req: Request) {
@@ -126,13 +142,21 @@ serve(async (req) => {
         user.app_metadata?.dev ??
         false
     );
+    const limitsBase = isPremium
+      ? { maxUploadsPerDay: 25, concurrentSessions: 5, maxListCreates: 25 }
+      : { maxUploadsPerDay: 3, concurrentSessions: 1, maxListCreates: 1 };
+    const usage = await getUsage(client, user.id);
+    const remainingUploads = Math.max(0, limitsBase.maxUploadsPerDay - usage.uploads);
+    const remainingListCreates = Math.max(0, limitsBase.maxListCreates - usage.listCreates);
     const policy: PolicyResponse["policy"] = {
       isPremium,
       accessLevel: isPremium ? "full" : "title_only",
       blurRecipes: !isPremium,
-      limits: isPremium
-        ? { maxUploadsPerDay: 25, concurrentSessions: 5, maxListCreates: 25 }
-        : { maxUploadsPerDay: 3, concurrentSessions: 1, maxListCreates: 1 },
+      limits: {
+        ...limitsBase,
+        remainingUploads,
+        remainingListCreates,
+      },
       allowListCreation: isPremium,
       allowTemplateCards: true,
     };
