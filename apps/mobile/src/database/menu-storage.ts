@@ -272,8 +272,13 @@ export async function getCachedMenuSessions(): Promise<ApiMenuSession[]> {
     status: record.status as ApiMenuSession['status'],
     dish_titles: JSON_FALLBACK(record.dishTitles, []),
     warnings: JSON_FALLBACK(record.warnings, []),
-    card_ids: JSON_FALLBACK(record.payload, {}).card_ids ?? [],
-    is_premium: Boolean(JSON_FALLBACK(record.payload, {}).is_premium ?? false),
+    ...(() => {
+      const payload = JSON_FALLBACK<Record<string, any>>(record.payload, {});
+      return {
+        card_ids: payload.card_ids ?? [],
+        is_premium: Boolean(payload.is_premium ?? false)
+      };
+    })(),
     created_at: new Date(record.createdAt).toISOString(),
     updated_at: new Date(record.updatedAt).toISOString()
   }));
