@@ -9,6 +9,18 @@ export type SaveDishRequest = {
 
 type MenuFunctionInit = RequestInit & { idempotencyKey?: string };
 
+export class MenuFunctionError extends Error {
+  code?: string;
+  status?: number;
+  details?: any;
+  constructor(message: string, opts: { code?: string; status?: number; details?: any } = {}) {
+    super(message);
+    this.code = opts.code;
+    this.status = opts.status;
+    this.details = opts.details;
+  }
+}
+
 const generateIdempotencyKey = (seed?: string) => {
   const random = Math.random().toString(36).slice(2, 10);
   const stamp = Date.now().toString(36);
@@ -121,7 +133,14 @@ async function callMenuFunction<T>(path: string, init: MenuFunctionInit): Promis
   });
   const payload: any = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error ?? 'menu_function_failed');
+    const code = payload?.code ?? payload?.error ?? 'menu_function_failed';
+    const message = payload?.error ?? code ?? 'menu_function_failed';
+    const error = new MenuFunctionError(message, {
+      code: typeof code === 'string' ? code : undefined,
+      status: response.status,
+      details: payload
+    });
+    throw error;
   }
   return payload as T;
 }

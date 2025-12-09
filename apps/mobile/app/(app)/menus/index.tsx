@@ -21,7 +21,12 @@ import type {
   PackagingGuidanceEntry,
   MenuPromptResponse
 } from '@/src/features/menus/api';
-import { resolveMenuClarifications, submitMenuClarifications, submitMenuReview } from '@/src/features/menus/api';
+import {
+  resolveMenuClarifications,
+  submitMenuClarifications,
+  submitMenuReview,
+  MenuFunctionError
+} from '@/src/features/menus/api';
 
 type SortMode = 'alpha' | 'course' | 'cuisine';
 
@@ -517,6 +522,18 @@ export default function MenuInboxScreen() {
     : null;
   const highlightSet = useMemo(() => new Set(sessionHighlights), [sessionHighlights]);
 
+  const isOverLimitError = (error: unknown) => {
+    if (!error) return false;
+    if (error instanceof MenuFunctionError) {
+      return error.code === 'limit_exceeded' || error.code === 'menu_limit_exceeded';
+    }
+    if (error instanceof Error) {
+      const msg = error.message.toLowerCase();
+      return msg.includes('limit exceeded');
+    }
+    return false;
+  };
+
   useEffect(() => {
     if (cardViewerOpen) {
       return;
@@ -577,6 +594,10 @@ export default function MenuInboxScreen() {
         persisted: Boolean(result.listId)
       });
     } catch (error) {
+      if (isOverLimitError(error)) {
+        Toast.show('List creation limit reached for today.', 1700);
+        return;
+      }
       if (!handlePreferenceViolation(error)) {
         Toast.show('Unable to add menu right now.', 1700);
       }
@@ -632,6 +653,10 @@ export default function MenuInboxScreen() {
         persisted: Boolean(result.listId)
       });
     } catch (error) {
+      if (isOverLimitError(error)) {
+        Toast.show('List creation limit reached for today.', 1700);
+        return;
+      }
       if (!handlePreferenceViolation(error)) {
         Toast.show('Unable to convert menus right now.', 1700);
       }
@@ -722,6 +747,12 @@ export default function MenuInboxScreen() {
       }
       Toast.show('Camera capture started. Parsing menus…', 1600);
     } catch (error) {
+      if (isOverLimitError(error)) {
+        setLimitPromptVisible(true);
+        setLimitPromptCount(limitPerDay);
+        Toast.show('Daily upload limit reached.', 1700);
+        return;
+      }
       Toast.show('Unable to open camera. Try again.', 1700);
     }
   };
@@ -750,6 +781,12 @@ export default function MenuInboxScreen() {
       }
       Toast.show('Import started. Parsing menus…', 1600);
     } catch (error) {
+      if (isOverLimitError(error)) {
+        setLimitPromptVisible(true);
+        setLimitPromptCount(limitPerDay);
+        Toast.show('Daily upload limit reached.', 1700);
+        return;
+      }
       Toast.show('Unable to open gallery. Try again.', 1700);
     }
   };
@@ -915,6 +952,10 @@ export default function MenuInboxScreen() {
           persisted: Boolean(result.listId)
         });
       } catch (error) {
+        if (isOverLimitError(error)) {
+          Toast.show('List creation limit reached for today.', 1700);
+          return;
+        }
         if (!handlePreferenceViolation(error)) {
           Toast.show('Unable to create list right now.', 1700);
         }
