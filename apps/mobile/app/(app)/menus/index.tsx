@@ -139,6 +139,7 @@ export default function MenuInboxScreen() {
   const [conversionMeta, setConversionMeta] = useState<ConversionMeta | null>(null);
   const [sessionHighlights, setSessionHighlights] = useState<string[]>([]);
   const [restoredUI, setRestoredUI] = useState(false);
+  const [optimisticDishes, setOptimisticDishes] = useState<{ id: string; title: string }[]>([]);
   const [showPreferencesSheet, setShowPreferencesSheet] = useState(false);
   const [dietaryDraft, setDietaryDraft] = useState('');
   const [allergenDraft, setAllergenDraft] = useState('');
@@ -229,17 +230,33 @@ export default function MenuInboxScreen() {
       Toast.show('Unable to submit clarifications right now.', 1700);
     }
   };
-  const savedDishes = useMemo(
-    () => [
+  const savedDishes = useMemo(() => {
+    const entries = [
       ...recipes.map((recipe) => ({
         id: recipe.id,
-        title: recipe.title,
+        title: recipe.title?.trim() ?? '',
         titleOnly: !isPremium && recipe.premium_required
       })),
-      ...titleOnlyDishes.map((dish) => ({ ...dish, titleOnly: true }))
-    ],
-    [recipes, isPremium, titleOnlyDishes]
-  );
+      ...titleOnlyDishes.map((dish) => ({
+        id: dish.id,
+        title: dish.title?.trim() ?? '',
+        titleOnly: true
+      })),
+      ...optimisticDishes.map((dish) => ({
+        id: dish.id,
+        title: dish.title?.trim() ?? '',
+        titleOnly: true
+      }))
+    ].filter((item) => item.title.length);
+    const dedup = new Map<string, { id: string; title: string; titleOnly: boolean }>();
+    entries.forEach((item) => {
+      const key = item.title.toLowerCase();
+      if (!dedup.has(key) || (dedup.get(key)?.titleOnly && !item.titleOnly)) {
+        dedup.set(key, item);
+      }
+    });
+    return Array.from(dedup.values()).sort((a, b) => a.title.localeCompare(b.title));
+  }, [recipes, isPremium, titleOnlyDishes, optimisticDishes]);
 
   const recipeSignature = useMemo(() => {
     if (!recipes.length) {
@@ -662,14 +679,25 @@ export default function MenuInboxScreen() {
   };
 
   const handleSaveDish = async () => {
+    if (creating) {
+      Toast.show('Saving… please wait.', 1200);
+      return;
+    }
     const parts = dishDraft
-      .split(/[,\\n]/)
+      .split(/[,\n]/)
       .map((p) => p.trim())
       .filter(Boolean);
     if (!parts.length) {
       Toast.show('Enter a dish name first.', 1200);
       return;
     }
+    // Optimistic UI update so the dish appears immediately
+    const optimisticEntries = parts.map((title, idx) => ({
+      id: `pending-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+      title
+    }));
+    setOptimisticDishes((prev) => [...prev, ...optimisticEntries]);
+    setDishDraft('');
     try {
       let titlesOnly = 0;
       const newTitleOnly: { id: string; title: string }[] = [];
@@ -693,6 +721,8 @@ export default function MenuInboxScreen() {
           }
         }
       }
+      // Remove optimistic placeholders that match saved parts
+      setOptimisticDishes((prev) => prev.filter((entry) => !parts.some((p) => p.toLowerCase() === entry.title.toLowerCase())));
       if (newTitleOnly.length) {
         const existingIds = new Set(titleOnlyDishes.map((dish) => dish.id));
         const merged = [...titleOnlyDishes];
@@ -720,6 +750,10 @@ export default function MenuInboxScreen() {
         Toast.show(`Saved ${parts.length} recipe${parts.length === 1 ? '' : 's'}.`, 1500);
       }
     } catch (error) {
+      // roll back optimistic entries on failure
+      setOptimisticDishes((prev) =>
+        prev.filter((entry) => !parts.some((p) => p.toLowerCase() === entry.title.toLowerCase()))
+      );
       const message = error instanceof Error ? error.message : 'Unable to save dish right now.';
       Toast.show(message, 1800);
     }

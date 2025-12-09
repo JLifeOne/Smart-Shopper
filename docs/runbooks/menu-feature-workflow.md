@@ -13,9 +13,9 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
    - Deliver: Persist `sessionId` + session snapshot to storage; restore on app start; auto-refetch until terminal status; retain highlights/open cards/clarifications.
    - Exit: Restarting the app resumes polling and reflects server status without user action. (Initial resume implemented in `useMenuSession`; highlight/open-card retention still to be validated.)
 2) **Entitlements & limits enforcement**
-   - Status: ❌ Not started
+   - Status: 🚧 In progress
    - Deliver: Enforce `menus-policy` (accessLevel, blurRecipes, limits) on uploads, prompts, conversions; block non-premium/over-limit locally and ensure server rejects; remove `__DEV__` bypass for gating.
-   - Exit: Free users cannot call premium endpoints; limits respected even after storage clears.
+   - Exit: Free users cannot call premium endpoints; limits respected even after storage clears. (Implementation pending.)
 3) **Idempotency & double-submit guards**
    - Status: ❌ Not started
    - Deliver: Send idempotency keys for upload (per source/session), list conversion (selection hash), pairings (payload hash); UI shows “processing…” while pending to prevent rapid repeats.
