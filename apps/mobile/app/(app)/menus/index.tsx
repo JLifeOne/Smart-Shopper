@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { SafeAreaView, StyleSheet, Text, View, Pressable, TextInput, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { SafeAreaView, StyleSheet, Text, View, Pressable, TextInput, Alert, ActivityIndicator, ScrollView, FlatList } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { featureFlags } from '@/src/lib/env';
@@ -140,6 +140,8 @@ export default function MenuInboxScreen() {
   const [sessionHighlights, setSessionHighlights] = useState<string[]>([]);
   const [restoredUI, setRestoredUI] = useState(false);
   const [optimisticDishes, setOptimisticDishes] = useState<{ id: string; title: string }[]>([]);
+  const [cardViewerOpen, setCardViewerOpen] = useState(false);
+  const [cardViewerIndex, setCardViewerIndex] = useState(0);
   const [showPreferencesSheet, setShowPreferencesSheet] = useState(false);
   const [dietaryDraft, setDietaryDraft] = useState('');
   const [allergenDraft, setAllergenDraft] = useState('');
@@ -764,15 +766,14 @@ export default function MenuInboxScreen() {
       handleUpgradePress();
       return;
     }
-    if (!cardsSource.some((card) => card.id === dish.id)) {
+    const viewerCards = sortedCards;
+    const targetIndex = viewerCards.findIndex((card) => card.id === dish.id);
+    if (targetIndex < 0) {
       Toast.show('Recipe syncing... try again shortly.', 1400);
       return;
     }
-    setOpenCards((prev) => {
-      const next = new Set(prev);
-      next.add(dish.id);
-      return next;
-    });
+    setCardViewerIndex(targetIndex);
+    setCardViewerOpen(true);
   };
 
   const handleSavedLongPress = (id: string) => {
@@ -1332,218 +1333,8 @@ export default function MenuInboxScreen() {
             {recipesLoading ? <ActivityIndicator size="small" color="#0C1D37" /> : null}
             {recipesError ? <Text style={styles.errorText}>Unable to load menus. Pull to refresh.</Text> : null}
             <Text style={styles.cardBody}>
-              Upload or type dishes, scale people, and add all to your list. Packaging matches local store sizes.
+              Tap a saved dish to view recipe cards. Swipe between cards; add to list or flag for review.
             </Text>
-            {sortedCards.map((card) => {
-              const selected = selectedIds.has(card.id);
-              const open = openCards.has(card.id);
-              const people = cardPeople[card.id] ?? card.basePeople ?? 1;
-              const cardLocked = !isPremium && card.requiresPremium;
-              const isNewCard = highlightSet.has(card.id);
-              const shouldBlur = blurRecipes && !isPremium;
-              const reviewStatus = reviewStatusMap[card.id];
-              const reviewQueued = reviewStatus === 'pending' || reviewStatus === 'queued';
-              const reviewTimestamps = reviewMeta[card.id];
-              return (
-                <Pressable
-                  key={card.id}
-                  style={[styles.menuCard, selected && styles.menuCardSelected]}
-                  onPress={() => toggleSelected(card.id)}
-                >
-                  <View style={styles.menuHeader}>
-                  <View style={styles.menuTitleBlock}>
-                    <View style={styles.menuTitleRow}>
-                      <Text style={styles.menuTitle}>{card.title}</Text>
-                      {reviewStatus ? (
-                        <View
-                          style={[
-                            styles.reviewBadge,
-                            reviewStatus === 'confirmed' || reviewStatus === 'resolved'
-                              ? styles.reviewBadgeConfirmed
-                              : styles.reviewBadgeQueued
-                          ]}
-                        >
-                          <Text style={styles.reviewBadgeLabel}>
-                            {reviewStatus === 'confirmed' || reviewStatus === 'resolved'
-                              ? 'Confirmed'
-                              : 'Queued'}
-                          </Text>
-                        </View>
-                      ) : null}
-                    </View>
-                    <Text style={styles.menuMeta}>
-                      {card.course} • {card.cuisine} • Serves {people} (base {card.basePeople})
-                    </Text>
-                    <View style={styles.dietaryRow}>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                        {(cardDietaryTags[card.id] ?? []).map((tag) => (
-                          <Pressable
-                            key={tag}
-                            style={styles.dietaryChipActive}
-                            onPress={() => toggleCardDietary(card.id, tag)}
-                          >
-                            <Text style={styles.dietaryChipLabelActive}>{tag.replace(/_/g, ' ')}</Text>
-                          </Pressable>
-                        ))}
-                        {dietaryOptions.map((tag) => (
-                          <Pressable key={tag} style={styles.dietaryChip} onPress={() => toggleCardDietary(card.id, tag)}>
-                            <Text style={styles.dietaryChipLabel}>{tag.replace(/_/g, ' ')}</Text>
-                          </Pressable>
-                        ))}
-                      </ScrollView>
-                    </View>
-                    {isNewCard ? (
-                      <View style={styles.menuBadge}>
-                        <Text style={styles.menuBadgeLabel}>New</Text>
-                      </View>
-                    ) : null}
-                    </View>
-                    <View style={styles.menuPeople}>
-                      <Pressable style={styles.sessionButton} onPress={() => handleCardPeopleChange(card.id, -1)}>
-                        <Text style={styles.sessionButtonLabel}>-</Text>
-                      </Pressable>
-                      <Text style={styles.sessionValue}>{people}</Text>
-                      <Pressable style={styles.sessionButton} onPress={() => handleCardPeopleChange(card.id, 1)}>
-                        <Text style={styles.sessionButtonLabel}>+</Text>
-                      </Pressable>
-                    </View>
-                    <Pressable onPress={() => toggleOpen(card.id)} style={styles.expandButton}>
-                      <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color="#0C1D37" />
-                    </Pressable>
-                  </View>
-                  {cardLocked ? (
-                    <Text style={styles.menuLockedText}>Upgrade to unlock this recipe and auto-generated lists.</Text>
-                  ) : null}
-                  <View style={styles.menuActions}>
-                    <Pressable
-                      style={[
-                        styles.menuChip,
-                        conversionLoading && styles.menuChipDisabled,
-                        cardLocked && styles.menuChipUpgrade
-                      ]}
-                      onPress={() => {
-                        if (cardLocked) {
-                          handleUpgradePress();
-                          return;
-                        }
-                        handleAddSingle(card.id, people, card.title);
-                      }}
-                      disabled={conversionLoading}
-                    >
-                      <Ionicons name="cart" size={14} color="#0C1D37" />
-                      <Text style={[styles.menuChipLabel, cardLocked && styles.menuChipLabelUpgrade]}>
-                        {cardLocked ? 'Upgrade' : 'Add to list'}
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      style={styles.menuChip}
-                      onPress={() => handleSaveCombo(card.id)}
-                    >
-                      <Ionicons name="bookmark-outline" size={14} color="#0C1D37" />
-                      <Text style={styles.menuChipLabel}>Save combo</Text>
-                    </Pressable>
-                  </View>
-                  {open ? (
-                    <View style={styles.menuBody}>
-                      {shouldBlur ? (
-                        <View style={styles.blurCard}>
-                          <Text style={styles.blurTitle}>Recipes blurred</Text>
-                          <Text style={styles.blurBody}>
-                            Upgrade to unlock ingredients, methods, and packaging guidance for this card.
-                          </Text>
-                          <Pressable style={styles.upgradeCTA} onPress={handleUpgradePress}>
-                            <Ionicons name="sparkles" size={14} color="#FFFFFF" />
-                            <Text style={styles.upgradeCTALabel}>Upgrade to view</Text>
-                          </Pressable>
-                        </View>
-                      ) : (
-                        <>
-                          <Text style={styles.menuSectionTitle}>Shopping lines</Text>
-                          {card.listLines
-                            .map((line) => line?.trim())
-                            .filter(Boolean)
-                            .map((line, index) => (
-                              <Text key={`${card.id}-line-${index}`} style={styles.menuLine}>
-                                • {line}
-                              </Text>
-                            ))}
-                          {card.packagingNote ? (
-                            <>
-                              <Text style={styles.menuSectionTitle}>Packaging</Text>
-                              <Text style={styles.menuPackaging}>{card.packagingNote}</Text>
-                            </>
-                          ) : null}
-                          {card.packagingGuidance.length ? (
-                            <>
-                              <Text style={styles.menuSectionTitle}>Packaging guidance</Text>
-                          {card.packagingGuidance
-                            .map((line) => line?.trim())
-                            .filter(Boolean)
-                            .map((line, index) => (
-                              <Text key={`${card.id}-pack-${index}`} style={styles.menuLine}>
-                                • {line}
-                              </Text>
-                            ))}
-                            </>
-                          ) : null}
-                          <Pressable
-                            style={[
-                              styles.reviewChip,
-                              reviewing === card.id && styles.disabledButton,
-                              reviewQueued && styles.reviewChipQueued,
-                              reviewStatus === 'resolved' || reviewStatus === 'acknowledged'
-                                ? styles.reviewChipResolved
-                                : null
-                            ]}
-                            disabled={reviewing === card.id || reviewQueued}
-                            onPress={async () => {
-                              try {
-                                setReviewing(card.id);
-                                await submitMenuReview({
-                                  sessionId: session?.id,
-                                  cardId: card.id,
-                                  dishTitle: card.title,
-                                  reason: 'user_flag',
-                                  note: 'Flagged from mobile UI'
-                                });
-                                setReviewStatusMap((prev) => ({ ...prev, [card.id]: 'queued' }));
-                                refreshReviews();
-                                Toast.show('Sent for review.', 1400);
-                              } catch {
-                                Toast.show('Unable to send review right now.', 1600);
-                              } finally {
-                                setReviewing(null);
-                              }
-                            }}
-                          >
-                            <Ionicons name="alert-circle-outline" size={14} color="#0C1D37" />
-                            <Text style={styles.reviewChipLabel}>
-                              {reviewStatus === 'resolved' || reviewStatus === 'confirmed'
-                                ? 'Reviewed'
-                                : reviewQueued
-                                  ? 'Queued'
-                                  : 'Flag for review'}
-                            </Text>
-                          </Pressable>
-                          {reviewStatus ? (
-                            <Text style={styles.reviewStatusText}>
-                              {reviewStatus === 'resolved' || reviewStatus === 'confirmed'
-                                ? reviewTimestamps?.reviewedAt
-                                  ? `Reviewed ${new Date(reviewTimestamps.reviewedAt).toLocaleString()}`
-                                  : 'Reviewed'
-                                : reviewTimestamps?.createdAt
-                                  ? `Queued ${new Date(reviewTimestamps.createdAt).toLocaleString()}`
-                                  : 'Queued'}
-                            </Text>
-                          ) : null}
-                          <Text style={styles.menuFooter}>Serves {people} people; portion ~{card.portion}.</Text>
-                        </>
-                      )}
-                    </View>
-                  ) : null}
-                </Pressable>
-              );
-            })}
             <View style={styles.intelCard}>
               <View style={styles.intelHeader}>
                 <Ionicons name="sparkles" size={16} color="#0F172A" />
@@ -1584,18 +1375,180 @@ export default function MenuInboxScreen() {
               ) : (
                 <Text style={styles.intelMeta}>Add dishes or save a menu, then tap Generate preview.</Text>
               )}
-              {previewList.length ? (
-                <View style={styles.previewSummary}>
-                  <Text style={styles.intelTitle}>Consolidated list</Text>
-                  {previewList.map((line, index) => (
-                    <Text key={`${line.name}-${index}`} style={styles.previewListLine}>
-                      • {formatListLineSummary(line)}
-                    </Text>
-                  ))}
-                </View>
-              ) : null}
-            </View>
+            {previewList.length ? (
+              <View style={styles.previewSummary}>
+                <Text style={styles.intelTitle}>Consolidated list</Text>
+                {previewList.map((line, index) => (
+                  <Text key={`${line.name}-${index}`} style={styles.previewListLine}>
+                    • {formatListLineSummary(line)}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
           </View>
+          </View>
+
+          {cardViewerOpen ? (
+            <View style={styles.viewerOverlay}>
+              <Pressable style={StyleSheet.absoluteFill} onPress={() => setCardViewerOpen(false)} />
+              <View style={styles.viewerCard}>
+                <View style={styles.viewerHeader}>
+                  <Text style={styles.viewerTitle}>Recipes</Text>
+                  <Pressable onPress={() => setCardViewerOpen(false)}>
+                    <Ionicons name="close" size={18} color="#0C1D37" />
+                  </Pressable>
+                </View>
+                <FlatList
+                  data={sortedCards}
+                  horizontal
+                  pagingEnabled
+                  initialScrollIndex={cardViewerIndex}
+                  getItemLayout={(_, index) => ({
+                    length: 320,
+                    offset: 320 * index,
+                    index
+                  })}
+                  showsHorizontalScrollIndicator={false}
+                  renderItem={({ item: card }) => {
+                    const people = cardPeople[card.id] ?? card.basePeople ?? 1;
+                    const cardLocked = !isPremium && card.requiresPremium;
+                    const shouldBlur = blurRecipes && !isPremium;
+                    const reviewStatus = reviewStatusMap[card.id];
+                    const reviewQueued = reviewStatus === 'pending' || reviewStatus === 'queued';
+                    const reviewTimestamps = reviewMeta[card.id];
+                    return (
+                      <View style={styles.viewerPage}>
+                        <Text style={styles.menuTitle}>{card.title}</Text>
+                        <Text style={styles.menuMeta}>
+                          {card.course} • {card.cuisine} • Serves {people} (base {card.basePeople})
+                        </Text>
+                        <View style={styles.menuActions}>
+                          <Pressable
+                            style={[
+                              styles.menuChip,
+                              conversionLoading && styles.menuChipDisabled,
+                              cardLocked && styles.menuChipUpgrade
+                            ]}
+                            onPress={() => {
+                              if (cardLocked) {
+                                handleUpgradePress();
+                                return;
+                              }
+                              handleAddSingle(card.id, people, card.title);
+                            }}
+                            disabled={conversionLoading}
+                          >
+                            <Ionicons name="cart" size={14} color="#0C1D37" />
+                            <Text style={[styles.menuChipLabel, cardLocked && styles.menuChipLabelUpgrade]}>
+                              {cardLocked ? 'Upgrade' : 'Add to list'}
+                            </Text>
+                          </Pressable>
+                          <Pressable style={styles.menuChip} onPress={() => handleSaveCombo(card.id)}>
+                            <Ionicons name="bookmark-outline" size={14} color="#0C1D37" />
+                            <Text style={styles.menuChipLabel}>Save combo</Text>
+                          </Pressable>
+                        </View>
+                        {shouldBlur ? (
+                          <View style={styles.blurCard}>
+                            <Text style={styles.blurTitle}>Recipes blurred</Text>
+                            <Text style={styles.blurBody}>
+                              Upgrade to unlock ingredients, methods, and packaging guidance for this card.
+                            </Text>
+                            <Pressable style={styles.upgradeCTA} onPress={handleUpgradePress}>
+                              <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+                              <Text style={styles.upgradeCTALabel}>Upgrade to view</Text>
+                            </Pressable>
+                          </View>
+                        ) : (
+                          <>
+                            <Text style={styles.menuSectionTitle}>Shopping lines</Text>
+                            {card.listLines
+                              .map((line) => line?.trim())
+                              .filter(Boolean)
+                              .map((line, index) => (
+                                <Text key={`${card.id}-line-${index}`} style={styles.menuLine}>
+                                  • {line}
+                                </Text>
+                              ))}
+                            {card.packagingNote ? (
+                              <>
+                                <Text style={styles.menuSectionTitle}>Packaging</Text>
+                                <Text style={styles.menuPackaging}>{card.packagingNote}</Text>
+                              </>
+                            ) : null}
+                            {card.packagingGuidance.length ? (
+                              <>
+                                <Text style={styles.menuSectionTitle}>Packaging guidance</Text>
+                                {card.packagingGuidance
+                                  .map((line) => line?.trim())
+                                  .filter(Boolean)
+                                  .map((line, index) => (
+                                    <Text key={`${card.id}-pack-${index}`} style={styles.menuLine}>
+                                      • {line}
+                                    </Text>
+                                  ))}
+                              </>
+                            ) : null}
+                            <Pressable
+                              style={[
+                                styles.reviewChip,
+                                reviewing === card.id && styles.disabledButton,
+                                reviewQueued && styles.reviewChipQueued,
+                                reviewStatus === 'resolved' || reviewStatus === 'acknowledged'
+                                  ? styles.reviewChipResolved
+                                  : null
+                              ]}
+                              disabled={reviewing === card.id || reviewQueued}
+                              onPress={async () => {
+                                try {
+                                  setReviewing(card.id);
+                                  await submitMenuReview({
+                                    sessionId: session?.id,
+                                    cardId: card.id,
+                                    dishTitle: card.title,
+                                    reason: 'user_flag',
+                                    note: 'Flagged from mobile UI'
+                                  });
+                                  setReviewStatusMap((prev) => ({ ...prev, [card.id]: 'queued' }));
+                                  refreshReviews();
+                                  Toast.show('Sent for review.', 1400);
+                                } catch {
+                                  Toast.show('Unable to send review right now.', 1600);
+                                } finally {
+                                  setReviewing(null);
+                                }
+                              }}
+                            >
+                              <Ionicons name="alert-circle-outline" size={14} color="#0C1D37" />
+                              <Text style={styles.reviewChipLabel}>
+                                {reviewStatus === 'resolved' || reviewStatus === 'confirmed'
+                                  ? 'Reviewed'
+                                  : reviewQueued
+                                    ? 'Queued'
+                                    : 'Flag for review'}
+                              </Text>
+                            </Pressable>
+                            {reviewStatus ? (
+                              <Text style={styles.reviewStatusText}>
+                                {reviewStatus === 'resolved' || reviewStatus === 'confirmed'
+                                  ? reviewTimestamps?.reviewedAt
+                                    ? `Reviewed ${new Date(reviewTimestamps.reviewedAt).toLocaleString()}`
+                                    : 'Reviewed'
+                                  : reviewTimestamps?.createdAt
+                                    ? `Queued ${new Date(reviewTimestamps.createdAt).toLocaleString()}`
+                                    : 'Queued'}
+                              </Text>
+                            ) : null}
+                            <Text style={styles.menuFooter}>Serves {people} people; portion ~{card.portion}.</Text>
+                          </>
+                        )}
+                      </View>
+                    );
+                  }}
+                />
+              </View>
+            </View>
+          ) : null}
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Suggested pairings</Text>
@@ -2262,6 +2215,43 @@ const styles = StyleSheet.create({
   },
   savedListScroll: {
     maxHeight: 240
+  },
+  viewerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(12,29,55,0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16
+  },
+  viewerCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 16,
+    width: '95%',
+    maxWidth: 380,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 8
+  },
+  viewerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8
+  },
+  viewerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  viewerPage: {
+    width: 320,
+    paddingVertical: 6
   },
   savedActions: {
     flexDirection: 'row',
