@@ -191,7 +191,13 @@ export default function MenuInboxScreen() {
   const { policy: menuPolicy, updatePreferences, updatingPreferences, loading: policyLoading, error: policyError } =
     useMenuPolicy();
   const entitlements = useMemo(() => {
-    const fallbackLimits = { maxUploadsPerDay: TITLE_LIMIT_FALLBACK, concurrentSessions: 1, maxListCreates: 1 };
+    const fallbackLimits = {
+      maxUploadsPerDay: TITLE_LIMIT_FALLBACK,
+      concurrentSessions: 1,
+      maxListCreates: 1,
+      remainingUploads: null,
+      remainingListCreates: null
+    };
     const policy = menuPolicy?.policy;
     const limits = policy?.limits ?? fallbackLimits;
     const remainingUploads = policy?.limits?.remainingUploads ?? null;

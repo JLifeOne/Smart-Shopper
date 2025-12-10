@@ -316,6 +316,8 @@ export type MenuPolicy = {
       maxUploadsPerDay: number;
       concurrentSessions: number;
       maxListCreates: number;
+      remainingUploads?: number;
+      remainingListCreates?: number;
     };
     allowListCreation: boolean;
     allowTemplateCards: boolean;
