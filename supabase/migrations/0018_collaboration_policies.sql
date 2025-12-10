@@ -101,6 +101,16 @@ BEGIN
   ) THEN
     DROP POLICY "Members manage list items" ON public.list_items;
   END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'list_items' AND policyname = 'Owners editors manage list items'
+  ) THEN
+    DROP POLICY "Owners editors manage list items" ON public.list_items;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'list_items' AND policyname = 'Checkers update list items'
+  ) THEN
+    DROP POLICY "Checkers update list items" ON public.list_items;
+  END IF;
 END$$;
 
 create policy "Owners editors manage list items"
