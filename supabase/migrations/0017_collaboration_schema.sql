@@ -8,8 +8,32 @@ create extension if not exists pgcrypto with schema extensions;
 alter table public.lists
   add column if not exists allow_editor_invites boolean not null default false;
 
-alter table public.list_members
-  rename column created_at to joined_at;
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'list_members'
+      and column_name = 'created_at'
+  ) and not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'list_members'
+      and column_name = 'joined_at'
+  ) then
+    alter table public.list_members
+      rename column created_at to joined_at;
+  elsif not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'list_members'
+      and column_name = 'joined_at'
+  ) then
+    alter table public.list_members
+      add column joined_at timestamptz not null default now();
+  end if;
+end
+$$;
 
 alter table public.list_members
   add column if not exists invited_by uuid references auth.users(id),
