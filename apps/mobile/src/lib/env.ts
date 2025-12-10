@@ -36,7 +36,8 @@ const flags = {
   listSharing: extra.featureListSharing ?? false,
   aiSuggestions: extra.featureAiSuggestions ?? false,
   menuIngestion: extra.featureMenuIngestion ?? false,
-  menuDevFullAccess: extra.featureMenuDevFullAccess ?? false
+  // Default dev bypass ON in development builds to avoid gating while testing menus.
+  menuDevFullAccess: extra.featureMenuDevFullAccess ?? (__DEV__ ? true : false)
 };
 
 if (__DEV__) {

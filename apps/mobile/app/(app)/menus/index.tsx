@@ -130,6 +130,8 @@ export default function MenuInboxScreen() {
   const [sortMode, setSortMode] = useState<SortMode>('alpha');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
+  const openCardsKey = useMemo(() => Array.from(openCards).sort().join('|'), [openCards]);
+  const [dismissedOpenCardsKey, setDismissedOpenCardsKey] = useState<string | null>(null);
   const FALLBACK_CARD_PEOPLE = useMemo(
     () => FALLBACK_CARDS.reduce<Record<string, number>>((acc, card) => ({ ...acc, [card.id]: card.basePeople }), {}),
     []
@@ -151,6 +153,24 @@ export default function MenuInboxScreen() {
   const [optimisticDishes, setOptimisticDishes] = useState<{ id: string; title: string }[]>([]);
   const [cardViewerOpen, setCardViewerOpen] = useState(false);
   const [cardViewerIndex, setCardViewerIndex] = useState(0);
+  const addOpenCards = (ids: string | string[]) => {
+    const list = Array.isArray(ids) ? ids : [ids];
+    setDismissedOpenCardsKey(null);
+    setOpenCards((prev) => {
+      const next = new Set(prev);
+      list.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+  const openCardViewerAtIndex = (index: number) => {
+    setDismissedOpenCardsKey(null);
+    setCardViewerIndex(index);
+    setCardViewerOpen(true);
+  };
+  const closeCardViewer = () => {
+    setDismissedOpenCardsKey(openCardsKey);
+    setCardViewerOpen(false);
+  };
   const [showPreferencesSheet, setShowPreferencesSheet] = useState(false);
   const [dietaryDraft, setDietaryDraft] = useState('');
   const [allergenDraft, setAllergenDraft] = useState('');
@@ -555,13 +575,15 @@ export default function MenuInboxScreen() {
     if (!openCards.size || !sortedCards.length) {
       return;
     }
+    if (dismissedOpenCardsKey && dismissedOpenCardsKey === openCardsKey) {
+      return;
+    }
     const targetIndex = sortedCards.findIndex((card) => openCards.has(card.id));
     if (targetIndex < 0) {
       return;
     }
-    setCardViewerIndex(targetIndex);
-    setCardViewerOpen(true);
-  }, [openCards, sortedCards, cardViewerOpen]);
+    openCardViewerAtIndex(targetIndex);
+  }, [cardViewerOpen, dismissedOpenCardsKey, openCards, openCardsKey, sortedCards]);
 
   const ensureEntitlementsReady = () => {
     if (entitlementsReady) {
@@ -899,19 +921,14 @@ export default function MenuInboxScreen() {
       handleUpgradePress();
       return;
     }
-    setOpenCards((prev) => {
-      const next = new Set(prev);
-      next.add(dish.id);
-      return next;
-    });
+    addOpenCards(dish.id);
     const viewerCards = sortedCards;
     const targetIndex = viewerCards.findIndex((card) => card.id === dish.id);
     if (targetIndex < 0) {
       Toast.show('Recipe syncing... try again shortly.', 1400);
       return;
     }
-    setCardViewerIndex(targetIndex);
-    setCardViewerOpen(true);
+    openCardViewerAtIndex(targetIndex);
   };
 
   const handleSavedLongPress = (id: string) => {
@@ -943,11 +960,7 @@ export default function MenuInboxScreen() {
         handleUpgradePress();
         return;
       }
-      setOpenCards((prev) => {
-        const next = new Set(prev);
-        ids.forEach((id) => next.add(id));
-        return next;
-      });
+      addOpenCards(ids);
       Toast.show('Opened selected recipes.', 1200);
     } else {
       if (!ensureEntitlementsReady()) {
@@ -1553,11 +1566,11 @@ export default function MenuInboxScreen() {
 
           {cardViewerOpen ? (
             <View style={styles.viewerOverlay}>
-              <Pressable style={StyleSheet.absoluteFill} onPress={() => setCardViewerOpen(false)} />
+              <Pressable style={StyleSheet.absoluteFill} onPress={closeCardViewer} />
               <View style={styles.viewerCard}>
                 <View style={styles.viewerHeader}>
                   <Text style={styles.viewerTitle}>Recipes</Text>
-                  <Pressable onPress={() => setCardViewerOpen(false)}>
+                  <Pressable onPress={closeCardViewer}>
                     <Ionicons name="close" size={18} color="#0C1D37" />
                   </Pressable>
                 </View>
