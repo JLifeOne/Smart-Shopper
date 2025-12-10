@@ -47,5 +47,6 @@
     "fs",
     "http",
     "net"
-  ]
+  ],
+  "chatgpt.openOnStartup": true
 }
