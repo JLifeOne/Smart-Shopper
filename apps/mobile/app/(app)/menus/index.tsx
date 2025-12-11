@@ -771,7 +771,11 @@ export default function MenuInboxScreen() {
         method: nextCard.method,
         tips: nextCard.tips ?? [],
         packaging_notes: nextCard.summary_footer ?? card.packagingNote ?? null,
-        packaging_guidance: nextCard.packaging_guidance ?? []
+        packaging_guidance: nextCard.packaging_guidance ?? [],
+        origin: 'llm_regen',
+        edited_by_user: false,
+        needs_training: true,
+        version: (card.recipe?.version ?? 0) + 1
       });
       setCardPeople((prev) => ({ ...prev, [card.id]: nextCard.servings?.people_count ?? peopleCount }));
       Toast.show('Recipe regenerated.', 1400);
@@ -800,7 +804,11 @@ export default function MenuInboxScreen() {
           ...(card.recipe?.servings ?? { people_count: card.basePeople ?? 1 }),
           people_count: nextServings
         },
-        packaging_notes: nextPackaging.length ? nextPackaging : null
+        packaging_notes: nextPackaging.length ? nextPackaging : null,
+        origin: 'user_edit',
+        edited_by_user: true,
+        needs_training: true,
+        version: (card.recipe?.version ?? 0) + 1
       });
       setCardPeople((prev) => ({ ...prev, [card.id]: nextServings }));
       cancelEditCard();

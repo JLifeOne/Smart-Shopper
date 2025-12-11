@@ -129,6 +129,10 @@ export type MenuRecipe = {
   packaging_notes: string | null;
   packaging_guidance: PackagingGuidanceEntry[] | null;
   premium_required: boolean;
+  origin?: string | null;
+  edited_by_user?: boolean;
+  needs_training?: boolean;
+  version?: number | null;
   created_at: string;
   updated_at: string;
 };
