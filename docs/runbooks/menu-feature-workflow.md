@@ -45,6 +45,14 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
   Set `enabled` to `false` for prod before public release. Ensure `brand_insights` row exists.
 - Client refresh: `AuthProvider` calls `refreshRuntimeConfig()` after session load; add a manual refresh hook before menu actions if runtime-config age is stale.
 
+## Regeneration & training contract
+- Regenerate behavior: explicit user action per card triggers menus-LLM, writes the new recipe to Supabase with:
+  - version bump (`version = previous + 1`)
+  - `origin = 'llm_regen'`
+  - `updated_at` set by the backend
+  - persisted to WatermelonDB cache for offline reuse (no repeat prompts on reopen).
+- Edits: user edits set `edited_by_user = true`, `origin = 'user_edit'`, and mark the recipe for training (`needs_training = true` or equivalent side table/flag). Save to Supabase and WatermelonDB optimistically; backend can consume flagged rows for ML training.
+- Cache/read path: when viewing recipes, load from WatermelonDB/Supabase first; only call regenerate on explicit “Regenerate” CTA. Keep list/list-conversion flows using cached/persisted recipes unless regeneration was requested.
 ## Workflow Stages (execution order)
 1) **Session resilience**
    - Status: 🚧 In progress
