@@ -181,6 +181,7 @@ export default function MenuInboxScreen() {
   const [editingCardId, setEditingCardId] = useState<string | null>(null);
   const [servingsDraft, setServingsDraft] = useState<string>('');
   const [packagingDraft, setPackagingDraft] = useState<string>('');
+  const [regeneratingCardId, setRegeneratingCardId] = useState<string | null>(null);
   const logMenuError = (error: unknown, context: string, fallbackToast?: string) => {
     const code = error instanceof MenuFunctionError ? error.code : null;
     const correlationId = error instanceof MenuFunctionError ? error.correlationId : null;
@@ -736,6 +737,49 @@ export default function MenuInboxScreen() {
       const next = Math.max(1, (prev[id] ?? 1) + delta);
       return { ...prev, [id]: next };
     });
+  };
+  const regenerateCard = async (card: DisplayCard) => {
+    if (!isPremium && !devMenuOverride) {
+      handleUpgradePress();
+      return;
+    }
+    if (regeneratingCardId) {
+      return;
+    }
+    const peopleCount = cardPeople[card.id] ?? card.basePeople ?? 1;
+    try {
+      setRegeneratingCardId(card.id);
+      const promptResult = await runPrompt({
+        sessionId: session?.id,
+        locale: menuPolicy?.preferences.locale ?? undefined,
+        peopleCount,
+        dishes: [{ title: card.title, cuisineStyle: card.cuisine }],
+        preferences: { dietaryTags, allergenFlags },
+        policy: { isPremium, blurRecipes }
+      });
+      const nextCard = promptResult?.cards?.[0];
+      if (!nextCard) {
+        Toast.show('No regenerated recipe returned.', 1600);
+        return;
+      }
+      await updateRecipe(card.id, {
+        title: nextCard.title,
+        course: nextCard.course,
+        cuisine_style: nextCard.cuisine_style ?? null,
+        servings: nextCard.servings ?? { people_count: peopleCount },
+        ingredients: nextCard.ingredients,
+        method: nextCard.method,
+        tips: nextCard.tips ?? [],
+        packaging_notes: nextCard.summary_footer ?? card.packagingNote ?? null,
+        packaging_guidance: nextCard.packaging_guidance ?? []
+      });
+      setCardPeople((prev) => ({ ...prev, [card.id]: nextCard.servings?.people_count ?? peopleCount }));
+      Toast.show('Recipe regenerated.', 1400);
+    } catch (error) {
+      logMenuError(error, 'regenerate-recipe', 'Unable to regenerate recipe right now.');
+    } finally {
+      setRegeneratingCardId(null);
+    }
   };
   const startEditCard = (card: DisplayCard) => {
     setEditingCardId(card.id);
@@ -1708,6 +1752,21 @@ export default function MenuInboxScreen() {
                             <Pressable style={styles.menuChip} onPress={cancelEditCard}>
                               <Ionicons name="close" size={14} color="#0C1D37" />
                               <Text style={styles.menuChipLabel}>Cancel</Text>
+                            </Pressable>
+                          ) : null}
+                          {allowRecipeViews ? (
+                            <Pressable
+                              style={[
+                                styles.menuChip,
+                                regeneratingCardId === card.id && styles.menuChipDisabled
+                              ]}
+                              disabled={regeneratingCardId === card.id}
+                              onPress={() => regenerateCard(card)}
+                            >
+                              <Ionicons name="refresh" size={14} color="#0C1D37" />
+                              <Text style={styles.menuChipLabel}>
+                                {regeneratingCardId === card.id ? 'Regenerating…' : 'Regenerate'}
+                              </Text>
                             </Pressable>
                           ) : null}
                         </View>
