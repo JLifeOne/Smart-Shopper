@@ -225,7 +225,15 @@ export default function MenuInboxScreen() {
     uploading,
     hasActiveSession
   } = useMenuSession();
-  const { recipes, recipesLoading, recipesError, createRecipe, creating, updateRecipe } = useMenuRecipes();
+  const {
+    recipes,
+    recipesLoading,
+    recipesError,
+    createRecipe,
+    creating,
+    updateRecipe,
+    regenerateRecipe
+  } = useMenuRecipes();
   const { convert, conversionLoading, conversionResult, conversionError, resetConversion } = useMenuListConversion();
   const { pairings, pairingsLoading, pairingsError, savePairing } = useMenuPairings();
   const { policy: menuPolicy, updatePreferences, updatingPreferences, loading: policyLoading, error: policyError } =
@@ -749,35 +757,22 @@ export default function MenuInboxScreen() {
     const peopleCount = cardPeople[card.id] ?? card.basePeople ?? 1;
     try {
       setRegeneratingCardId(card.id);
-      const promptResult = await runPrompt({
-        sessionId: session?.id,
-        locale: menuPolicy?.preferences.locale ?? undefined,
-        peopleCount,
-        dishes: [{ title: card.title, cuisineStyle: card.cuisine }],
-        preferences: { dietaryTags, allergenFlags },
-        policy: { isPremium, blurRecipes }
+      const result = await regenerateRecipe({
+        recipeId: card.id,
+        sessionId: session?.id ?? null,
+        servings: peopleCount,
+        title: card.title,
+        cuisineStyle: card.cuisine
       });
-      const nextCard = promptResult?.cards?.[0];
-      if (!nextCard) {
+      const nextRecipe = result?.recipe;
+      if (!nextRecipe) {
         Toast.show('No regenerated recipe returned.', 1600);
         return;
       }
-      await updateRecipe(card.id, {
-        title: nextCard.title,
-        course: nextCard.course,
-        cuisine_style: nextCard.cuisine_style ?? null,
-        servings: nextCard.servings ?? { people_count: peopleCount },
-        ingredients: nextCard.ingredients,
-        method: nextCard.method,
-        tips: nextCard.tips ?? [],
-        packaging_notes: nextCard.summary_footer ?? card.packagingNote ?? null,
-        packaging_guidance: nextCard.packaging_guidance ?? [],
-        origin: 'llm_regen',
-        edited_by_user: false,
-        needs_training: true,
-        version: (card.recipe?.version ?? 0) + 1
-      });
-      setCardPeople((prev) => ({ ...prev, [card.id]: nextCard.servings?.people_count ?? peopleCount }));
+      setCardPeople((prev) => ({
+        ...prev,
+        [card.id]: nextRecipe.servings?.people_count ?? peopleCount
+      }));
       Toast.show('Recipe regenerated.', 1400);
     } catch (error) {
       logMenuError(error, 'regenerate-recipe', 'Unable to regenerate recipe right now.');

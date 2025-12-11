@@ -383,6 +383,33 @@ export async function updateMenuRecipe(recipeId: string, updates: Partial<MenuRe
   return result.recipe;
 }
 
+export type RegenerateMenuRecipeInput = {
+  recipeId: string;
+  sessionId?: string | null;
+  servings?: number;
+  title?: string;
+  cuisineStyle?: string | null;
+};
+
+export type RegenerateMenuRecipeResult = { recipe: MenuRecipe; correlationId?: string; durationMs?: number };
+
+export async function regenerateMenuRecipe(input: RegenerateMenuRecipeInput) {
+  const keySeed = `menu-regenerate:${input.recipeId}:${input.sessionId ?? 'none'}:${input.servings ?? 'auto'}`;
+  const result = await callMenuFunction<RegenerateMenuRecipeResult>('menu-regenerate', {
+    method: 'POST',
+    body: JSON.stringify({
+      recipeId: input.recipeId,
+      sessionId: input.sessionId ?? null,
+      servings: input.servings,
+      title: input.title,
+      cuisineStyle: input.cuisineStyle ?? null
+    }),
+    idempotencyKey: generateIdempotencyKey(keySeed),
+    correlationId: generateCorrelationId(keySeed)
+  });
+  return result;
+}
+
 export type MenuPromptRequest = {
   sessionId?: string;
   locale?: string;

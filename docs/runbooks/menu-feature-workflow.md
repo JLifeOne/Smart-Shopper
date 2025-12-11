@@ -18,6 +18,7 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
 - AI preview: Calls `menus-llm` to generate preview cards + consolidated list before saving; UI handles loading/error.
 - Persistence/offline: Sessions, recipes, pairings, policy, reviews cached via menu-storage helpers; optimistic dish saves; UI state (open cards/highlights) persisted.
 - Error handling: Toasts for limits/policy missing/premium gating; some limit/pref-violation handling; menu viewer dismissal stabilized.
+- Regeneration backend: `menu_recipes` has `origin`, `edited_by_user`, `needs_training`, `version`; `menu_recipe_training_queue` created; `menu-recipes` and `menu-regenerate` edge functions deployed (project `itokvgjhtqzhrjlzazpm`) and enqueue training when `needs_training` is set. Frontend wiring to `menu-regenerate` is pending (currently uses client-side prompt).
 
 ## Open gaps (AI/ML + platform)
 - AI pipeline robustness: Better error surface + retry/backoff for menus-LLM, clarifications, preview failures; add correlation IDs and typed errors.
@@ -53,6 +54,7 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
   - persisted to WatermelonDB cache for offline reuse (no repeat prompts on reopen).
 - Edits: user edits set `edited_by_user = true`, `origin = 'user_edit'`, and mark the recipe for training (`needs_training = true` or equivalent side table/flag). Save to Supabase and WatermelonDB optimistically; backend can consume flagged rows for ML training.
 - Cache/read path: when viewing recipes, load from WatermelonDB/Supabase first; only call regenerate on explicit “Regenerate” CTA. Keep list/list-conversion flows using cached/persisted recipes unless regeneration was requested.
+- Backend status: `menu_recipes` now has `origin`, `edited_by_user`, `needs_training`, `version`; `menu_recipe_training_queue` created; `menu-recipes` and `menu-regenerate` edge functions deployed (project `itokvgjhtqzhrjlzazpm`) and enqueue training when `needs_training` is set. Frontend must call `menu-regenerate` for regen instead of client-only flow (pending).
 ## Workflow Stages (execution order)
 1) **Session resilience**
    - Status: 🚧 In progress

@@ -21,7 +21,10 @@ import {
   uploadMenu,
   MenuPromptRequest,
   requestMenuPrompt,
-  MenuPromptResponse
+  MenuPromptResponse,
+  regenerateMenuRecipe,
+  RegenerateMenuRecipeInput,
+  RegenerateMenuRecipeResult
 } from './api';
 import {
   cacheMenuPolicy,
@@ -285,6 +288,19 @@ export function useMenuRecipes() {
     }
   });
 
+  const regenerateMutation = useMutation({
+    mutationFn: (input: RegenerateMenuRecipeInput) => regenerateMenuRecipe(input),
+    onSuccess: async (result: RegenerateMenuRecipeResult) => {
+      if (!result?.recipe) {
+        return;
+      }
+      queryClient.setQueryData<MenuRecipe[] | undefined>(['menu-recipes'], (current = []) => {
+        return normalizeRecipes([result.recipe, ...current]);
+      });
+      await cacheMenuRecipes([result.recipe]);
+    }
+  });
+
   const recipes = recipesQuery.data ? normalizeRecipes(recipesQuery.data) : EMPTY_RECIPES;
 
   return {
@@ -295,8 +311,10 @@ export function useMenuRecipes() {
     createRecipe: (payload: SaveDishRequest): Promise<SaveDishResponse> => createMutation.mutateAsync(payload),
     updateRecipe: (recipeId: string, updates: Partial<MenuRecipe>) =>
       updateMutation.mutateAsync({ recipeId, updates }),
+    regenerateRecipe: (input: RegenerateMenuRecipeInput) => regenerateMutation.mutateAsync(input),
     creating: createMutation.isPending,
-    updating: updateMutation.isPending
+    updating: updateMutation.isPending,
+    regenerating: regenerateMutation.isPending
   };
 }
 
