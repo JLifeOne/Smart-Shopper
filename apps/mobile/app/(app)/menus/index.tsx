@@ -178,6 +178,22 @@ export default function MenuInboxScreen() {
   const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
   const [clarificationsSubmitting, setClarificationsSubmitting] = useState(false);
   const [clarificationsResolving, setClarificationsResolving] = useState(false);
+  const [editingCardId, setEditingCardId] = useState<string | null>(null);
+  const [servingsDraft, setServingsDraft] = useState<string>('');
+  const [packagingDraft, setPackagingDraft] = useState<string>('');
+  const logMenuError = (error: unknown, context: string, fallbackToast?: string) => {
+    const code = error instanceof MenuFunctionError ? error.code : null;
+    const correlationId = error instanceof MenuFunctionError ? error.correlationId : null;
+    const message = error instanceof Error ? error.message : String(error ?? '');
+    if (__DEV__) {
+      console.warn('menu error', { context, code, correlationId, message });
+    }
+    if (fallbackToast) {
+      const suffix = correlationId ? ` (Ref: ${correlationId})` : '';
+      Toast.show(`${fallbackToast}${suffix}`, 1900);
+    }
+    return { code, correlationId, message };
+  };
   const dietaryOptions = useMemo(
     () => [
       'dairy_free',
@@ -208,7 +224,7 @@ export default function MenuInboxScreen() {
     uploading,
     hasActiveSession
   } = useMenuSession();
-  const { recipes, recipesLoading, recipesError, createRecipe, creating } = useMenuRecipes();
+  const { recipes, recipesLoading, recipesError, createRecipe, creating, updateRecipe } = useMenuRecipes();
   const { convert, conversionLoading, conversionResult, conversionError, resetConversion } = useMenuListConversion();
   const { pairings, pairingsLoading, pairingsError, savePairing } = useMenuPairings();
   const { policy: menuPolicy, updatePreferences, updatingPreferences, loading: policyLoading, error: policyError } =
@@ -282,7 +298,7 @@ export default function MenuInboxScreen() {
       Toast.show('Clarifications marked as resolved. Continue processing.', 1500);
       refreshSession();
     } catch (error) {
-      Toast.show('Unable to resolve clarifications right now.', 1700);
+      logMenuError(error, 'resolve-clarifications', 'Unable to resolve clarifications right now.');
     } finally {
       setClarificationsResolving(false);
     }
@@ -308,7 +324,7 @@ export default function MenuInboxScreen() {
       Toast.show('Submitted clarifications. Regenerating cards...', 1600);
       await refreshSession();
     } catch (error) {
-      Toast.show('Unable to submit clarifications right now.', 1700);
+      logMenuError(error, 'submit-clarifications', 'Unable to submit clarifications right now.');
     } finally {
       setClarificationsSubmitting(false);
     }
@@ -647,7 +663,7 @@ export default function MenuInboxScreen() {
         return;
       }
       if (!handlePreferenceViolation(error)) {
-        Toast.show('Unable to add menu right now.', 1700);
+        logMenuError(error, 'add-single', 'Unable to add menu right now.');
       }
     }
   };
@@ -710,7 +726,7 @@ export default function MenuInboxScreen() {
         return;
       }
       if (!handlePreferenceViolation(error)) {
-        Toast.show('Unable to convert menus right now.', 1700);
+        logMenuError(error, 'add-selected', 'Unable to convert menus right now.');
       }
     }
   };
@@ -720,6 +736,34 @@ export default function MenuInboxScreen() {
       const next = Math.max(1, (prev[id] ?? 1) + delta);
       return { ...prev, [id]: next };
     });
+  };
+  const startEditCard = (card: DisplayCard) => {
+    setEditingCardId(card.id);
+    setServingsDraft(String(cardPeople[card.id] ?? card.basePeople ?? 1));
+    setPackagingDraft(card.packagingNote ?? '');
+  };
+  const cancelEditCard = () => {
+    setEditingCardId(null);
+    setServingsDraft('');
+    setPackagingDraft('');
+  };
+  const saveEditCard = async (card: DisplayCard) => {
+    const nextServings = Math.max(1, Number.parseInt(servingsDraft || `${cardPeople[card.id] ?? card.basePeople}`, 10));
+    const nextPackaging = packagingDraft.trim();
+    try {
+      await updateRecipe(card.id, {
+        servings: {
+          ...(card.recipe?.servings ?? { people_count: card.basePeople ?? 1 }),
+          people_count: nextServings
+        },
+        packaging_notes: nextPackaging.length ? nextPackaging : null
+      });
+      setCardPeople((prev) => ({ ...prev, [card.id]: nextServings }));
+      cancelEditCard();
+      Toast.show('Saved recipe edits.', 1400);
+    } catch (error) {
+      logMenuError(error, 'save-recipe-edit', 'Unable to save recipe edits right now.');
+    }
   };
   const [cardDietaryTags, setCardDietaryTags] = useState<Record<string, string[]>>({});
   const toggleCardDietary = (cardId: string, tag: string) => {
@@ -1048,7 +1092,7 @@ export default function MenuInboxScreen() {
       });
       Toast.show('Generated menu preview.', 1200);
     } catch (error) {
-      Toast.show('Unable to generate preview right now.', 1700);
+      logMenuError(error, 'generate-preview', 'Unable to generate preview right now.');
     }
   };
 
@@ -1612,11 +1656,11 @@ export default function MenuInboxScreen() {
                   renderItem={({ item: card }) => {
                     const people = cardPeople[card.id] ?? card.basePeople ?? 1;
                     const cardLocked = !isPremium && card.requiresPremium;
-                    const shouldBlur = blurRecipes && !isPremium;
-                    const reviewStatus = reviewStatusMap[card.id];
-                    const reviewQueued = reviewStatus === 'pending' || reviewStatus === 'queued';
-                    const reviewTimestamps = reviewMeta[card.id];
-                    return (
+                        const shouldBlur = blurRecipes && !isPremium;
+                        const reviewStatus = reviewStatusMap[card.id];
+                        const reviewQueued = reviewStatus === 'pending' || reviewStatus === 'queued';
+                        const reviewTimestamps = reviewMeta[card.id];
+                        return (
                       <View style={styles.viewerPage}>
                         <Text style={styles.menuTitle}>{card.title}</Text>
                         <Text style={styles.menuMeta}>
@@ -1647,6 +1691,25 @@ export default function MenuInboxScreen() {
                             <Ionicons name="bookmark-outline" size={14} color="#0C1D37" />
                             <Text style={styles.menuChipLabel}>Save combo</Text>
                           </Pressable>
+                          {allowRecipeViews ? (
+                            editingCardId === card.id ? (
+                              <Pressable style={[styles.menuChip, styles.menuChipSave]} onPress={() => saveEditCard(card)}>
+                                <Ionicons name="save" size={14} color="#0C1D37" />
+                                <Text style={styles.menuChipLabel}>Save</Text>
+                              </Pressable>
+                            ) : (
+                              <Pressable style={styles.menuChip} onPress={() => startEditCard(card)}>
+                                <Ionicons name="create-outline" size={14} color="#0C1D37" />
+                                <Text style={styles.menuChipLabel}>Edit</Text>
+                              </Pressable>
+                            )
+                          ) : null}
+                          {editingCardId === card.id ? (
+                            <Pressable style={styles.menuChip} onPress={cancelEditCard}>
+                              <Ionicons name="close" size={14} color="#0C1D37" />
+                              <Text style={styles.menuChipLabel}>Cancel</Text>
+                            </Pressable>
+                          ) : null}
                         </View>
                         {shouldBlur ? (
                           <View style={styles.blurCard}>
@@ -1670,7 +1733,35 @@ export default function MenuInboxScreen() {
                                   • {line}
                                 </Text>
                               ))}
-                            {card.packagingNote ? (
+                            <Text style={styles.menuSectionTitle}>Servings</Text>
+                            {editingCardId === card.id ? (
+                              <View style={styles.editRow}>
+                                <TextInput
+                                  style={styles.editInput}
+                                  keyboardType="number-pad"
+                                  value={servingsDraft}
+                                  onChangeText={setServingsDraft}
+                                  placeholder="Servings"
+                                  placeholderTextColor="#94A3B8"
+                                />
+                              </View>
+                            ) : (
+                              <Text style={styles.menuPackaging}>Serves {people}</Text>
+                            )}
+                            {editingCardId === card.id ? (
+                              <>
+                                <Text style={styles.menuSectionTitle}>Packaging notes</Text>
+                                <TextInput
+                                  style={[styles.editInput, styles.editInputMultiline]}
+                                  value={packagingDraft}
+                                  onChangeText={setPackagingDraft}
+                                  placeholder="Add packaging notes"
+                                  placeholderTextColor="#94A3B8"
+                                  multiline
+                                  numberOfLines={3}
+                                />
+                              </>
+                            ) : card.packagingNote ? (
                               <>
                                 <Text style={styles.menuSectionTitle}>Packaging</Text>
                                 <Text style={styles.menuPackaging}>{card.packagingNote}</Text>
@@ -1698,27 +1789,27 @@ export default function MenuInboxScreen() {
                                   ? styles.reviewChipResolved
                                   : null
                               ]}
-                              disabled={reviewing === card.id || reviewQueued}
-                              onPress={async () => {
-                                try {
-                                  setReviewing(card.id);
-                                  await submitMenuReview({
-                                    sessionId: session?.id,
-                                    cardId: card.id,
-                                    dishTitle: card.title,
-                                    reason: 'user_flag',
-                                    note: 'Flagged from mobile UI'
-                                  });
-                                  setReviewStatusMap((prev) => ({ ...prev, [card.id]: 'queued' }));
-                                  refreshReviews();
-                                  Toast.show('Sent for review.', 1400);
-                                } catch {
-                                  Toast.show('Unable to send review right now.', 1600);
-                                } finally {
-                                  setReviewing(null);
-                                }
-                              }}
-                            >
+                          disabled={reviewing === card.id || reviewQueued}
+                          onPress={async () => {
+                            try {
+                              setReviewing(card.id);
+                              await submitMenuReview({
+                                sessionId: session?.id,
+                                cardId: card.id,
+                                dishTitle: card.title,
+                                reason: 'user_flag',
+                                note: 'Flagged from mobile UI'
+                              });
+                              setReviewStatusMap((prev) => ({ ...prev, [card.id]: 'queued' }));
+                              refreshReviews();
+                              Toast.show('Sent for review.', 1400);
+                            } catch (error) {
+                              logMenuError(error, 'submit-review', 'Unable to send review right now.');
+                            } finally {
+                              setReviewing(null);
+                            }
+                          }}
+                        >
                               <Ionicons name="alert-circle-outline" size={14} color="#0C1D37" />
                               <Text style={styles.reviewChipLabel}>
                                 {reviewStatus === 'resolved' || reviewStatus === 'confirmed'
@@ -2828,6 +2919,10 @@ const styles = StyleSheet.create({
   menuChipDisabled: {
     opacity: 0.6
   },
+  menuChipSave: {
+    backgroundColor: '#E0F2FE',
+    borderColor: '#0EA5E9'
+  },
   menuChipUpgrade: {
     backgroundColor: UPGRADE_COLOR,
     borderColor: UPGRADE_COLOR
@@ -2836,6 +2931,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#0C1D37'
+  },
+  editRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8
+  },
+  editInput: {
+    flex: 1,
+    borderColor: '#E2E8F0',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: '#0C1D37',
+    backgroundColor: '#FFFFFF'
+  },
+  editInputMultiline: {
+    height: 80,
+    textAlignVertical: 'top'
   },
   menuChipLabelUpgrade: {
     color: '#FFFFFF'
