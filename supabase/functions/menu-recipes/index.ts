@@ -4,7 +4,8 @@ import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, Idempotency-Key",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, Idempotency-Key, x-correlation-id",
 };
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -66,6 +67,9 @@ const baseRecipeSchema = z.object({
   allergenTags: z.array(z.string()).optional(),
   source: z.string().trim().optional().nullable(),
   version: z.number().int().positive().optional(),
+  origin: z.enum(["llm_initial", "llm_regen", "user_edit"]).optional(),
+  editedByUser: z.boolean().optional(),
+  needsTraining: z.boolean().optional(),
   expectedUpdatedAt: isoDateString.optional(),
 });
 
@@ -133,22 +137,33 @@ function normalizeRecipePayload(raw: Record<string, unknown>): NormalizedRecipeP
         : typeof (raw as any).premium_required === "boolean"
           ? (raw as any).premium_required
           : undefined,
-    dietaryTags: (raw.dietaryTags as string[]) ?? (raw as any).dietary_tags,
-    allergenTags: (raw.allergenTags as string[]) ?? (raw as any).allergen_tags,
-    source: (raw.source as string | null | undefined) ?? undefined,
-    version: typeof raw.version === "number" ? raw.version : undefined,
-    expectedUpdatedAt:
-      (raw.updatedAt as string | undefined) ??
-      (raw.updated_at as string | undefined) ??
-      (raw as any).expectedUpdatedAt,
+  dietaryTags: (raw.dietaryTags as string[]) ?? (raw as any).dietary_tags,
+  allergenTags: (raw.allergenTags as string[]) ?? (raw as any).allergen_tags,
+  source: (raw.source as string | null | undefined) ?? undefined,
+  version: typeof raw.version === "number" ? raw.version : undefined,
+  origin: (raw.origin as string | null | undefined) ?? (raw as any).origin,
+  editedByUser: (raw.editedByUser as boolean | undefined) ?? (raw as any).edited_by_user,
+  needsTraining: (raw.needsTraining as boolean | undefined) ?? (raw as any).needs_training,
+  expectedUpdatedAt:
+    (raw.updatedAt as string | undefined) ??
+    (raw.updated_at as string | undefined) ??
+    (raw as any).expectedUpdatedAt,
   };
+}
+
+function getCorrelationId(req: Request) {
+  return (
+    req.headers.get("x-correlation-id") ??
+    req.headers.get("Idempotency-Key") ??
+    crypto.randomUUID()
+  );
 }
 
 function requireIdempotencyKey(req: Request) {
   const key = req.headers.get("Idempotency-Key") ?? req.headers.get("idempotency-key");
   const parsed = idempotencyKeySchema.safeParse(key);
   if (!parsed.success) {
-    return { error: jsonResponse({ error: "idempotency_key_required" }, { status: 400 }) };
+    return { error: null };
   }
   return { key: parsed.data };
 }
@@ -185,6 +200,7 @@ serve(async (req) => {
   let supabase;
   let userId;
   let user;
+  const correlationId = getCorrelationId(req);
   try {
     const auth = await getAuthedClient(req);
     supabase = auth.client;
@@ -193,31 +209,32 @@ serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "auth_error";
     const status = message === "auth_required" ? 401 : 500;
-    return jsonResponse({ error: message }, { status });
+    console.error("menu-recipes auth error", { correlationId, message, status });
+    return jsonResponse({ error: message, correlationId }, { status });
   }
 
   const url = new URL(req.url);
   const recipeId = parseRecipeId(url);
-  const requestId = crypto.randomUUID();
+  const requestId = correlationId;
 
   try {
     switch (req.method) {
       case "GET": {
         if (recipeId) {
-          const { data, error } = await supabase
-            .from("menu_recipes")
-            .select("*")
-            .eq("id", recipeId)
-            .eq("owner_id", userId)
-            .maybeSingle();
+        const { data, error } = await supabase
+          .from("menu_recipes")
+          .select("*")
+          .eq("id", recipeId)
+          .eq("owner_id", userId)
+          .maybeSingle();
           if (error) {
             console.error("menu_recipes fetch failed", { error, requestId });
-            return jsonResponse({ error: "recipe_not_found" }, { status: 404 });
+            return jsonResponse({ error: "recipe_not_found", correlationId }, { status: 404 });
           }
           if (!data) {
-            return jsonResponse({ error: "recipe_not_found" }, { status: 404 });
+            return jsonResponse({ error: "recipe_not_found", correlationId }, { status: 404 });
           }
-          return jsonResponse({ recipe: data });
+          return jsonResponse({ recipe: data, correlationId });
         }
         const limitParam = Number(url.searchParams.get("limit") ?? 20);
         const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(50, limitParam)) : 20;
@@ -226,7 +243,7 @@ serve(async (req) => {
         const cuisineStyle = url.searchParams.get("cuisineStyle") ?? url.searchParams.get("cuisine_style");
         const search = url.searchParams.get("search");
         if (cursor && Number.isNaN(Date.parse(cursor))) {
-          return jsonResponse({ error: "invalid_cursor" }, { status: 400 });
+          return jsonResponse({ error: "invalid_cursor", correlationId }, { status: 400 });
         }
         let query = supabase
           .from("menu_recipes")
@@ -250,14 +267,16 @@ serve(async (req) => {
         const { data, error } = await query;
         if (error) {
           console.error("menu_recipes list failed", { error, requestId });
-          return jsonResponse({ error: "recipe_list_failed" }, { status: 400 });
+          return jsonResponse({ error: "recipe_list_failed", correlationId }, { status: 400 });
         }
         const nextCursor = data.length === limit ? data[data.length - 1]?.updated_at ?? null : null;
-        return jsonResponse({ recipes: data, nextCursor });
+        return jsonResponse({ recipes: data, nextCursor, correlationId });
       }
       case "POST": {
-        const { key: idempotencyKey, error: idempotencyError } = requireIdempotencyKey(req);
-        if (idempotencyError) return idempotencyError;
+        const { key: idempotencyKey } = requireIdempotencyKey(req);
+        if (!idempotencyKey) {
+          return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
+        }
 
         const existing = await supabase
           .from("menu_recipes")
@@ -267,10 +286,10 @@ serve(async (req) => {
           .maybeSingle();
         if (existing.error && existing.error.code !== "PGRST116") {
           console.error("menu_recipes idempotency lookup failed", { error: existing.error, requestId });
-          return jsonResponse({ error: "recipe_create_failed" }, { status: 400 });
+          return jsonResponse({ error: "recipe_create_failed", correlationId }, { status: 400 });
         }
         if (existing.data) {
-          return jsonResponse({ recipe: existing.data, replay: true });
+          return jsonResponse({ recipe: existing.data, replay: true, correlationId });
         }
 
         const rawBody = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -278,7 +297,7 @@ serve(async (req) => {
         const parsed = createRecipeSchema.safeParse(normalized);
         if (!parsed.success) {
           return jsonResponse(
-            { error: "invalid_payload", details: parsed.error.flatten() },
+            { error: "invalid_payload", details: parsed.error.flatten(), correlationId },
             { status: 400 }
           );
         }
@@ -315,6 +334,9 @@ serve(async (req) => {
           created_at: now,
           updated_at: now,
           version: 1,
+          origin: parsed.data.origin ?? "llm_initial",
+          edited_by_user: parsed.data.editedByUser ?? false,
+          needs_training: parsed.data.needsTraining ?? false,
         };
 
         const { data, error } = await supabase.from("menu_recipes").insert(insertRecord).select("*").single();
@@ -328,10 +350,24 @@ serve(async (req) => {
               .eq("idempotency_key", idempotencyKey)
               .maybeSingle();
             if (replay.data) {
-              return jsonResponse({ recipe: replay.data, replay: true });
+              return jsonResponse({ recipe: replay.data, replay: true, correlationId });
             }
           }
-          return jsonResponse({ error: "recipe_create_failed" }, { status: 400 });
+          return jsonResponse({ error: "recipe_create_failed", correlationId }, { status: 400 });
+        }
+        if (data.needs_training) {
+          await supabase
+            .from("menu_recipe_training_queue")
+            .upsert({
+              recipe_id: data.id,
+              owner_id: userId,
+              origin: data.origin ?? "user_edit",
+              version: data.version,
+              status: "pending",
+              updated_at: now,
+            })
+            .select("recipe_id")
+            .maybeSingle();
         }
         console.log(
           JSON.stringify({
@@ -342,21 +378,23 @@ serve(async (req) => {
             requestId,
           })
         );
-        return jsonResponse({ recipe: data }, { status: 201 });
+        return jsonResponse({ recipe: data, correlationId }, { status: 201 });
       }
       case "PUT": {
         if (!recipeId) {
           return jsonResponse({ error: "recipe_id_required" }, { status: 400 });
         }
-        const { error: idempotencyError } = requireIdempotencyKey(req);
-        if (idempotencyError) return idempotencyError;
+        const { key: updateIdemKey } = requireIdempotencyKey(req);
+        if (!updateIdemKey) {
+          return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
+        }
 
         const rawBody = (await req.json().catch(() => ({}))) as Record<string, unknown>;
         const normalized = normalizeRecipePayload(rawBody);
         const parsed = updateRecipeSchema.safeParse(normalized);
         if (!parsed.success) {
           return jsonResponse(
-            { error: "invalid_payload", details: parsed.error.flatten() },
+            { error: "invalid_payload", details: parsed.error.flatten(), correlationId },
             { status: 400 }
           );
         }
@@ -369,20 +407,20 @@ serve(async (req) => {
           .maybeSingle();
         if (existing.error) {
           console.error("menu_recipes fetch for update failed", { error: existing.error, requestId });
-          return jsonResponse({ error: "recipe_not_found" }, { status: 404 });
+          return jsonResponse({ error: "recipe_not_found", correlationId }, { status: 404 });
         }
         if (!existing.data) {
-          return jsonResponse({ error: "recipe_not_found" }, { status: 404 });
+          return jsonResponse({ error: "recipe_not_found", correlationId }, { status: 404 });
         }
         if (
           parsed.data.version &&
           typeof existing.data.version === "number" &&
           parsed.data.version !== existing.data.version
         ) {
-          return jsonResponse({ error: "version_mismatch" }, { status: 409 });
+          return jsonResponse({ error: "version_mismatch", correlationId }, { status: 409 });
         }
         if (parsed.data.expectedUpdatedAt && parsed.data.expectedUpdatedAt !== existing.data.updated_at) {
-          return jsonResponse({ error: "stale_update" }, { status: 409 });
+          return jsonResponse({ error: "stale_update", correlationId }, { status: 409 });
         }
 
         const baseVersion = typeof existing.data.version === "number" ? existing.data.version : 1;
@@ -440,6 +478,15 @@ serve(async (req) => {
         if (parsed.data.source !== undefined) {
           updates.source = parsed.data.source ?? "user";
         }
+        if (parsed.data.origin !== undefined) {
+          updates.origin = parsed.data.origin;
+        }
+        if (parsed.data.editedByUser !== undefined) {
+          updates.edited_by_user = parsed.data.editedByUser;
+        }
+        if (parsed.data.needsTraining !== undefined) {
+          updates.needs_training = parsed.data.needsTraining;
+        }
 
         let updateQuery = supabase.from("menu_recipes").update(updates).eq("id", recipeId).eq("owner_id", userId);
         updateQuery =
@@ -451,19 +498,35 @@ serve(async (req) => {
         if (error) {
           if (error.code === "PGRST116") {
             const conflictError = parsed.data.expectedUpdatedAt ? "stale_update" : "version_conflict";
-            return jsonResponse({ error: conflictError }, { status: 409 });
+            return jsonResponse({ error: conflictError, correlationId }, { status: 409 });
           }
           console.error("menu_recipes update failed", { error, requestId });
-          return jsonResponse({ error: "recipe_update_failed" }, { status: 400 });
+          return jsonResponse({ error: "recipe_update_failed", correlationId }, { status: 400 });
         }
-        return jsonResponse({ recipe: data });
+        if (data.needs_training) {
+          await supabase
+            .from("menu_recipe_training_queue")
+            .upsert({
+              recipe_id: data.id,
+              owner_id: userId,
+              origin: data.origin ?? "user_edit",
+              version: data.version,
+              status: "pending",
+              updated_at: new Date().toISOString(),
+            })
+            .select("recipe_id")
+            .maybeSingle();
+        }
+        return jsonResponse({ recipe: data, correlationId });
       }
       case "DELETE": {
         if (!recipeId) {
           return jsonResponse({ error: "recipe_id_required" }, { status: 400 });
         }
-        const { error: idempotencyError } = requireIdempotencyKey(req);
-        if (idempotencyError) return idempotencyError;
+        const { key: deleteIdemKey } = requireIdempotencyKey(req);
+        if (!deleteIdemKey) {
+          return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
+        }
 
         const existing = await supabase
           .from("menu_recipes")
@@ -473,10 +536,10 @@ serve(async (req) => {
           .maybeSingle();
         if (existing.error) {
           console.error("menu_recipes lookup for delete failed", { error: existing.error, requestId });
-          return jsonResponse({ error: "recipe_not_found" }, { status: 404 });
+          return jsonResponse({ error: "recipe_not_found", correlationId }, { status: 404 });
         }
         if (!existing.data) {
-          return jsonResponse({ error: "recipe_not_found" }, { status: 404 });
+          return jsonResponse({ error: "recipe_not_found", correlationId }, { status: 404 });
         }
 
         const { error } = await supabase
@@ -486,15 +549,15 @@ serve(async (req) => {
           .eq("owner_id", userId);
         if (error) {
           console.error("menu_recipes delete failed", { error, requestId });
-          return jsonResponse({ error: "recipe_delete_failed" }, { status: 400 });
+          return jsonResponse({ error: "recipe_delete_failed", correlationId }, { status: 400 });
         }
-        return jsonResponse({ success: true });
+        return jsonResponse({ success: true, correlationId });
       }
       default:
-        return jsonResponse({ error: "method_not_allowed" }, { status: 405 });
+        return jsonResponse({ error: "method_not_allowed", correlationId }, { status: 405 });
     }
   } catch (error) {
-    console.error("menu-recipes failure", { error, requestId });
-    return jsonResponse({ error: "internal_error" }, { status: 500 });
+    console.error("menu-recipes failure", { error, requestId, correlationId });
+    return jsonResponse({ error: "internal_error", correlationId }, { status: 500 });
   }
 });
