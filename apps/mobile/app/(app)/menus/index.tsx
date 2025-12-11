@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { featureFlags } from '@/src/lib/env';
 import { Toast } from '@/src/components/search/Toast';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isMenuDevBypassEnabled } from '@/src/lib/runtime-config';
 import {
   useMenuListConversion,
   useMenuPairings,
@@ -124,7 +125,7 @@ const normalizeTitleOnlyDishes = (items: any[]): { id: string; title: string }[]
 };
 
 export default function MenuInboxScreen() {
-  const devMenuOverride = featureFlags.menuDevFullAccess && __DEV__;
+  const devMenuOverride = featureFlags.menuDevFullAccess && __DEV__ && isMenuDevBypassEnabled();
   const { user } = useAuth();
   const dailyLimitKey = useMemo(() => getDailyLimitStorageKey(user?.id), [user?.id]);
   const [sortMode, setSortMode] = useState<SortMode>('alpha');
@@ -175,6 +176,8 @@ export default function MenuInboxScreen() {
   const [dietaryDraft, setDietaryDraft] = useState('');
   const [allergenDraft, setAllergenDraft] = useState('');
   const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
+  const [clarificationsSubmitting, setClarificationsSubmitting] = useState(false);
+  const [clarificationsResolving, setClarificationsResolving] = useState(false);
   const dietaryOptions = useMemo(
     () => [
       'dairy_free',
@@ -253,6 +256,7 @@ export default function MenuInboxScreen() {
   const remainingUploads = entitlements.limits.remainingUploads ?? null;
   const remainingListCreates = entitlements.limits.remainingListCreates ?? null;
   const allowListCreation = entitlements.allowListCreation;
+  const allowRecipeViews = isPremium || devMenuOverride;
   const entitlementsReady = Boolean(menuPolicy) || devMenuOverride;
   useEffect(() => {
     setLimitPromptCount(limitPerDay);
@@ -268,18 +272,23 @@ export default function MenuInboxScreen() {
   const [reviewing, setReviewing] = useState<string | null>(null);
   const { reviews, refreshReviews } = useMenuReviews({ sessionId: session?.id ?? undefined });
   const handleResolveClarifications = async () => {
+    if (clarificationsResolving) return;
     if (!session?.id) {
       return;
     }
     try {
+      setClarificationsResolving(true);
       await resolveMenuClarifications(session.id);
       Toast.show('Clarifications marked as resolved. Continue processing.', 1500);
       refreshSession();
     } catch (error) {
       Toast.show('Unable to resolve clarifications right now.', 1700);
+    } finally {
+      setClarificationsResolving(false);
     }
   };
   const handleSubmitClarifications = async () => {
+    if (clarificationsSubmitting) return;
     if (!session?.id || !clarifications.length) {
       return;
     }
@@ -294,11 +303,14 @@ export default function MenuInboxScreen() {
       return;
     }
     try {
+      setClarificationsSubmitting(true);
       await submitMenuClarifications(session.id, answers);
       Toast.show('Submitted clarifications. Regenerating cards...', 1600);
       await refreshSession();
     } catch (error) {
       Toast.show('Unable to submit clarifications right now.', 1700);
+    } finally {
+      setClarificationsSubmitting(false);
     }
   };
   const savedDishes = useMemo(() => {
@@ -917,6 +929,10 @@ export default function MenuInboxScreen() {
   };
 
   const handleSavedPress = (dish: { id: string; title: string; titleOnly: boolean }) => {
+    if (!allowRecipeViews) {
+      handleUpgradePress();
+      return;
+    }
     if (dish.titleOnly) {
       handleUpgradePress();
       return;
@@ -955,6 +971,10 @@ export default function MenuInboxScreen() {
     }
     const ids = Array.from(savedSelection);
     if (action === 'open') {
+      if (!allowRecipeViews) {
+        handleUpgradePress();
+        return;
+      }
       const locked = savedDishes.filter((dish) => savedSelection.has(dish.id) && dish.titleOnly);
       if (locked.length) {
         handleUpgradePress();
@@ -1343,11 +1363,15 @@ export default function MenuInboxScreen() {
               <View style={styles.clarificationActions}>
                 <Pressable style={styles.secondaryInline} onPress={handleSubmitClarifications}>
                   <Ionicons name="checkmark-circle" size={14} color="#0C1D37" />
-                  <Text style={styles.secondaryInlineLabel}>Submit answers</Text>
+                  <Text style={styles.secondaryInlineLabel}>
+                    {clarificationsSubmitting ? 'Submitting…' : 'Submit answers'}
+                  </Text>
                 </Pressable>
                 <Pressable style={styles.secondaryInline} onPress={() => handleResolveClarifications()}>
                   <Ionicons name="refresh" size={14} color="#0C1D37" />
-                  <Text style={styles.secondaryInlineLabel}>Mark resolved</Text>
+                  <Text style={styles.secondaryInlineLabel}>
+                    {clarificationsResolving ? 'Resolving…' : 'Mark resolved'}
+                  </Text>
                 </Pressable>
               </View>
             </View>

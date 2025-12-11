@@ -5,6 +5,7 @@
 - pnpm (run `corepack enable pnpm` or install globally with `npm install -g pnpm`)
 - Expo CLI (`npm install -g eas-cli`, optional for native builds)
 - Supabase CLI (optional for local backend emulation)
+- Android Studio + emulator (primary test target; launch via AVD Manager)
 
 ## Repository Bootstrapping
 ```bash

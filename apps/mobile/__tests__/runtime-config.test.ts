@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getRuntimeFlags, isBrandInsightsEnabled, refreshRuntimeConfig, __setRuntimeFlagsForTests } from '../src/lib/runtime-config';
+import {
+  getRuntimeFlags,
+  isBrandInsightsEnabled,
+  refreshRuntimeConfig,
+  __setRuntimeFlagsForTests,
+  isMenuDevBypassEnabled
+} from '../src/lib/runtime-config';
 
 const mockGetSupabaseClient = vi.fn();
 
@@ -9,7 +15,7 @@ vi.mock('../src/lib/supabase', () => ({
 
 describe('runtime config', () => {
   beforeEach(() => {
-    __setRuntimeFlagsForTests({ brandInsights: true });
+    __setRuntimeFlagsForTests({ brandInsights: true, menuDevBypass: true });
     mockGetSupabaseClient.mockReset();
   });
 
@@ -17,32 +23,39 @@ describe('runtime config', () => {
     mockGetSupabaseClient.mockReturnValue(null);
     await refreshRuntimeConfig();
     expect(isBrandInsightsEnabled()).toBe(true);
+    expect(isMenuDevBypassEnabled()).toBe(true);
   });
 
   it('updates brand insights flag from remote config', async () => {
-    const maybeSingle = vi.fn().mockResolvedValue({ data: { value: { enabled: false } }, error: null });
-    const eq = vi.fn(() => ({ maybeSingle }));
-    const select = vi.fn(() => ({ eq }));
+    const inFn = vi.fn().mockResolvedValue({
+      data: [
+        { key: 'brand_insights', value: { enabled: false } },
+        { key: 'menu_dev_bypass', value: { enabled: false } }
+      ],
+      error: null
+    });
+    const select = vi.fn(() => ({ in: inFn }));
     const from = vi.fn(() => ({ select }));
     mockGetSupabaseClient.mockReturnValue({ from });
 
     await refreshRuntimeConfig();
 
-    expect(maybeSingle).toHaveBeenCalled();
+    expect(inFn).toHaveBeenCalled();
     expect(isBrandInsightsEnabled()).toBe(false);
+    expect(isMenuDevBypassEnabled()).toBe(false);
     expect(getRuntimeFlags().brandInsights).toBe(false);
   });
 
   it('preserves previous flag value on fetch error', async () => {
     const error = new Error('boom');
-    const maybeSingle = vi.fn().mockResolvedValue({ data: null, error });
-    const eq = vi.fn(() => ({ maybeSingle }));
-    const select = vi.fn(() => ({ eq }));
+    const inFn = vi.fn().mockResolvedValue({ data: null, error });
+    const select = vi.fn(() => ({ in: inFn }));
     const from = vi.fn(() => ({ select }));
     mockGetSupabaseClient.mockReturnValue({ from });
 
     await refreshRuntimeConfig();
 
     expect(isBrandInsightsEnabled()).toBe(true);
+    expect(isMenuDevBypassEnabled()).toBe(true);
   });
 });
