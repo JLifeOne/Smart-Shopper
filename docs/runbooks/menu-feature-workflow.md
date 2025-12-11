@@ -54,7 +54,11 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
   - persisted to WatermelonDB cache for offline reuse (no repeat prompts on reopen).
 - Edits: user edits set `edited_by_user = true`, `origin = 'user_edit'`, and mark the recipe for training (`needs_training = true` or equivalent side table/flag). Save to Supabase and WatermelonDB optimistically; backend can consume flagged rows for ML training.
 - Cache/read path: when viewing recipes, load from WatermelonDB/Supabase first; only call regenerate on explicit “Regenerate” CTA. Keep list/list-conversion flows using cached/persisted recipes unless regeneration was requested.
-- Backend status: `menu_recipes` now has `origin`, `edited_by_user`, `needs_training`, `version`; `menu_recipe_training_queue` created; `menu-recipes` and `menu-regenerate` edge functions deployed (project `itokvgjhtqzhrjlzazpm`) and enqueue training when `needs_training` is set. Frontend must call `menu-regenerate` for regen instead of client-only flow (pending).
+- Backend status: `menu_recipes` now has `origin`, `edited_by_user`, `needs_training`, `version`; `menu_recipe_training_queue` created; `menu-recipes` and `menu-regenerate` edge functions deployed (project `itokvgjhtqzhrjlzazpm`) and enqueue training when `needs_training` is set. Frontend now calls `menu-regenerate` (which invokes `menus-llm` pipeline and logs `menu_regenerate` + `menu_regenerate_llm_call` events with correlation IDs).
+
+## Observability (regen)
+- Function logs emit `menu_regenerate` and `menu_regenerate_llm_call` with correlationId, recipeId, durationMs (and llmDurationMs).
+- Add dashboards/alerts on error rate and latency for `menu-regenerate`/`menus-llm` functions; surface correlationId in UI to trace failures end-to-end.
 ## Workflow Stages (execution order)
 1) **Session resilience**
    - Status: 🚧 In progress

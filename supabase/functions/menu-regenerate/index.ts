@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
+import { menuPromptResponseSchema, type MenuPromptResponse, menuPromptInputSchema } from "../_shared/menu-prompt-types.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -112,15 +113,57 @@ serve(async (req) => {
       return jsonResponse({ error: "recipe_not_found", correlationId }, { status: 404 });
     }
 
-    // TODO: integrate actual LLM/regeneration pipeline; for now, echo recipe with bumped version
     const now = new Date().toISOString();
     const targetServings = parsed.data.servings ?? (recipe.servings?.people_count as number | undefined) ?? 1;
 
+    const llmInput = menuPromptInputSchema.parse({
+      sessionId: parsed.data.sessionId ?? null,
+      locale: recipe.cuisine_style ?? null,
+      peopleCount: targetServings,
+      dishes: [
+        {
+          title: parsed.data.title ?? recipe.title,
+          cuisineStyle: parsed.data.cuisineStyle ?? recipe.cuisine_style ?? null,
+        },
+      ],
+      preferences: {},
+      policy: {},
+    });
+
+    let llmResponse: MenuPromptResponse | null = null;
+    let llmDurationMs: number | undefined;
+    try {
+      const llmStarted = performance.now();
+      const { data: llmData, error: llmError } = await supabase.functions.invoke<MenuPromptResponse>("menus-llm", {
+        body: llmInput,
+        headers: { "x-correlation-id": correlationId },
+      });
+      llmDurationMs = Math.round(performance.now() - llmStarted);
+      if (llmError || !llmData) {
+        console.error("menu-regenerate llm_invoke_failed", { correlationId, llmError });
+        throw new Error("llm_failed");
+      }
+      llmResponse = menuPromptResponseSchema.parse(llmData);
+    } catch (error) {
+      console.error("menu-regenerate llm_call_failed", { correlationId, error: String(error) });
+      return jsonResponse({ error: "regen_generation_failed", correlationId }, { status: 502 });
+    }
+
+    const nextCard = llmResponse?.cards?.[0];
+    if (!nextCard) {
+      return jsonResponse({ error: "no_recipe_generated", correlationId }, { status: 502 });
+    }
+
     const updates: Record<string, unknown> = {
       idempotency_key: idempotencyKey,
-      title: parsed.data.title ?? recipe.title,
-      cuisine_style: parsed.data.cuisineStyle ?? recipe.cuisine_style,
-      servings: { ...(recipe.servings ?? { people_count: targetServings }), people_count: targetServings },
+      title: nextCard.title ?? recipe.title,
+      cuisine_style: nextCard.cuisine_style ?? recipe.cuisine_style,
+      servings: nextCard.servings ?? { people_count: targetServings },
+      ingredients: nextCard.ingredients,
+      method: nextCard.method,
+      tips: nextCard.tips ?? [],
+      packaging_notes: nextCard.summary_footer ?? recipe.packaging_notes ?? null,
+      packaging_guidance: nextCard.packaging_guidance ?? [],
       version: (recipe.version ?? 1) + 1,
       origin: "llm_regen",
       edited_by_user: false,
@@ -156,7 +199,16 @@ serve(async (req) => {
       .maybeSingle();
 
     const durationMs = Math.round(performance.now() - started);
-    console.log(JSON.stringify({ event: "menu_regenerate", correlationId, recipeId: updated.id, durationMs }));
+    console.log(
+      JSON.stringify({
+        event: "menu_regenerate",
+        correlationId,
+        recipeId: updated.id,
+        durationMs,
+        llmDurationMs,
+        source: "llm_pipeline",
+      }),
+    );
 
     return jsonResponse({ recipe: updated, correlationId, durationMs });
   } catch (error) {
