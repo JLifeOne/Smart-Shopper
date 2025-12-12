@@ -21,10 +21,10 @@ import {
   uploadMenu,
   MenuPromptRequest,
   requestMenuPrompt,
-  MenuPromptResponse,
   regenerateMenuRecipe,
   RegenerateMenuRecipeInput,
-  RegenerateMenuRecipeResult
+  RegenerateMenuRecipeResult,
+  UpdateMenuRecipeInput
 } from './api';
 import {
   cacheMenuPolicy,
@@ -271,14 +271,14 @@ export function useMenuRecipes() {
       } else {
         queryClient.invalidateQueries({ queryKey: ['menu-recipes'] });
       }
-    }
-  , onError: (error, variables) => {
+    },
+    onError: (error, variables) => {
       console.warn('menus: createRecipe failed', { error: String(error), variables });
     }
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ recipeId, updates }: { recipeId: string; updates: Partial<MenuRecipe> }) =>
+    mutationFn: ({ recipeId, updates }: { recipeId: string; updates: UpdateMenuRecipeInput }) =>
       updateMenuRecipe(recipeId, updates),
     onSuccess: async (recipe) => {
       queryClient.setQueryData<MenuRecipe[] | undefined>(['menu-recipes'], (current = []) => {
@@ -309,7 +309,7 @@ export function useMenuRecipes() {
     recipesError: recipesQuery.error ? String(recipesQuery.error) : null,
     refreshRecipes: recipesQuery.refetch,
     createRecipe: (payload: SaveDishRequest): Promise<SaveDishResponse> => createMutation.mutateAsync(payload),
-    updateRecipe: (recipeId: string, updates: Partial<MenuRecipe>) =>
+    updateRecipe: (recipeId: string, updates: UpdateMenuRecipeInput) =>
       updateMutation.mutateAsync({ recipeId, updates }),
     regenerateRecipe: (input: RegenerateMenuRecipeInput) => regenerateMutation.mutateAsync(input),
     creating: createMutation.isPending,

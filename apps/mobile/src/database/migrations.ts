@@ -209,6 +209,24 @@ export const migrations = schemaMigrations({
           ]
         })
       ]
+    },
+    {
+      toVersion: 11,
+      steps: [
+        addColumns({
+          table: 'menu_preferences',
+          columns: [{ name: 'policy_json', type: 'string', isOptional: true }]
+        }),
+        addColumns({
+          table: 'menu_recipes',
+          columns: [
+            { name: 'version', type: 'number', isOptional: true },
+            { name: 'origin', type: 'string', isOptional: true },
+            { name: 'edited_by_user', type: 'boolean', isOptional: true },
+            { name: 'needs_training', type: 'boolean', isOptional: true }
+          ]
+        })
+      ]
     }
   ]
 });

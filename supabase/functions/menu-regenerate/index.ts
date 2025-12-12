@@ -143,9 +143,27 @@ serve(async (req) => {
         console.error("menu-regenerate llm_invoke_failed", { correlationId, llmError });
         throw new Error("llm_failed");
       }
+      console.log(
+        JSON.stringify({
+          event: "menu_regenerate_llm_call",
+          correlationId,
+          recipeId: recipe.id,
+          llmDurationMs,
+          status: "ok",
+        }),
+      );
       llmResponse = menuPromptResponseSchema.parse(llmData);
     } catch (error) {
       console.error("menu-regenerate llm_call_failed", { correlationId, error: String(error) });
+      console.log(
+        JSON.stringify({
+          event: "menu_regenerate_llm_call",
+          correlationId,
+          recipeId: recipe.id,
+          llmDurationMs,
+          status: "error",
+        }),
+      );
       return jsonResponse({ error: "regen_generation_failed", correlationId }, { status: 502 });
     }
 

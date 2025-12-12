@@ -3,7 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, Idempotency-Key"
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, Idempotency-Key, x-correlation-id"
 };
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -29,6 +30,18 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
     headers: { "content-type": "application/json", ...corsHeaders },
     ...init
   });
+}
+
+function getCorrelationId(req: Request) {
+  return (
+    req.headers.get("x-correlation-id") ??
+    req.headers.get("Idempotency-Key") ??
+    crypto.randomUUID()
+  );
+}
+
+function getIdempotencyKey(req: Request) {
+  return req.headers.get("Idempotency-Key") ?? req.headers.get("idempotency-key");
 }
 
 async function getAuthedClient(req: Request) {
@@ -75,22 +88,12 @@ function aggregateIngredients(recipes: any[], peopleOverride?: number) {
   }));
 }
 
-function resolveLimits(user: any) {
-  const isPremium = Boolean(
-    user?.app_metadata?.is_menu_premium ?? user?.app_metadata?.is_developer ?? user?.app_metadata?.dev ?? false
-  );
-  return {
-    isPremium,
-    limits: isPremium
-      ? { maxUploadsPerDay: 25, concurrentSessions: 5, maxListCreates: 25 }
-      : { maxUploadsPerDay: 3, concurrentSessions: 1, maxListCreates: 1 }
-  };
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+
+  const correlationId = getCorrelationId(req);
 
   let supabase;
   let userId;
@@ -103,19 +106,18 @@ serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "auth_error";
     const status = message === "auth_required" ? 401 : 500;
-    return jsonResponse({ error: message }, { status });
+    return jsonResponse({ error: message, correlationId }, { status });
   }
 
   if (req.method !== "POST") {
-    return jsonResponse({ error: "method_not_allowed" }, { status: 405 });
+    return jsonResponse({ error: "method_not_allowed", correlationId }, { status: 405 });
   }
 
   try {
-    const { limits } = resolveLimits(user);
     const payload = (await req.json().catch(() => ({}))) as ConvertPayload;
     const dishIds = Array.isArray(payload.dishIds) ? payload.dishIds.filter(Boolean) : [];
     if (!dishIds.length) {
-      return jsonResponse({ error: "dish_ids_required" }, { status: 400 });
+      return jsonResponse({ error: "dish_ids_required", correlationId }, { status: 400 });
     }
 
     const { data: recipes, error } = await supabase
@@ -125,10 +127,10 @@ serve(async (req) => {
       .eq("owner_id", userId);
     if (error) {
       console.error("menu_recipes fetch failed", error);
-      return jsonResponse({ error: "recipes_fetch_failed" }, { status: 400 });
+      return jsonResponse({ error: "recipes_fetch_failed", correlationId }, { status: 400 });
     }
     if ((recipes ?? []).length !== dishIds.length) {
-      return jsonResponse({ error: "missing_recipes" }, { status: 404 });
+      return jsonResponse({ error: "missing_recipes", correlationId }, { status: 404 });
     }
 
     const { data: preferences } = await supabase
@@ -174,7 +176,8 @@ serve(async (req) => {
       return jsonResponse(
         {
           error: "preference_violation",
-          violations
+          violations,
+          correlationId
         },
         { status: 400 }
       );
@@ -182,77 +185,55 @@ serve(async (req) => {
 
     const consolidatedList = aggregateIngredients(recipes ?? [], payload.peopleCountOverride);
     let listId: string | null = null;
+    let replay = false;
 
     if (payload.persistList) {
-      const today = new Date().toISOString().slice(0, 10);
-      const { data: usageRows, error: usageError } = await supabase.rpc("increment_menu_usage", {
-        _owner_id: userId,
-        _usage_date: today,
-        _uploads_inc: 0,
-        _list_inc: 1,
-        _upload_limit: limits.maxUploadsPerDay,
-        _list_limit: limits.maxListCreates
-      });
-      const usageRow = usageRows?.[0];
-      if (usageError || !usageRow) {
-        const isLimit =
-          usageError?.message?.includes("limit_exceeded") ||
-          (usageRow && usageRow.list_creates > limits.maxListCreates);
-        return jsonResponse(
-          {
-            error: isLimit ? "limit_exceeded" : "usage_tracking_failed",
-            scope: "list_creates",
-            limit: limits.maxListCreates,
-            remaining: Math.max(0, limits.maxListCreates - (usageRow?.list_creates ?? limits.maxListCreates))
-          },
-          { status: isLimit ? 429 : 400 }
-        );
-      }
-      const remainingLists = Math.max(0, limits.maxListCreates - (usageRow.list_creates ?? 0));
-      if (remainingLists <= 0) {
-        return jsonResponse(
-          {
-            error: "limit_exceeded",
-            scope: "list_creates",
-            limit: limits.maxListCreates,
-            remaining: 0
-          },
-          { status: 429 }
-        );
+      const idempotencyKey = getIdempotencyKey(req);
+      if (!idempotencyKey) {
+        return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
       }
       const listName = payload.listName?.trim() || `Menu plan ${new Date().toISOString().slice(0, 10)}`;
-      const { data: list, error: listError } = await supabase
-        .from("lists")
-        .insert({ owner_id: userId, name: listName })
-        .select("id")
-        .single();
-      if (listError || !list) {
-        console.error("create list failed", listError);
-        return jsonResponse({ error: "list_create_failed" }, { status: 400 });
-      }
-      listId = list.id;
       const itemsPayload = consolidatedList.map((line) => ({
-        list_id: list.id,
         label: line.name,
         desired_qty: line.quantity ?? 1,
         notes: line.packaging ?? null
       }));
-      if (itemsPayload.length) {
-        const { error: itemError } = await supabase.from("list_items").insert(itemsPayload);
-        if (itemError) {
-          console.error("list items insert failed", itemError);
-          return jsonResponse({ error: "list_items_failed" }, { status: 400 });
+      const { data: created, error: createError } = await supabase.rpc("menu_create_list", {
+        _idempotency_key: idempotencyKey,
+        _name: listName,
+        _items: itemsPayload
+      });
+      if (createError) {
+        const message = createError.message ?? "list_create_failed";
+        if (message.includes("limit_exceeded")) {
+          return jsonResponse({ error: "limit_exceeded", scope: "list_creates", correlationId }, { status: 429 });
         }
+        if (message.includes("premium_required")) {
+          return jsonResponse({ error: "premium_required", correlationId }, { status: 403 });
+        }
+        if (message.includes("idempotency_key_required")) {
+          return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
+        }
+        console.error("menus-lists create failed", { correlationId, createError });
+        return jsonResponse({ error: "list_create_failed", correlationId }, { status: 400 });
+      }
+      const createdRow = Array.isArray(created) ? created[0] : created;
+      listId = (createdRow?.list_id as string | undefined) ?? null;
+      replay = Boolean(createdRow?.replay ?? false);
+      if (!listId) {
+        return jsonResponse({ error: "list_create_failed", correlationId }, { status: 400 });
       }
     }
 
     return jsonResponse({
       consolidatedList,
       listId,
-      servings: payload.peopleCountOverride ?? null
+      servings: payload.peopleCountOverride ?? null,
+      replay: payload.persistList ? replay : undefined,
+      correlationId
     });
   } catch (error) {
-    console.error("menus-lists failure", error);
-    return jsonResponse({ error: "internal_error" }, { status: 500 });
+    console.error("menus-lists failure", { correlationId, error });
+    return jsonResponse({ error: "internal_error", correlationId }, { status: 500 });
   }
 });

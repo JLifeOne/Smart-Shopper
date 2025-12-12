@@ -4,7 +4,8 @@ import { menuPromptInputSchema, menuPromptResponseSchema, type MenuPromptInput, 
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type"
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, Idempotency-Key, x-correlation-id"
 };
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -17,6 +18,14 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
     headers: { "content-type": "application/json", ...corsHeaders },
     ...init
   });
+}
+
+function getCorrelationId(req: Request) {
+  return (
+    req.headers.get("x-correlation-id") ??
+    req.headers.get("Idempotency-Key") ??
+    crypto.randomUUID()
+  );
 }
 
 async function getAuthedClient(req: Request) {
@@ -281,7 +290,7 @@ async function applyPackagingGuidance(
   }
 }
 
-async function callLLM(payload: MenuPromptInput, requestId: string) {
+async function callLLM(payload: MenuPromptInput, requestId: string, correlationId: string) {
   if (!llmUrl) {
     throw new Error("llm_url_missing");
   }
@@ -299,15 +308,15 @@ async function callLLM(payload: MenuPromptInput, requestId: string) {
   try {
     json = JSON.parse(text);
   } catch {
-    console.error("llm_invalid_json", { requestId, text: text.slice(0, 500) });
+    console.error("llm_invalid_json", { requestId, correlationId, text: text.slice(0, 500) });
     throw new Error("llm_invalid_json");
   }
   if (!response.ok) {
-    console.error("llm_error", { requestId, status: response.status, body: json });
+    console.error("llm_error", { requestId, correlationId, status: response.status, body: json });
     throw new Error("llm_failed");
   }
   const durationMs = Math.round(performance.now() - startedAt);
-  console.log(JSON.stringify({ event: "menu_llm_call", requestId, durationMs }));
+  console.log(JSON.stringify({ event: "menu_llm_call", requestId, correlationId, durationMs }));
   return json as unknown;
 }
 
@@ -315,6 +324,8 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
+
+  const correlationId = getCorrelationId(req);
 
   let supabase;
   let userId;
@@ -325,11 +336,11 @@ serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'auth_error';
     const status = message === 'auth_required' ? 401 : 500;
-    return jsonResponse({ error: message }, { status });
+    return jsonResponse({ error: message, correlationId }, { status });
   }
 
   if (req.method !== 'POST') {
-    return jsonResponse({ error: 'method_not_allowed' }, { status: 405 });
+    return jsonResponse({ error: 'method_not_allowed', correlationId }, { status: 405 });
   }
 
   try {
@@ -353,10 +364,10 @@ serve(async (req) => {
         preferences: hydrated.preferences ?? {},
         policy: hydrated.policy ?? {}
       };
-      const llmRaw = await callLLM(llmPayload, requestId);
+      const llmRaw = await callLLM(llmPayload, requestId, correlationId);
       generated = menuPromptResponseSchema.parse(llmRaw);
     } catch (error) {
-      console.error("llm_parse_failed", { requestId, error: String(error) });
+      console.error("llm_parse_failed", { requestId, correlationId, error: String(error) });
       generated = buildResponse(hydrated);
       usedFallback = true;
     }
@@ -385,6 +396,7 @@ serve(async (req) => {
     console.log(
       JSON.stringify({
         event: 'menu_llm_stub',
+        correlationId,
         dishCount: parsed.dishes.length,
         people: parsed.peopleCount,
         clarifications: validated.clarification_needed?.length ?? 0,
@@ -394,9 +406,9 @@ serve(async (req) => {
     return jsonResponse(validated);
   } catch (error) {
     if ('issues' in (error as any)) {
-      return jsonResponse({ error: 'invalid_payload', details: (error as any).issues }, { status: 400 });
+      return jsonResponse({ error: 'invalid_payload', details: (error as any).issues, correlationId }, { status: 400 });
     }
-    console.error('menus-llm failure', error);
-    return jsonResponse({ error: 'internal_error' }, { status: 500 });
+    console.error('menus-llm failure', { correlationId, error });
+    return jsonResponse({ error: 'internal_error', correlationId }, { status: 500 });
   }
 });

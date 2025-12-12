@@ -26,17 +26,56 @@ export class MenuFunctionError extends Error {
   }
 }
 
+const hashSeed = (value: string) => {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
+};
+
+const clampKey = (value: string, maxLen = 255) => (value.length > maxLen ? value.slice(0, maxLen) : value);
+
 const generateIdempotencyKey = (seed?: string) => {
   const random = Math.random().toString(36).slice(2, 10);
   const stamp = Date.now().toString(36);
-  return [seed ?? 'menu', stamp, random].filter(Boolean).join('-');
+  const seedPart = seed ? hashSeed(seed) : 'menu';
+  return clampKey([seedPart, stamp, random].filter(Boolean).join('-'));
 };
 
 const generateCorrelationId = (seed?: string) => {
   const random = Math.random().toString(16).slice(2, 10);
   const stamp = Date.now().toString(36);
-  return [seed ?? 'menu', stamp, random].filter(Boolean).join('-');
+  const seedPart = seed ? hashSeed(seed) : 'menu';
+  return clampKey([seedPart, stamp, random].filter(Boolean).join('-'));
 };
+
+const REQUEST_KEY_TTL_MS = 10 * 60 * 1000;
+
+const requestKeysByOperation = new Map<
+  string,
+  { idempotencyKey: string; correlationId: string; createdAt: number }
+>();
+
+function getRequestKeys(operationKey: string) {
+  const now = Date.now();
+  const cached = requestKeysByOperation.get(operationKey);
+  if (cached && now - cached.createdAt < REQUEST_KEY_TTL_MS) {
+    return cached;
+  }
+  const next = {
+    idempotencyKey: generateIdempotencyKey(operationKey),
+    correlationId: generateCorrelationId(operationKey),
+    createdAt: now
+  };
+  requestKeysByOperation.set(operationKey, next);
+  return next;
+}
+
+function clearRequestKeys(operationKey: string) {
+  requestKeysByOperation.delete(operationKey);
+}
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -172,21 +211,21 @@ async function callMenuFunction<T>(path: string, init: MenuFunctionInit): Promis
   if (!token) {
     throw new Error('auth_required');
   }
+  const { idempotencyKey, correlationId: correlationOverride, ...fetchInit } = init;
   const endpoint = `${supabaseEnv.supabaseUrl}/functions/v1/${path}`;
-  const method = (init.method ?? 'GET').toString().toUpperCase();
-  const headers = new Headers(init.headers ?? {});
+  const method = (fetchInit.method ?? 'GET').toString().toUpperCase();
+  const headers = new Headers(fetchInit.headers ?? {});
   headers.set('content-type', headers.get('content-type') ?? 'application/json');
   headers.set('Authorization', `Bearer ${token}`);
   if (method !== 'GET' && !headers.has('Idempotency-Key')) {
-    const key = init.idempotencyKey ?? generateIdempotencyKey(path);
+    const key = idempotencyKey ?? generateIdempotencyKey(path);
     headers.set('Idempotency-Key', key);
   }
   if (!headers.has('x-correlation-id')) {
-    const correlation = init.correlationId ?? generateCorrelationId(path);
+    const correlation = correlationOverride ?? generateCorrelationId(path);
     headers.set('x-correlation-id', correlation);
   }
   const correlationId = headers.get('x-correlation-id') ?? undefined;
-  const { idempotencyKey: _ignored, ...fetchInit } = init;
   const response = await fetch(endpoint, {
     ...fetchInit,
     headers
@@ -210,17 +249,23 @@ async function callMenuFunction<T>(path: string, init: MenuFunctionInit): Promis
 }
 
 export async function uploadMenu(mode: UploadMode, premium: boolean, sourceUri?: string | null) {
-  const keySeed = `menu-upload:${mode}:${sourceUri ?? 'none'}`;
-  const result = await callMenuFunction<{ session: MenuSession }>('menu-sessions', {
-    method: 'POST',
-    body: JSON.stringify({
-      source: { type: mode, uri: sourceUri ?? null },
-      isPremium: premium
-    }),
-    idempotencyKey: generateIdempotencyKey(keySeed),
-    correlationId: generateCorrelationId(keySeed)
-  });
-  return result.session;
+  const operationKey = `menu-upload:${mode}:${sourceUri ?? 'none'}`;
+  const { idempotencyKey, correlationId } = getRequestKeys(operationKey);
+  try {
+    const result = await callMenuFunction<{ session: MenuSession }>('menu-sessions', {
+      method: 'POST',
+      body: JSON.stringify({
+        source: { type: mode, uri: sourceUri ?? null },
+        isPremium: premium
+      }),
+      idempotencyKey,
+      correlationId
+    });
+    clearRequestKeys(operationKey);
+    return result.session;
+  } catch (error) {
+    throw error;
+  }
 }
 
 export async function fetchMenuSession(sessionId: string) {
@@ -232,6 +277,8 @@ export async function fetchMenuSession(sessionId: string) {
 
 export async function resolveMenuClarifications(sessionId: string) {
   const keySeed = `menu-clarify-resolve:${sessionId}`;
+  const idempotencyKey = generateIdempotencyKey(keySeed);
+  const correlationId = generateCorrelationId(keySeed);
   return withRetry(() =>
     callMenuFunction<{ session: MenuSession }>(`menu-sessions/${sessionId}`, {
       method: 'PATCH',
@@ -240,8 +287,8 @@ export async function resolveMenuClarifications(sessionId: string) {
         warnings: [],
         payload: { clarifications: [] }
       }),
-      idempotencyKey: generateIdempotencyKey(keySeed),
-      correlationId: generateCorrelationId(keySeed)
+      idempotencyKey,
+      correlationId
     })
   );
 }
@@ -251,6 +298,8 @@ export async function submitMenuClarifications(
   answers: Array<{ dishKey: string; answer: string }>
 ) {
   const keySeed = `menu-clarify-submit:${sessionId}:${answers.length}`;
+  const idempotencyKey = generateIdempotencyKey(keySeed);
+  const correlationId = generateCorrelationId(keySeed);
   return withRetry(() =>
     callMenuFunction<{ session: MenuSession }>(`menu-sessions/${sessionId}`, {
       method: 'PATCH',
@@ -258,8 +307,8 @@ export async function submitMenuClarifications(
         clarification_answers: answers,
         status: 'processing'
       }),
-      idempotencyKey: generateIdempotencyKey(keySeed),
-      correlationId: generateCorrelationId(keySeed)
+      idempotencyKey,
+      correlationId
     })
   );
 }
@@ -309,9 +358,10 @@ export async function createListFromMenus(
   options: { persistList?: boolean; listName?: string | null } = {}
 ): Promise<MenuListConversionResult> {
   const normalizedIds = normalizeIdList(ids);
-  const keySeed = `menus-convert:${normalizedIds}:${people}:${options.persistList ? 'persist' : 'temp'}:${
+  const operationKey = `menus-convert:${normalizedIds}:${people}:${options.persistList ? 'persist' : 'temp'}:${
     options.listName ?? 'none'
   }`;
+  const { idempotencyKey, correlationId } = getRequestKeys(operationKey);
   const result = await callMenuFunction<MenuListConversionResult>('menus-lists', {
     method: 'POST',
     body: JSON.stringify({
@@ -320,8 +370,10 @@ export async function createListFromMenus(
       persistList: options.persistList ?? false,
       listName: options.listName ?? null
     }),
-    idempotencyKey: generateIdempotencyKey(keySeed)
+    idempotencyKey,
+    correlationId
   });
+  clearRequestKeys(operationKey);
   return result;
 }
 
@@ -372,7 +424,9 @@ export async function listMenuRecipes(cursor?: string) {
   return result.recipes;
 }
 
-export async function updateMenuRecipe(recipeId: string, updates: Partial<MenuRecipe>, idempotencyKey?: string) {
+export type UpdateMenuRecipeInput = Partial<MenuRecipe> & { expectedUpdatedAt?: string };
+
+export async function updateMenuRecipe(recipeId: string, updates: UpdateMenuRecipeInput, idempotencyKey?: string) {
   const key = idempotencyKey ?? generateIdempotencyKey(`menu-recipes:update:${recipeId}`);
   const result = await callMenuFunction<{ recipe: MenuRecipe }>(`menu-recipes/${recipeId}`, {
     method: 'PUT',
@@ -425,13 +479,15 @@ export async function requestMenuPrompt(payload: MenuPromptRequest) {
     .sort()
     .join('|');
   const keySeed = `menus-llm:${payload.sessionId ?? 'preview'}:${payload.peopleCount}:${dishSeed}`;
+  const idempotencyKey = generateIdempotencyKey(keySeed);
+  const correlationId = generateCorrelationId(keySeed);
   return withRetry(
     () =>
       callMenuFunction<MenuPromptResponse>('menus-llm', {
         method: 'POST',
         body: JSON.stringify(payload),
-        idempotencyKey: generateIdempotencyKey(keySeed),
-        correlationId: generateCorrelationId(keySeed)
+        idempotencyKey,
+        correlationId
       }),
     3,
     300
@@ -492,18 +548,26 @@ export async function submitMenuReview(input: {
   reason?: string;
   note?: string;
 }) {
-  const keySeed = `menus-review:${input.sessionId ?? 'none'}:${input.cardId ?? input.dishTitle ?? 'unknown'}`;
-  return callMenuFunction<{ status: 'ok' }>('menus-reviews', {
-    method: 'POST',
-    body: JSON.stringify({
-      sessionId: input.sessionId ?? null,
-      cardId: input.cardId ?? null,
-      dishTitle: input.dishTitle ?? null,
-      reason: input.reason ?? 'flagged',
-      note: input.note ?? null
-    }),
-    idempotencyKey: generateIdempotencyKey(keySeed)
-  });
+  const operationKey = `menus-review:${input.sessionId ?? 'none'}:${input.cardId ?? input.dishTitle ?? 'unknown'}`;
+  const { idempotencyKey, correlationId } = getRequestKeys(operationKey);
+  try {
+    const result = await callMenuFunction<{ status: string }>('menus-reviews', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId: input.sessionId ?? null,
+        cardId: input.cardId ?? null,
+        dishTitle: input.dishTitle ?? null,
+        reason: input.reason ?? 'flagged',
+        note: input.note ?? null
+      }),
+      idempotencyKey,
+      correlationId
+    });
+    clearRequestKeys(operationKey);
+    return result;
+  } catch (error) {
+    throw error;
+  }
 }
 
 export type MenuReview = {

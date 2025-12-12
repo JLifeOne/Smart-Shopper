@@ -4,7 +4,8 @@ import { classifyProductName, normalizeProductName } from "../_shared/hybrid-cla
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, Idempotency-Key, x-correlation-id",
 };
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -50,6 +51,18 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
   });
 }
 
+function getCorrelationId(req: Request) {
+  return (
+    req.headers.get("x-correlation-id") ??
+    req.headers.get("Idempotency-Key") ??
+    crypto.randomUUID()
+  );
+}
+
+function getIdempotencyKey(req: Request) {
+  return req.headers.get("Idempotency-Key") ?? req.headers.get("idempotency-key");
+}
+
 function parseSessionIdFromUrl(url: URL) {
   const segments = url.pathname.split("/").filter(Boolean);
   const idx = segments.findIndex((segment) => segment === "menu-sessions");
@@ -57,18 +70,6 @@ function parseSessionIdFromUrl(url: URL) {
     return null;
   }
   return segments[idx + 1] ?? null;
-}
-
-function resolveLimits(user: any) {
-  const isPremium = Boolean(
-    user?.app_metadata?.is_menu_premium ?? user?.app_metadata?.is_developer ?? user?.app_metadata?.dev ?? false
-  );
-  return {
-    isPremium,
-    limits: isPremium
-      ? { maxUploadsPerDay: 25, concurrentSessions: 5, maxListCreates: 25 }
-      : { maxUploadsPerDay: 3, concurrentSessions: 1, maxListCreates: 1 }
-  };
 }
 
 async function insertDetections(
@@ -143,6 +144,8 @@ serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  const correlationId = getCorrelationId(req);
+
   let client;
   let userId;
   let user;
@@ -154,10 +157,8 @@ serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "auth_error";
     const status = message === "auth_required" ? 401 : 500;
-    return jsonResponse({ error: message }, { status });
+    return jsonResponse({ error: message, correlationId }, { status });
   }
-  const { limits, isPremium } = resolveLimits(user);
-
   const url = new URL(req.url);
   const sessionId = parseSessionIdFromUrl(url);
 
@@ -167,74 +168,53 @@ serve(async (req) => {
         const startedAt = performance.now();
         const payload = (await req.json().catch(() => ({}))) as CreateSessionPayload;
 
-        const today = new Date().toISOString().slice(0, 10);
-        try {
-          const { data: usageRows, error: usageError } = await client.rpc("increment_menu_usage", {
-            _owner_id: userId,
-            _usage_date: today,
-            _uploads_inc: 1,
-            _list_inc: 0,
-            _upload_limit: limits.maxUploadsPerDay,
-            _list_limit: limits.maxListCreates
-          });
-          if (usageError) {
-            console.error("menu_usage increment failed", usageError);
-            if (usageError.message?.includes("limit_exceeded")) {
-              return jsonResponse(
-                { error: "limit_exceeded", limit: limits.maxUploadsPerDay, remaining: 0, scope: "uploads" },
-                { status: 429 }
-              );
-            }
-            return jsonResponse({ error: "usage_tracking_failed" }, { status: 400 });
-          }
-          const usageRow = usageRows?.[0];
-          if (!usageRow) {
-            return jsonResponse(
-              { error: "limit_exceeded", limit: limits.maxUploadsPerDay, remaining: 0, scope: "uploads" },
-              { status: 429 }
-            );
-          }
-          const remaining = Math.max(0, limits.maxUploadsPerDay - (usageRow.uploads ?? 0));
-          if (remaining < 0) {
-            return jsonResponse(
-              { error: "limit_exceeded", limit: limits.maxUploadsPerDay, remaining: 0, scope: "uploads" },
-              { status: 429 }
-            );
-          }
-        } catch (usageErr) {
-          console.error("menu_usage increment error", usageErr);
-          return jsonResponse({ error: "usage_tracking_failed" }, { status: 400 });
+        const idempotencyKey = getIdempotencyKey(req);
+        if (!idempotencyKey) {
+          return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
         }
 
-        const insertPayload = {
-          owner_id: userId,
-          status: "pending" as SessionStatus,
-          source_asset_url: payload.source?.uri ?? null,
-          payload: payload.metadata ?? {},
-          dish_titles: [],
-          card_ids: [],
-          warnings: [],
-          detected_document_type: payload.source?.type ?? null,
-          is_premium: Boolean(payload.isPremium ?? isPremium),
-          intent_route: null as IntentRoute | null
-        };
+        const { data: created, error: createError } = await client.rpc("menu_create_session", {
+          _idempotency_key: idempotencyKey,
+          _source_asset_url: payload.source?.uri ?? null,
+          _detected_document_type: payload.source?.type ?? null,
+          _metadata: payload.metadata ?? {},
+          _requested_is_premium: payload.isPremium ?? null
+        });
+        if (createError) {
+          const message = createError.message ?? "session_create_failed";
+          if (message.includes("limit_exceeded")) {
+            return jsonResponse({ error: "limit_exceeded", scope: "uploads", correlationId }, { status: 429 });
+          }
+          if (message.includes("idempotency_key_required")) {
+            return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
+          }
+          console.error("menu_sessions create failed", { correlationId, createError });
+          return jsonResponse({ error: "session_create_failed", correlationId }, { status: 400 });
+        }
+        const createdRow = Array.isArray(created) ? created[0] : created;
+        const createdSessionId = createdRow?.session_id ?? null;
+        const replay = Boolean(createdRow?.replay ?? false);
+        if (!createdSessionId) {
+          return jsonResponse({ error: "session_create_failed", correlationId }, { status: 400 });
+        }
 
         const { data, error } = await client
           .from("menu_sessions")
-          .insert(insertPayload)
           .select("*")
+          .eq("id", createdSessionId)
+          .eq("owner_id", userId)
           .single();
-        if (error) {
-          console.error("menu_sessions insert failed", error);
-          return jsonResponse({ error: "session_create_failed" }, { status: 400 });
+        if (error || !data) {
+          console.error("menu_sessions fetch failed", { correlationId, error });
+          return jsonResponse({ error: "session_create_failed", correlationId }, { status: 400 });
         }
 
         let detections = [];
-        if (payload.detections?.length) {
+        if (!replay && payload.detections?.length) {
           detections = await insertDetections(client, userId, data.id, payload.detections);
         }
-        const intentDecisions = await classifyIntent(detections.length ? detections : []);
-        if (intentDecisions.length) {
+        const intentDecisions = !replay ? await classifyIntent(detections.length ? detections : []) : [];
+        if (!replay && intentDecisions.length) {
           await client
             .from("menu_session_items")
             .upsert(
@@ -253,14 +233,16 @@ serve(async (req) => {
         console.log(
           JSON.stringify({
             event: "menu_session_created",
+            correlationId,
             sessionId: data.id,
             ownerId: userId,
             intentRoute: intentDecisions[0]?.intent ?? null,
             detections: payload.detections?.length ?? 0,
+            replay,
             durationMs
           })
         );
-        return jsonResponse({ session: data }, { status: 201 });
+        return jsonResponse({ session: data, replay, correlationId }, { status: 201 });
       }
       case "GET": {
         if (!sessionId) {
@@ -369,7 +351,7 @@ serve(async (req) => {
         return jsonResponse({ error: "method_not_allowed" }, { status: 405 });
     }
   } catch (error) {
-    console.error("menu-sessions failure", error);
-    return jsonResponse({ error: "internal_error" }, { status: 500 });
+    console.error("menu-sessions failure", { correlationId, error });
+    return jsonResponse({ error: "internal_error", correlationId }, { status: 500 });
   }
 });

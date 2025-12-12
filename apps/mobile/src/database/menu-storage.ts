@@ -51,6 +51,7 @@ export async function cacheMenuPolicy(policy: MenuPolicy) {
       record.allowCardLock = policy.preferences.allowCardLock;
       record.blurRecipes = policy.policy.blurRecipes;
       record.accessLevel = policy.policy.accessLevel;
+      record.policyJson = JSON.stringify(policy);
       record.updatedAt = Date.now();
     });
   });
@@ -62,6 +63,28 @@ export async function getCachedMenuPolicy(): Promise<MenuPolicy | null> {
   if (!pref) {
     return null;
   }
+
+  const stored = JSON_FALLBACK<MenuPolicy | null>(pref.policyJson, null);
+  if (stored?.policy && stored?.preferences) {
+    const cachedDate = new Date(pref.updatedAt).toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10);
+    const limits = stored.policy.limits ?? null;
+    const scrubRemaining = cachedDate !== today && limits;
+    return {
+      ...stored,
+      policy: {
+        ...stored.policy,
+        limits: scrubRemaining
+          ? {
+              ...limits,
+              remainingUploads: undefined,
+              remainingListCreates: undefined
+            }
+          : limits
+      }
+    } as MenuPolicy;
+  }
+
   return {
     policy: {
       isPremium: pref.accessLevel === 'full',
@@ -91,24 +114,29 @@ export async function cacheMenuRecipes(recipes: ApiMenuRecipe[]) {
     const existing = await collection.query().fetch();
     const map = new Map(existing.map((record) => [record.remoteId, record]));
     for (const recipe of recipes) {
+      const updatedAt = Date.parse(recipe.updated_at ?? '') || Date.now();
       const payload = {
-        remote_id: recipe.id,
+        remoteId: recipe.id,
         title: recipe.title,
         course: recipe.course ?? null,
-        cuisine_style: recipe.cuisine_style ?? null,
-        servings_json: JSON.stringify(recipe.servings ?? {}),
-        ingredients_json: JSON.stringify(recipe.ingredients ?? []),
-        method_json: JSON.stringify(recipe.method ?? []),
+        cuisineStyle: recipe.cuisine_style ?? null,
+        servingsJson: JSON.stringify(recipe.servings ?? {}),
+        ingredientsJson: JSON.stringify(recipe.ingredients ?? []),
+        methodJson: JSON.stringify(recipe.method ?? []),
         tips: JSON.stringify(recipe.tips ?? []),
-        packaging_notes: recipe.packaging_notes ?? null,
-        packaging_guidance: JSON.stringify(recipe.packaging_guidance ?? []),
-        dietary_tags: JSON.stringify((recipe as any).dietary_tags ?? []),
-        allergen_tags: JSON.stringify((recipe as any).allergen_tags ?? []),
-        premium_required: recipe.premium_required ?? true,
-        people_count: Number((recipe.servings as any)?.people_count ?? recipe.scale_factor ?? 1),
-        lock_scope: false,
-        last_synced_at: Date.now(),
-        updated_at: Date.now()
+        packagingNotes: recipe.packaging_notes ?? null,
+        packagingGuidance: JSON.stringify(recipe.packaging_guidance ?? []),
+        dietaryTags: JSON.stringify((recipe as any).dietary_tags ?? []),
+        allergenTags: JSON.stringify((recipe as any).allergen_tags ?? []),
+        premiumRequired: recipe.premium_required ?? true,
+        version: recipe.version ?? null,
+        origin: (recipe.origin as any) ?? null,
+        editedByUser: (recipe.edited_by_user as any) ?? null,
+        needsTraining: (recipe.needs_training as any) ?? null,
+        peopleCount: Number((recipe.servings as any)?.people_count ?? recipe.scale_factor ?? 1),
+        lockScope: false,
+        lastSyncedAt: Date.now(),
+        updatedAt
       };
       const record = map.get(recipe.id);
       if (record) {
@@ -137,6 +165,10 @@ export async function getCachedMenuRecipes(): Promise<ApiMenuRecipe[]> {
     dietary_tags: JSON_FALLBACK(record.dietaryTags ?? '[]', []),
     allergen_tags: JSON_FALLBACK(record.allergenTags ?? '[]', []),
     premium_required: record.premiumRequired,
+    version: record.version ?? null,
+    origin: record.origin ?? null,
+    edited_by_user: record.editedByUser ?? undefined,
+    needs_training: record.needsTraining ?? undefined,
     created_at: new Date(record.updatedAt).toISOString(),
     updated_at: new Date(record.updatedAt).toISOString()
   })) as ApiMenuRecipe[];
@@ -149,14 +181,14 @@ export async function cacheMenuPairings(pairings: ApiMenuPairing[]) {
     const map = new Map(existing.map((record) => [record.remoteId, record]));
     for (const pairing of pairings) {
       const payload = {
-        remote_id: pairing.id,
+        remoteId: pairing.id,
         title: pairing.title,
         description: pairing.description ?? null,
-        dish_ids: JSON.stringify(pairing.dish_ids ?? []),
+        dishIds: JSON.stringify(pairing.dish_ids ?? []),
         locale: pairing.locale ?? null,
-        is_default: pairing.is_default ?? false,
-        last_synced_at: Date.now(),
-        updated_at: Date.now()
+        isDefault: pairing.is_default ?? false,
+        lastSyncedAt: Date.now(),
+        updatedAt: Date.now()
       };
       const record = map.get(pairing.id);
       if (record) {
@@ -189,16 +221,16 @@ export async function cacheMenuReviews(reviews: MenuReview[]) {
     const map = new Map(existing.map((record) => [record.remoteId, record]));
     for (const review of reviews) {
       const payload = {
-        remote_id: review.id,
+        remoteId: review.id,
         status: review.status,
-        card_id: review.card_id ?? null,
-        session_id: review.session_id ?? null,
-        dish_title: review.dish_title ?? null,
+        cardId: review.card_id ?? null,
+        sessionId: review.session_id ?? null,
+        dishTitle: review.dish_title ?? null,
         reason: review.reason ?? null,
         note: review.note ?? null,
-        reviewed_at: review.reviewed_at ? new Date(review.reviewed_at).getTime() : null,
-        created_at: review.created_at ? new Date(review.created_at).getTime() : Date.now(),
-        last_synced_at: Date.now()
+        reviewedAt: review.reviewed_at ? new Date(review.reviewed_at).getTime() : null,
+        createdAt: review.created_at ? new Date(review.created_at).getTime() : Date.now(),
+        lastSyncedAt: Date.now()
       };
       const record = map.get(review.id);
       if (record) {
@@ -244,16 +276,16 @@ export async function cacheMenuSessions(sessions: ApiMenuSession[]) {
         is_premium: (session as any).is_premium ?? session.is_premium ?? false
       };
       const payload = {
-        remote_id: session.id,
+        remoteId: session.id,
         status: session.status,
-        source_asset_url: (session as any).source_asset_url ?? null,
-        intent_route: (session as any).intent_route ?? null,
-        dish_titles: JSON.stringify((session as any).dish_titles ?? []),
+        sourceAssetUrl: (session as any).source_asset_url ?? null,
+        intentRoute: (session as any).intent_route ?? null,
+        dishTitles: JSON.stringify((session as any).dish_titles ?? []),
         warnings: JSON.stringify((session as any).warnings ?? []),
         payload: JSON.stringify(payloadWithMeta),
-        created_at: new Date((session as any).created_at ?? Date.now()).getTime(),
-        updated_at: new Date((session as any).updated_at ?? Date.now()).getTime(),
-        last_synced_at: Date.now()
+        createdAt: new Date((session as any).created_at ?? Date.now()).getTime(),
+        updatedAt: new Date((session as any).updated_at ?? Date.now()).getTime(),
+        lastSyncedAt: Date.now()
       };
       const record = map.get(session.id);
       if (record) {

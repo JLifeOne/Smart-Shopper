@@ -13,5 +13,6 @@ export class MenuPreference extends Model {
   @field('allow_card_lock') allowCardLock!: boolean;
   @field('blur_recipes') blurRecipes!: boolean;
   @field('access_level') accessLevel!: string;
+  @field('policy_json') policyJson?: string;
   @field('updated_at') updatedAt!: number;
 }

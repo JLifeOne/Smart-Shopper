@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const schema = appSchema({
-  version: 10,
+  version: 11,
   tables: [
     tableSchema({
       name: 'lists',
@@ -138,6 +138,10 @@ export const schema = appSchema({
         { name: 'packaging_notes', type: 'string', isOptional: true },
         { name: 'packaging_guidance', type: 'string', isOptional: true },
         { name: 'premium_required', type: 'boolean' },
+        { name: 'version', type: 'number', isOptional: true },
+        { name: 'origin', type: 'string', isOptional: true },
+        { name: 'edited_by_user', type: 'boolean', isOptional: true },
+        { name: 'needs_training', type: 'boolean', isOptional: true },
         { name: 'dietary_tags', type: 'string', isOptional: true },
         { name: 'allergen_tags', type: 'string', isOptional: true },
         { name: 'people_count', type: 'number' },
@@ -186,6 +190,7 @@ export const schema = appSchema({
         { name: 'allow_card_lock', type: 'boolean' },
         { name: 'blur_recipes', type: 'boolean' },
         { name: 'access_level', type: 'string' },
+        { name: 'policy_json', type: 'string', isOptional: true },
         { name: 'updated_at', type: 'number' }
       ]
     }),

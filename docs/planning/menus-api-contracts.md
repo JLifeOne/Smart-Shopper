@@ -9,6 +9,10 @@ This document formalizes the Supabase edge-function contracts needed to move Men
 ### Create session – `POST /menu-sessions`
 Creates a draft ingestion session before OCR/LLM processing.
 
+Headers
+- `Idempotency-Key` (required): ensures session creation and daily usage accounting are replay-safe under retries/double-taps.
+- `x-correlation-id` (optional): propagated through function logs for tracing.
+
 ```json
 Request body
 {
@@ -158,7 +162,7 @@ Response `200`
 
 Back-end responsibilities:
 - Merge ingredients, normalize units, map to packaging units per locale.
-- Respect idempotency key (`menus-list-convert-{dishIds-hash}`) to avoid duplicate lists.
+- Require and respect `Idempotency-Key` when `persistList: true` so retries/double-taps cannot create duplicate lists or double-charge daily counters.
 - Enforce allergen/dietary preferences recorded in `menu_user_preferences`; if conflicts exist return
 ```json
 {
@@ -282,12 +286,11 @@ Response `200`
 
 - **Auth**: All endpoints require Supabase JWT; RLS enforces owner isolation.
 - **Validation**: Use Zod or class-validator inside edge functions; respond with typed errors `{ code, message, context }`.
-- **Telemetry**: Emit logs with `request_id`, `user_id`, `session_id` and metrics for latency/success.
-- **Idempotency**: For actions that mutate (`/menus/lists`, `/menu-recipes`), require `Idempotency-Key` header.
+- **Telemetry**: Emit logs with `request_id`/`x-correlation-id`, `user_id`, `session_id` and metrics for latency/success.
+- **Idempotency**: Require `Idempotency-Key` for create/side-effect endpoints (`/menu-sessions` POST, `/menus/lists` POST with `persistList: true`, `/menus-reviews` POST, `/menu-recipes` POST/PUT/DELETE, `/menu-regenerate` POST).
 - **Rate limits**: enforce per-user limits on uploads and conversions to prevent abuse.
 
 These contracts align with the schemas defined in `0012_menu_core.sql` and will unblock Stage 2 (AI pipeline) and Stage 3 (frontend wiring).
--
 ---
 
 ## 8. Menu prompt (`POST /menus-llm`)

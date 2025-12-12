@@ -55,27 +55,12 @@ select ok(
 );
 
 with owner as (
-  select id from auth.users limit 1
-),
-maybe_insert as (
-  insert into auth.users (id, email)
-  select gen_random_uuid(), 'menu-idempotency@example.com'
-  where not exists (select 1 from owner)
-  returning id
-),
-resolved_owner as (
-  select id from maybe_insert
-  union all
-  select id from owner
-  limit 1
-),
-jwt_claim as (
-  select set_config('request.jwt.claim.sub', id::text, true) from resolved_owner
+  select tests.create_supabase_user('menu-idempotency'::text) as id
 ),
 inserted as (
   insert into public.menu_recipes (owner_id, title, idempotency_key)
   select id, 'Idempotency smoke test', 'menu-idempotency-' || gen_random_uuid()
-  from resolved_owner
+  from owner
   returning id, version, updated_at
 ),
 updated as (

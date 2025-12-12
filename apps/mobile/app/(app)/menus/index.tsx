@@ -251,7 +251,7 @@ export default function MenuInboxScreen() {
     const remainingUploads = policy?.limits?.remainingUploads ?? null;
     const remainingListCreates = policy?.limits?.remainingListCreates ?? null;
     const base = {
-      isPremium: Boolean(policy?.isPremium && policy?.accessLevel === 'full'),
+      isPremium: Boolean(policy?.isPremium),
       blurRecipes: policy?.blurRecipes ?? true,
       allowListCreation: policy?.allowListCreation ?? false,
       limits: {
@@ -292,8 +292,8 @@ export default function MenuInboxScreen() {
     }
   }, [sessionError]);
   const { runPrompt, preview, previewLoading, previewError } = useMenuPrompt();
-  const dietaryTags = menuPolicy?.preferences.dietaryTags ?? [];
-  const allergenFlags = menuPolicy?.preferences.allergenFlags ?? [];
+  const dietaryTags = useMemo(() => menuPolicy?.preferences.dietaryTags ?? [], [menuPolicy]);
+  const allergenFlags = useMemo(() => menuPolicy?.preferences.allergenFlags ?? [], [menuPolicy]);
   const [reviewing, setReviewing] = useState<string | null>(null);
   const { reviews, refreshReviews } = useMenuReviews({ sessionId: session?.id ?? undefined });
   const handleResolveClarifications = async () => {
@@ -454,8 +454,7 @@ export default function MenuInboxScreen() {
     });
   }, [recipeSignature, FALLBACK_CARD_PEOPLE]);
 
-  const sessionCardIds = session?.card_ids ?? [];
-  const sessionCardIdsKey = sessionCardIds.join('|');
+  const sessionCardIds = useMemo(() => session?.card_ids ?? [], [session?.card_ids]);
 
   useEffect(() => {
     // Restore persisted UI state once
@@ -488,7 +487,7 @@ export default function MenuInboxScreen() {
       sessionCardIds.forEach((id) => next.add(id));
       return next;
     });
-  }, [sessionCardIdsKey]);
+  }, [sessionCardIds]);
 
   useEffect(() => {
     if (!restoredUI) return;
@@ -560,7 +559,7 @@ export default function MenuInboxScreen() {
   const clarifications = useMemo(() => {
     const payload = (session as any)?.payload ?? {};
     return Array.isArray(payload?.clarifications) ? payload.clarifications : [];
-  }, [session?.id, session?.updated_at]);
+  }, [session]);
   useEffect(() => {
     if (reviews.length) {
       const map: Record<string, string> = {};
@@ -793,6 +792,8 @@ export default function MenuInboxScreen() {
   const saveEditCard = async (card: DisplayCard) => {
     const nextServings = Math.max(1, Number.parseInt(servingsDraft || `${cardPeople[card.id] ?? card.basePeople}`, 10));
     const nextPackaging = packagingDraft.trim();
+    const expectedVersion = typeof card.recipe?.version === 'number' ? card.recipe.version : undefined;
+    const expectedUpdatedAt = expectedVersion ? undefined : card.recipe?.updated_at;
     try {
       await updateRecipe(card.id, {
         servings: {
@@ -803,7 +804,8 @@ export default function MenuInboxScreen() {
         origin: 'user_edit',
         edited_by_user: true,
         needs_training: true,
-        version: (card.recipe?.version ?? 0) + 1
+        version: expectedVersion,
+        expectedUpdatedAt
       });
       setCardPeople((prev) => ({ ...prev, [card.id]: nextServings }));
       cancelEditCard();
