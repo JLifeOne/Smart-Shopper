@@ -73,7 +73,7 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
   - Remote runtime flag: `isMenuDevBypassEnabled()` (see `apps/mobile/src/lib/runtime-config.ts`)
   - Current UI gate: `featureFlags.menuDevFullAccess && __DEV__ && isMenuDevBypassEnabled()` in `apps/mobile/app/(app)/menus/index.tsx`
 - Backend enforcement (dev/staging only):
-  - `menu_create_session` / `menu_create_list` treat `menu_dev_bypass.enabled=true` as premium for gating/limits; ensure it is `false` in production.
+  - `menu_create_session` / `menu_create_list` / `menu-regenerate` treat `menu_dev_bypass.enabled=true` as premium for gating/limits; ensure it is `false` in production.
 - SQL helper (run per environment):
   ```sql
   insert into app_runtime_config (key, value)
@@ -107,6 +107,77 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
 - `menu-regenerate` logs `menu_regenerate` and `menu_regenerate_llm_call` with `correlationId` (and `llmDurationMs`).
 - `menus-llm` logs `menu_llm_call`/`menu_llm_stub` with `correlationId` for end-to-end traceability.
 - Add dashboards/alerts on error rate and latency for `menu-regenerate`/`menus-llm` functions; surface correlationId in UI to trace failures end-to-end.
+
+## Manual testing (PowerShell) — get JWT + call `menu-regenerate`
+Note: some Supabase CLI versions do not support `supabase functions invoke`; use HTTPS calls instead.
+
+1) Fill these values (do not change the rest of the script):
+   - `$projectRef`: Supabase project ref (e.g. `itokvgjhtqzhrjlzazpm`)
+   - `$anonKey`: anon public key (Dashboard → Project Settings → API)
+   - `$phoneE164`: phone number in E.164 (example: `+18762161033`)
+   - `$otpCode`: the OTP you entered in the app (dev/test often `123456`)
+   - `$recipeId`: a real `public.menu_recipes.id` owned by the JWT user
+
+2) Get a JWT for the phone user:
+   ```powershell
+   $projectRef = "<PROJECT_REF>"
+   $anonKey = "<ANON_KEY>"
+   $phoneE164 = "<PHONE_E164>"  # e.g. "+18762161033"
+   $otpCode = "<OTP_CODE>"      # e.g. "123456"
+
+   $headers = @{ apikey = $anonKey; "Content-Type" = "application/json" }
+
+   Invoke-RestMethod -Method POST -Uri "https://$projectRef.supabase.co/auth/v1/otp" `
+     -Headers $headers `
+     -Body (@{ phone = $phoneE164; channel = "sms" } | ConvertTo-Json -Compress)
+
+   $session = Invoke-RestMethod -Method POST -Uri "https://$projectRef.supabase.co/auth/v1/verify" `
+     -Headers $headers `
+     -Body (@{ phone = $phoneE164; token = $otpCode; type = "sms" } | ConvertTo-Json -Compress)
+
+   $jwt = $session.access_token
+   ```
+
+3) Confirm the JWT user matches the recipe owner:
+   ```powershell
+   $me = Invoke-RestMethod -Method GET -Uri "https://$projectRef.supabase.co/auth/v1/user" `
+     -Headers @{ apikey = $anonKey; Authorization = "Bearer $jwt" }
+   $me.id
+   ```
+
+4) Call `menu-regenerate` with idempotency + correlation IDs:
+   ```powershell
+   $recipeId = "<MENU_RECIPES_ID>"
+   $fnUrl = "https://$projectRef.supabase.co/functions/v1/menu-regenerate"
+   $idempotencyKey = "menu-regenerate-" + [guid]::NewGuid().ToString("N")
+
+   $fnHeaders = @{
+     apikey = $anonKey
+     Authorization = "Bearer $jwt"
+     "Content-Type" = "application/json"
+     "Idempotency-Key" = $idempotencyKey
+     "x-correlation-id" = "menu-regenerate-test-1"
+   }
+
+   $fnBody = @{
+     recipeId = $recipeId
+     sessionId = $null
+     servings = 2
+     title = "Test dish"
+     cuisineStyle = "Jamaican"
+   } | ConvertTo-Json -Compress
+
+   try {
+     Invoke-RestMethod -Method POST -Uri $fnUrl -Headers $fnHeaders -Body $fnBody | ConvertTo-Json -Depth 50
+   } catch {
+     $_.ErrorDetails.Message
+   }
+   ```
+
+Expected errors:
+- `policy_blocked`: user is not premium and `menu_dev_bypass.enabled` is not true.
+- `recipe_not_found`: `recipeId` does not exist or is not owned by the JWT user.
+- `idempotency_key_required`: missing `Idempotency-Key` header.
 
 ## Workflow Stages (execution order)
 1) **Session resilience**
