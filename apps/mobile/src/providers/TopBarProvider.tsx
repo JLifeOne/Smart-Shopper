@@ -6,10 +6,18 @@ import React, {
   useMemo,
   useState
 } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+
+export type TopBarIconName = React.ComponentProps<typeof Ionicons>['name'];
 
 export type TopBarConfig = {
   title?: string;
   logoGlyph?: string | null;
+  leftAction?: {
+    icon: TopBarIconName;
+    onPress: () => void;
+    accessibilityLabel?: string;
+  } | null;
   onMenuPress?: (() => void) | null;
   showSearch?: boolean;
   isPremium?: boolean;
@@ -24,6 +32,7 @@ type TopBarState = {
 const defaultConfig: TopBarConfig = {
   title: 'Smart Shopper',
   logoGlyph: 'SS',
+  leftAction: null,
   onMenuPress: null,
   showSearch: true,
   isPremium: false

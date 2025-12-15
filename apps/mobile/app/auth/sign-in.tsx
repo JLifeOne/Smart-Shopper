@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,9 +12,10 @@ import {
   TextInput,
   View
 } from 'react-native';
-import { Link, useNavigation, useRouter } from 'expo-router';
+import { Link, useNavigation } from 'expo-router';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { useAuth } from '@/src/context/auth-context';
+import { useTopBar } from '@/src/providers/TopBarProvider';
 
 const COUNTRIES = [
   { code: 'US', dialCode: '+1', label: 'United States' },
@@ -28,9 +29,21 @@ type CountryOption = (typeof COUNTRIES)[number];
 type StepKey = 'phone' | 'otp';
 
 export default function SignInScreen() {
-  const router = useRouter();
   const navigation = useNavigation();
-  const { requestPhoneOtp, verifyPhoneOtp, isAuthenticating, lastError, session, initializing } = useAuth();
+  const { requestPhoneOtp, verifyPhoneOtp, isAuthenticating, lastError } = useAuth();
+
+  useTopBar(
+    useMemo(
+      () => ({
+        title: 'Sign in',
+        logoGlyph: 'SS',
+        showSearch: false,
+        onMenuPress: null,
+        leftAction: null
+      }),
+      []
+    )
+  );
 
   const [step, setStep] = useState<StepKey>('phone');
   const [country, setCountry] = useState<CountryOption>(COUNTRIES[0]);
@@ -42,12 +55,6 @@ export default function SignInScreen() {
 
   const stepIndex = useMemo(() => (step === 'phone' ? 0 : 1), [step]);
   const progress = useMemo(() => (stepIndex + 1) / 2, [stepIndex]);
-
-  useEffect(() => {
-    if (!initializing && session) {
-      router.replace('/(app)/home');
-    }
-  }, [initializing, router, session]);
 
   useLayoutEffect(() => {
     navigation.setOptions({ title: 'Verify phone' });
@@ -95,8 +102,8 @@ export default function SignInScreen() {
       Alert.alert('Verification failed', result.errorMessage ?? 'Check the code and try again.');
       return;
     }
-    router.replace('/(app)/home');
-  }, [normalizedPhone, otp, router, verifyPhoneOtp]);
+    setStatusMessage('Signed in! Finishing setup…');
+  }, [normalizedPhone, otp, verifyPhoneOtp]);
 
   const handleResend = useCallback(async () => {
     if (!normalizedPhone) {

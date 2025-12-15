@@ -223,7 +223,6 @@ function DashboardView({
   }, [user?.email]);
 
   const [isMenuOpen, setMenuOpen] = useState(false);
-  const [profileVisible, setProfileVisible] = useState(false);
 
   const openMenu = useCallback(() => {
     setMenuOpen(true);
@@ -234,12 +233,8 @@ function DashboardView({
   }, []);
 
   const openProfile = useCallback(() => {
-    setProfileVisible(true);
-  }, []);
-
-  const closeProfile = useCallback(() => {
-    setProfileVisible(false);
-  }, []);
+    router.push('/(app)/account');
+  }, [router]);
 
   const handleNavigateToReceipts = useCallback(() => {
     trackEvent('menu.navigate', { target: 'receipts_dashboard' });
@@ -262,7 +257,7 @@ function DashboardView({
         showSearch: true,
         isPremium: featureFlags.menuIngestion ?? false
       }),
-      [initials, openMenu]
+      [featureFlags.menuIngestion, initials, openMenu]
     )
   );
 
@@ -367,7 +362,6 @@ function DashboardView({
           ))}
         </View>
       </Animated.ScrollView>
-      <ProfilePeekSheet visible={profileVisible} onClose={closeProfile} user={user} onSignOut={handleRequestSignOut} />
       <CommandDrawer
         visible={isMenuOpen}
         onClose={closeMenu}
@@ -386,55 +380,6 @@ function DashboardView({
         isMenuPremium={isMenuPremium}
       />
     </View>
-  );
-}
-
-function ProfilePeekSheet({
-  visible,
-  onClose,
-  user,
-  onSignOut
-}: {
-  visible: boolean;
-  onClose: () => void;
-  user: AuthContextValue['user'];
-  onSignOut: () => void;
-}) {
-  if (!visible) {
-    return null;
-  }
-  return (
-    <Modal transparent animationType="fade" visible onRequestClose={onClose}>
-      <View style={newStyles.profileOverlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={newStyles.profileSheet}>
-          <View style={newStyles.profileAvatar}>
-            <Text style={newStyles.profileAvatarLabel}>
-              {user?.email
-                ? user.email
-                    .split('@')[0]
-                    .split('.')
-                    .map((part) => part.charAt(0).toUpperCase())
-                    .join('')
-                    .slice(0, 2)
-                : 'SS'}
-            </Text>
-          </View>
-          <Text style={newStyles.profileName}>{user?.email?.split('@')[0] ?? 'Guest Shopper'}</Text>
-          <Text style={newStyles.profileEmail}>{user?.email ?? 'No email linked yet'}</Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              onClose();
-              onSignOut();
-            }}
-            style={({ pressed }) => [newStyles.profileSignOutButton, pressed && newStyles.profileSignOutButtonPressed]}
-          >
-          <Text style={newStyles.profileSignOutLabel}>Switch phone number</Text>
-          </Pressable>
-        </View>
-      </View>
-    </Modal>
   );
 }
 

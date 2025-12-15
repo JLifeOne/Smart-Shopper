@@ -19,12 +19,31 @@ interface AuthContextValue {
   initializing: boolean;
   isAuthenticating: boolean;
   lastError?: string | null;
+  signupProfileSetupCountryCode: string | null;
+  markSignupProfileSetup: (countryCode: string) => void;
+  clearSignupProfileSetup: () => void;
   signInWithPassword: (params: { email: string; password: string }) => Promise<AuthActionResult>;
   signUpWithPassword: (params: { email: string; password: string }) => Promise<AuthActionResult>;
   requestPasswordReset: (email: string) => Promise<AuthActionResult>;
   requestPhoneOtp: (params: { phone: string }) => Promise<AuthActionResult>;
   verifyPhoneOtp: (params: { phone: string; token: string }) => Promise<AuthActionResult>;
-  updateProfile: (params: { displayName?: string; locale?: string; avatarUrl?: string }) => Promise<AuthActionResult>;
+  updateProfile: (params: {
+    displayName?: string;
+    locale?: string;
+    currency?: string;
+    includeTax?: boolean;
+    defaultStoreId?: string | null;
+    contactEmail?: string | null;
+    dateOfBirth?: string | null;
+    gender?: 'male' | 'female' | 'prefer_not_to_say' | null;
+    locationCity?: string | null;
+    locationCounty?: string | null;
+    locationRegion?: string | null;
+    locationPostalCode?: string | null;
+    locationCountry?: string | null;
+  }) => Promise<AuthActionResult>;
+  updateAccountEmail: (email: string) => Promise<AuthActionResult>;
+  updateAccountPassword: (password: string) => Promise<AuthActionResult>;
   signOut: () => Promise<string | null>;
   refreshSession: () => Promise<void>;
 }
@@ -38,6 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [initializing, setInitializing] = useState(true);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [signupProfileSetupCountryCode, setSignupProfileSetupCountryCode] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -95,6 +115,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const buildErrorResult = useCallback((message: string): AuthActionResult => {
     setLastError(message);
     return { success: false, errorMessage: message };
+  }, []);
+
+  const markSignupProfileSetup = useCallback<AuthContextValue['markSignupProfileSetup']>((countryCode) => {
+    const normalized = countryCode.trim().toUpperCase();
+    setSignupProfileSetupCountryCode(normalized || null);
+  }, []);
+
+  const clearSignupProfileSetup = useCallback<AuthContextValue['clearSignupProfileSetup']>(() => {
+    setSignupProfileSetupCountryCode(null);
   }, []);
 
   const signInWithPassword = useCallback<AuthContextValue['signInWithPassword']>(
@@ -228,18 +257,67 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const updateProfile = useCallback<AuthContextValue['updateProfile']>(
-    async ({ displayName, locale }) => {
+    async ({
+      displayName,
+      locale,
+      currency,
+      includeTax,
+      defaultStoreId,
+      contactEmail,
+      dateOfBirth,
+      gender,
+      locationCity,
+      locationCounty,
+      locationRegion,
+      locationPostalCode,
+      locationCountry
+    }) => {
       if (!supabase || !session?.user?.id) {
         return buildErrorResult('User session not ready.');
       }
-      const payload: Record<string, unknown> = {
-        id: session.user.id
-      };
+      const payload: Record<string, unknown> = { id: session.user.id };
+      const normalizedPhone = session.user.phone?.trim();
+      if (normalizedPhone) {
+        payload.phone = normalizedPhone;
+      }
+      if (contactEmail !== undefined) {
+        payload.email = contactEmail;
+      }
       if (displayName !== undefined) {
         payload.display_name = displayName;
       }
       if (locale !== undefined) {
         payload.locale = locale;
+      }
+      if (currency !== undefined) {
+        payload.currency = currency;
+      }
+      if (includeTax !== undefined) {
+        payload.include_tax = includeTax;
+      }
+      if (defaultStoreId !== undefined) {
+        payload.default_store_id = defaultStoreId;
+      }
+      if (dateOfBirth !== undefined) {
+        payload.date_of_birth = dateOfBirth;
+      }
+      if (gender !== undefined) {
+        payload.gender = gender;
+      }
+      if (locationCity !== undefined) {
+        payload.location_city = locationCity;
+      }
+      if (locationCounty !== undefined) {
+        payload.location_county = locationCounty;
+      }
+      if (locationRegion !== undefined) {
+        payload.location_region = locationRegion;
+      }
+      if (locationPostalCode !== undefined) {
+        payload.location_postal_code = locationPostalCode;
+      }
+      if (locationCountry !== undefined) {
+        payload.location_country = locationCountry;
       }
       const { error } = await supabase.from('profiles').upsert(payload as never).select('id').single();
       if (error) {
@@ -247,12 +325,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       return { success: true };
     },
-    [buildErrorResult, session?.user?.id, supabase]
+    [buildErrorResult, session, supabase]
   );
 
   const signOut = useCallback(async () => {
     if (!supabase) {
       setSession(null);
+      setSignupProfileSetupCountryCode(null);
       await syncService.reset();
       return null;
     }
@@ -262,6 +341,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return error.message;
     }
     setSession(null);
+    setSignupProfileSetupCountryCode(null);
     await syncService.reset();
     return null;
   }, [supabase]);
@@ -278,6 +358,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [supabase]);
 
+  const updateAccountEmail = useCallback<AuthContextValue['updateAccountEmail']>(
+    async (email) => {
+      if (!supabase) {
+        return buildErrorResult('Supabase is not configured yet.');
+      }
+      if (!session) {
+        return buildErrorResult('User session not ready.');
+      }
+
+      setIsAuthenticating(true);
+      setLastError(null);
+      const { error } = await supabase.auth.updateUser({ email });
+      setIsAuthenticating(false);
+
+      if (error) {
+        return buildErrorResult(error.message);
+      }
+
+      await refreshSession();
+      await updateProfile({ contactEmail: email });
+      return { success: true };
+    },
+    [buildErrorResult, refreshSession, session, supabase, updateProfile]
+  );
+
+  const updateAccountPassword = useCallback<AuthContextValue['updateAccountPassword']>(
+    async (password) => {
+      if (!supabase) {
+        return buildErrorResult('Supabase is not configured yet.');
+      }
+      if (!session) {
+        return buildErrorResult('User session not ready.');
+      }
+
+      setIsAuthenticating(true);
+      setLastError(null);
+      const { error } = await supabase.auth.updateUser({ password });
+      setIsAuthenticating(false);
+
+      if (error) {
+        return buildErrorResult(error.message);
+      }
+
+      return { success: true };
+    },
+    [buildErrorResult, session, supabase]
+  );
+
   const value = useMemo<AuthContextValue>(
     () => ({
       client: supabase,
@@ -286,12 +414,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       initializing,
       isAuthenticating,
       lastError,
+      signupProfileSetupCountryCode,
+      markSignupProfileSetup,
+      clearSignupProfileSetup,
       signInWithPassword,
       signUpWithPassword,
       requestPasswordReset,
       requestPhoneOtp,
       verifyPhoneOtp,
       updateProfile,
+      updateAccountEmail,
+      updateAccountPassword,
       signOut,
       refreshSession
     }),
@@ -301,12 +434,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       initializing,
       isAuthenticating,
       lastError,
+      signupProfileSetupCountryCode,
+      markSignupProfileSetup,
+      clearSignupProfileSetup,
       signInWithPassword,
       signUpWithPassword,
       requestPasswordReset,
       requestPhoneOtp,
       verifyPhoneOtp,
       updateProfile,
+      updateAccountEmail,
+      updateAccountPassword,
       signOut,
       refreshSession
     ]

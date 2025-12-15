@@ -40,6 +40,7 @@ export const TopBar: React.FC = () => {
     return raw.slice(0, 3).toUpperCase();
   }, [config.logoGlyph]);
   const isPremium = config.isPremium ?? false;
+  const leftAction = config.leftAction ?? null;
 
   const showMenu = Boolean(config.onMenuPress);
   const showSearch = config.showSearch !== false;
@@ -138,6 +139,21 @@ export const TopBar: React.FC = () => {
         onLayout={(event) => setBarWidth(event.nativeEvent.layout.width)}
       >
         <Animated.View style={[styles.brand, { opacity: brandOpacity }]}>
+          {leftAction ? (
+            <Pressable
+              onPress={leftAction.onPress}
+              accessibilityRole="button"
+              accessibilityLabel={leftAction.accessibilityLabel ?? 'Back'}
+              style={({ pressed }) => [
+                styles.iconButton,
+                styles.leftActionButton,
+                pressed && styles.iconButtonPressed
+              ]}
+              hitSlop={10}
+            >
+              <Ionicons name={leftAction.icon} size={22} color="#0C1D37" />
+            </Pressable>
+          ) : null}
           <View style={styles.logoBadge}>
             <Text style={styles.logoLetter}>{logoGlyph}</Text>
             {isPremium ? (
@@ -286,6 +302,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center'
+  },
+  leftActionButton: {
+    marginRight: 6
   },
   iconButtonPressed: {
     backgroundColor: 'rgba(15,118,110,0.08)'

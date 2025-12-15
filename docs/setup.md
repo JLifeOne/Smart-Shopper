@@ -27,6 +27,23 @@ Native Android builds fail if the project lives deep in your home directory (lon
 
 The dev client will connect to `http://10.0.2.2:<port>` inside the Android emulator.
 
+## Account Settings (Profile)
+In the app, open the Command center (⋯) → **Account** to update:
+- Display name + region/locale
+- Currency + tax preference
+- Location + demographics (date of birth, optional gender)
+- Optional: link an email + password to your phone account (useful for dev scripts). Supabase will email a confirmation when you change the email.
+
+## Profile Setup (Sign-up Only)
+After you verify your phone number during **sign up**, the app will route you to a one-time Profile Setup screen to capture:
+- Full name
+- Date of birth (age is derived)
+- Optional email address (triggers Supabase email verification)
+- Location: City/Town, County/Parish, optional Province/State, optional Postal/ZIP, Country
+- Optional gender (male/female/prefer_not_to_say)
+
+This setup screen is **not** shown during sign in. All fields remain editable later via Command center (⋯) → **Account**.
+
 ## Mobile App Scripts
 - pnpm --filter @smart-shopper/mobile start - start Metro bundler
 - pnpm --filter @smart-shopper/mobile android - launch Android build (requires dev client)
@@ -48,6 +65,8 @@ Build any package via pnpm --filter <package> build.
 2. From supabase/, run supabase start to boot the local stack.
 3. Apply schema: supabase db reset.
 4. When ready, create Edge Functions via supabase functions new <name>.
+
+If you are connecting to a remote Supabase project, ensure the latest migrations are applied (including `0027_profiles_account_settings.sql` and `0028_profiles_demographics.sql`) via `supabase db push`.
 
 ## Environment Variables
 Create `apps/mobile/.env` with the following placeholders:

@@ -2,7 +2,6 @@
 import {
   ActivityIndicator,
   Alert,
-  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -13,10 +12,10 @@ import {
   TextInput,
   View
 } from 'react-native';
-import { Link, useRouter } from 'expo-router';
-import * as ImagePicker from 'expo-image-picker';
+import { Link } from 'expo-router';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { useAuth } from '@/src/context/auth-context';
+import { useTopBar } from '@/src/providers/TopBarProvider';
 
 const COUNTRIES = [
   { code: 'US', dialCode: '+1', label: 'United States' },
@@ -28,30 +27,39 @@ const COUNTRIES = [
 
 type CountryOption = (typeof COUNTRIES)[number];
 
-type StepKey = 'phone' | 'otp' | 'profile';
-const STEP_SEQUENCE: StepKey[] = ['phone', 'otp', 'profile'];
+type StepKey = 'phone' | 'otp';
+const STEP_SEQUENCE: StepKey[] = ['phone', 'otp'];
 
 export default function SignUpScreen() {
-  const router = useRouter();
   const {
     requestPhoneOtp,
     verifyPhoneOtp,
-    updateProfile,
+    markSignupProfileSetup,
+    clearSignupProfileSetup,
     isAuthenticating,
     lastError
   } = useAuth();
+
+  useTopBar(
+    useMemo(
+      () => ({
+        title: 'Create account',
+        logoGlyph: 'SS',
+        showSearch: false,
+        onMenuPress: null,
+        leftAction: null
+      }),
+      []
+    )
+  );
 
   const [step, setStep] = useState<StepKey>('phone');
   const [country, setCountry] = useState<CountryOption>(COUNTRIES[0]);
   const [countryPickerVisible, setCountryPickerVisible] = useState(false);
   const [phoneInput, setPhoneInput] = useState('');
   const [normalizedPhone, setNormalizedPhone] = useState<string | null>(null);
-  const [region, setRegion] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [otp, setOtp] = useState('');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [isCompletingProfile, setIsCompletingProfile] = useState(false);
 
   const stepIndex = useMemo(() => {
     const index = STEP_SEQUENCE.indexOf(step);
@@ -87,48 +95,6 @@ export default function SignUpScreen() {
     }
   }, [country.code, phoneInput, requestPhoneOtp]);
 
-  const handlePickAvatar = useCallback(async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to choose a profile picture.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.6,
-      allowsEditing: true,
-      aspect: [1, 1]
-    });
-    if (!result.canceled && result.assets?.length) {
-      setAvatarUri(result.assets[0].uri);
-    }
-  }, []);
-
-  const handleCompleteProfile = useCallback(async () => {
-    if (!displayName.trim()) {
-      Alert.alert('Add your name', 'Let friends recognise you when you share lists.');
-      return;
-    }
-    if (!region.trim()) {
-      Alert.alert('Add your location', 'We use your region to tailor store suggestions.');
-      return;
-    }
-    setIsCompletingProfile(true);
-    try {
-      const profileResult = await updateProfile({
-        displayName: displayName.trim(),
-        locale: region.trim()
-      });
-      if (!profileResult.success) {
-        Alert.alert('Profile update warning', profileResult.errorMessage ?? 'Profile details were not saved.');
-        return;
-      }
-      router.replace('/(app)/home');
-    } finally {
-      setIsCompletingProfile(false);
-    }
-  }, [displayName, region, router, updateProfile]);
-
   const handleVerifyOtp = useCallback(async () => {
     if (!normalizedPhone) {
       Alert.alert('Start from the beginning', 'Enter your phone number to receive a code.');
@@ -139,14 +105,15 @@ export default function SignUpScreen() {
       Alert.alert('Enter code', 'Type the verification code sent to your phone.');
       return;
     }
+    markSignupProfileSetup(country.code);
     const result = await verifyPhoneOtp({ phone: normalizedPhone, token: otp });
     if (!result.success) {
+      clearSignupProfileSetup();
       Alert.alert('Verification failed', result.errorMessage ?? 'Check the code and try again.');
       return;
     }
-    setStatusMessage('Number verified! Finish setting up your profile.');
-    setStep('profile');
-  }, [normalizedPhone, otp, verifyPhoneOtp]);
+    setStatusMessage('Verified! Preparing your profile…');
+  }, [clearSignupProfileSetup, country.code, markSignupProfileSetup, normalizedPhone, otp, verifyPhoneOtp]);
 
   const handleResend = useCallback(async () => {
     if (!normalizedPhone) {
@@ -233,49 +200,6 @@ export default function SignUpScreen() {
               style={({ pressed }) => [styles.secondaryButton, pressed && styles.secondaryButtonPressed]}
             >
               <Text style={styles.secondaryButtonLabel}>Resend code</Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {step === 'profile' ? (
-          <View style={styles.section}>
-            <Text style={styles.heading}>Set up your profile</Text>
-            <Text style={styles.subheading}>Friends will see this when you share lists.</Text>
-            <Pressable style={styles.avatarPicker} onPress={handlePickAvatar}>
-              {avatarUri ? (
-                <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
-              ) : (
-                <Text style={styles.avatarPlaceholder}>Add photo</Text>
-              )}
-            </Pressable>
-            <TextInput
-              value={displayName}
-              onChangeText={setDisplayName}
-              placeholder="Display name"
-              placeholderTextColor="#9CA8BC"
-              style={styles.input}
-            />
-            <TextInput
-              value={region}
-              onChangeText={setRegion}
-              placeholder="City or parish"
-              placeholderTextColor="#9CA8BC"
-              style={styles.input}
-            />
-            <Pressable
-              onPress={handleCompleteProfile}
-              style={({ pressed }) => [
-                styles.primaryButton,
-                pressed && styles.primaryButtonPressed,
-                isCompletingProfile && styles.primaryButtonDisabled
-              ]}
-              disabled={isCompletingProfile}
-            >
-              {isCompletingProfile ? (
-                <ActivityIndicator color="#0C1D37" />
-              ) : (
-                <Text style={styles.primaryButtonLabel}>Finish</Text>
-              )}
             </Pressable>
           </View>
         ) : null}
@@ -394,9 +318,6 @@ const styles = StyleSheet.create({
   primaryButtonPressed: {
     opacity: 0.85
   },
-  primaryButtonDisabled: {
-    opacity: 0.6
-  },
   primaryButtonLabel: {
     color: '#0C1D37',
     fontWeight: '700',
@@ -415,24 +336,6 @@ const styles = StyleSheet.create({
   secondaryButtonLabel: {
     color: '#4FD1C5',
     fontWeight: '600'
-  },
-  avatarPicker: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#0F1B36',
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center'
-  },
-  avatarPlaceholder: {
-    color: '#4FD1C5',
-    fontWeight: '600'
-  },
-  avatarImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 60
   },
   statusMessage: {
     textAlign: 'center',
