@@ -62,7 +62,7 @@ async function getAuthedClient(req: Request) {
   if (error || !data?.user) {
     throw new Error("auth_invalid");
   }
-  return { client, userId: data.user.id };
+  return { client, userId: data.user.id, user: data.user };
 }
 
 serve(async (req) => {
@@ -75,10 +75,12 @@ serve(async (req) => {
 
   let supabase;
   let userId;
+  let user;
   try {
     const auth = await getAuthedClient(req);
     supabase = auth.client;
     userId = auth.userId;
+    user = auth.user;
   } catch (error) {
     const message = error instanceof Error ? error.message : "auth_error";
     const status = message === "auth_required" ? 401 : 500;
@@ -102,6 +104,21 @@ serve(async (req) => {
   }
 
   try {
+    const isPremiumUser =
+      Boolean(user?.app_metadata?.is_menu_premium) ||
+      Boolean(user?.app_metadata?.is_developer) ||
+      Boolean(user?.app_metadata?.dev);
+
+    const runtimeBypass = await supabase
+      .rpc("get_runtime_config", { config_key: "menu_dev_bypass" })
+      .then(({ data }) => data as { enabled?: boolean } | null)
+      .catch(() => null);
+    const isDevBypassEnabled = Boolean(runtimeBypass?.enabled);
+
+    if (!isPremiumUser && !isDevBypassEnabled) {
+      return jsonResponse({ error: "policy_blocked", correlationId }, { status: 403 });
+    }
+
     // Fetch recipe with ownership check
     const { data: recipe, error: recipeError } = await supabase
       .from("menu_recipes")
@@ -113,22 +130,29 @@ serve(async (req) => {
       return jsonResponse({ error: "recipe_not_found", correlationId }, { status: 404 });
     }
 
+    if (recipe.idempotency_key && recipe.idempotency_key === idempotencyKey) {
+      return jsonResponse({ recipe, replay: true, correlationId }, { status: 200 });
+    }
+
     const now = new Date().toISOString();
     const targetServings = parsed.data.servings ?? (recipe.servings?.people_count as number | undefined) ?? 1;
 
-    const llmInput = menuPromptInputSchema.parse({
-      sessionId: parsed.data.sessionId ?? null,
-      locale: recipe.cuisine_style ?? null,
+    const dishCuisineStyle = parsed.data.cuisineStyle ?? recipe.cuisine_style ?? undefined;
+    const llmInputCandidate: Record<string, unknown> = {
       peopleCount: targetServings,
       dishes: [
         {
           title: parsed.data.title ?? recipe.title,
-          cuisineStyle: parsed.data.cuisineStyle ?? recipe.cuisine_style ?? null,
+          ...(dishCuisineStyle ? { cuisineStyle: dishCuisineStyle } : {}),
         },
       ],
       preferences: {},
-      policy: {},
-    });
+      policy: { isPremium: true, blurRecipes: false },
+    };
+    if (parsed.data.sessionId) {
+      llmInputCandidate.sessionId = parsed.data.sessionId;
+    }
+    const llmInput = menuPromptInputSchema.parse(llmInputCandidate);
 
     let llmResponse: MenuPromptResponse | null = null;
     let llmDurationMs: number | undefined;
