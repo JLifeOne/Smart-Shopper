@@ -7,12 +7,36 @@ Goal: deliver production-ready code that remains stable under heavy, concurrent 
 
 ## Context Checklist
 
-- Project: {{project/app name}}
-- Feature/Task: {{what we’re building}}
-- Stack: {{e.g., TypeScript, Node/NestJS, React, Postgres/Prisma, Redis, Firebase, Docker, CI/CD}}
-- Non-functional targets: {{e.g., p95 < 250ms, 1K RPS, 0-downtime deploys, 99.9% uptime}}
-- Constraints: {{compliance, budget, deadlines, legacy APIs}}
-- Users & loads: {{peak concurrency, expected data volume}}
+- Project: Smart Shopper (monorepo)
+- Feature/Task: (write a 1‑sentence summary before you start)
+- Stack:
+  - Mobile: Expo React Native + TypeScript + WatermelonDB
+  - Backend: Supabase (Postgres + RLS + Edge Functions/Deno)
+  - Tooling: pnpm workspaces + GitHub Actions
+- Non-functional targets (define per feature; don’t guess): reliability under retries, safe concurrency, predictable offline/online sync, observability-first.
+- Constraints: Windows + Android Studio emulator dev workflow (see `docs/setup.md` and `docs/runbooks/expo-metro-windows.md`).
+- Users & loads: assume multi-user concurrency; design for retries/timeouts and safe replay.
+
+## Repo Gates (copy/paste)
+
+Required before pushing:
+- `pnpm verify`
+
+Targeted loops:
+- `pnpm --filter @smart-shopper/mobile typecheck`
+
+Supabase schema/tests:
+- `supabase db reset --workdir supabase`
+- `supabase test db --workdir supabase`
+
+CI enforcement:
+- `.github/workflows/ci.yml` runs `pnpm verify`
+- `.github/workflows/verify-supabase.yml` runs Supabase checks (see `docs/ci/supabase-verify.md`)
+
+## Security & Log Hygiene (read every session)
+- Never paste passwords/OTPs/JWTs/keys into issues, PRs, or chat logs.
+- Always include a `correlationId` when reporting backend errors; redact tokens (`Authorization: Bearer <redacted>`).
+- Avoid “temporary” bypass code. If a dev bypass is required, it must be flag-controlled and default off in prod (see `AGENTS.md`).
 
 ## Principles (Never Skip)
 
@@ -113,16 +137,14 @@ Goal: deliver production-ready code that remains stable under heavy, concurrent 
 
 ### Definition of Done ✅
 
-- [ ] Design brief approved with failure & migration plan
-- [ ] Strict input validation & typed errors implemented
-- [ ] Timeouts/retries/circuit breaker configured for all I/O
-- [ ] Idempotency for create/charge/retryable flows
-- [ ] Unit + integration + e2e + load baseline passing in CI
-- [ ] Dashboards & alerts created; runbook written
-- [ ] Feature flags & canary plan in place
-- [ ] Zero-downtime migration executed in staging
-- [ ] Security review completed; secrets safe; authZ tests pass
-- [ ] Documentation updated; examples included
+- [ ] CI passes (`ci.yml` + `verify-supabase.yml`)
+- [ ] `pnpm verify` passes locally
+- [ ] If DB/schema changed: `supabase test db --workdir supabase` passes
+- [ ] Server-side enforcement exists for limits/authZ (RLS/function checks), not client-only gating
+- [ ] Retryable writes require idempotency keys; safe replay behavior verified
+- [ ] Errors are typed (`code`) and user-facing errors include `correlationId`
+- [ ] Runbook updated (diagnosis + rollback steps) and any new flags/contracts documented
+- [ ] Secrets safe (no tokens/passwords/OTP values in code or logs)
 
 ### PR Template 🧪
 

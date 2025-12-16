@@ -19,6 +19,28 @@ jobs:
       - name: Supabase CLI version
         run: supabase --version
 
+      - name: DB smoke tests (local)
+        run: |
+          set -e
+          supabase start --workdir supabase
+          supabase db reset --workdir supabase
+          supabase test db --workdir supabase
+
+      - name: Setup Deno (for function typecheck)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Typecheck Edge Functions (Deno)
+        run: |
+          set -euo pipefail
+          for dir in supabase/functions/*; do
+            if [ -f "$dir/index.ts" ]; then
+              echo "deno check: $dir/index.ts"
+              deno check --config supabase/functions/deno.json "$dir/index.ts"
+            fi
+          done
+
       - name: Lint database (static)
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}

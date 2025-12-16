@@ -1,6 +1,8 @@
 # CI — Supabase Verify Workflow
 
 This repo includes `.github/workflows/verify-supabase.yml` which:
+- Boots a local Supabase stack and runs `supabase db reset` + `supabase test db` (smoke tests in `supabase/tests/`)
+- Typechecks Edge Functions with `deno check` (catches import/compile issues before deploy)
 - Runs `supabase db lint` (static checks)
 - Pings `brand-insights-job` and `brand-resolve` using your anon key
 
@@ -14,4 +16,3 @@ Setup
 Expected
 - Both function calls return HTTP 200. The job output includes `{ status, durationMs, records }`.
 - If functions return non-200, the job fails.
-
