@@ -1,31 +1,47 @@
-# Immediate Next Steps
+# Immediate Next Steps (Current Repo Reality)
 
-1. **Confirm Tech Stack Choices**
-   - Finalize decision between Supabase vs Firebase for backend hosting.  
-   - Decide on Expo EAS subscription tier and distribution strategy.
-2. **Bootstrap Repository**
-   - Initialize PNPM workspace with packages:
-     - `apps/mobile` (Expo React Native, TypeScript, WatermelonDB).  
-     - `packages/ui` (shared components, theming, Storybook).  
-     - `packages/core` (domain models, Zod validators, API client).  
-     - `supabase` (database schema, migrations using Prisma or Sqitch).
-   - Configure linting, formatting, Git hooks (Husky + lint-staged).
-3. **Set Up Supabase Project**
-   - Create tables per PRD data model with row level security policies.  
-   - Define SQL functions for unit price normalization, cheapest store lookup, trend updates.  
-   - Provision storage buckets and policies for receipts/photos.
-4. **Implement Auth Skeleton**
-   - Add Supabase client, session context provider, login/signup screens.  
-   - Secure token storage (Expo SecureStore) and biometric gate option.
-5. **Offline Data Layer**
-   - Configure WatermelonDB schema for lists, list items, product references, pending uploads.  
-   - Create sync adapters to reconcile with Supabase (pull + push).
-6. **Proof of Concept Flows**
-   - Text-based list creation with optimistic sync and category assignment.  
-   - Stub receipt upload (fake parser) to verify pipeline end-to-end.  
-   - Basic store comparison view using mocked data.
-7. **Security & Observability Foundations**
-   - Integrate Sentry and Segment in app; set environment gating.  
-   - Add ESLint security plugin and dependency audit workflow in CI.
+This doc replaces older “bootstrap” notes. The repo is already a working monorepo with:
+- Mobile: Expo React Native + TypeScript + WatermelonDB
+- Backend: Supabase (Postgres + RLS + Edge Functions/Deno)
+- CI: `pnpm verify` + Supabase DB smoke tests + Deno function typechecks
 
-Once these scaffolding tasks are complete, proceed with Phase A feature implementation following the roadmap.
+If you’re starting work, begin with:
+- `AGENTS.md`
+- `docs/proper-implementation.md`
+- `docs/runbooks/proper-implementation-workflow.md`
+- `docs/setup.md`
+
+## 1) Always start with the gates (do this before push)
+- `pnpm verify`
+- If DB/schema changed: `supabase db reset --workdir supabase` and `supabase test db --workdir supabase`
+
+CI must be green:
+- `.github/workflows/ci.yml`
+- `.github/workflows/verify-supabase.yml`
+
+## 2) Ship “one slice” end‑to‑end
+
+Pick a vertical slice and finish it fully (backend enforcement + UI + persistence + tests + runbook), then move on.
+
+High‑impact slices aligned to the PRD:
+- **Item Library**: pinned/recent/bundles, quick-add, add-to-list picker, offline-safe behavior.
+- **Receipt ingestion**: capture → parse → validate → persist price points → update trends.
+- **Store comparison**: unit normalization + cheapest-store chips + price history views.
+- **Collaboration**: invites, roles, conflict handling, presence/activity.
+- **Menu/Recipes (Premium)**: recipes cards, list conversion, idempotency, regenerate, persistence, training flags.
+
+## 3) Security + resilience foundations (non‑negotiable)
+- Server-side enforcement for authZ/limits (RLS + Edge Functions); client gating is UX only.
+- Idempotency on all retryable write endpoints; safe replay behavior.
+- Typed errors with `code` and `correlationId` everywhere (UI surfaces correlation IDs).
+- No secrets in repo/logs; no “temporary” bypasses that can ship to prod.
+
+## 4) Keep docs accurate
+When behavior changes, update the relevant runbook in `docs/runbooks/` in the same PR.
+
+Recommended docs to keep current:
+- `docs/prd.md` (requirements)
+- `docs/roadmap.md` (sequencing)
+- `docs/setup.md` (developer onboarding)
+- `docs/runbooks/*` (operational truth)
+

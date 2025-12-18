@@ -41,8 +41,10 @@ printSection(
   'Read Next',
   [
     'AGENTS.md',
+    'docs/README.md',
     'docs/proper-implementation.md',
     'docs/runbooks/proper-implementation-workflow.md',
+    'docs/setup.md',
     '(feature-specific) docs/runbooks/*'
   ].join('\n')
 );
@@ -64,4 +66,3 @@ printSection(
     'When sharing errors: include correlationId + error code; redact tokens.'
   ].join('\n')
 );
-

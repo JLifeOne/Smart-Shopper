@@ -13,6 +13,7 @@ This repo prioritizes correctness, resiliency, and production-readiness over spe
 
 ## Session Start (do before coding)
 - Optional helper: `node scripts/session_start.mjs` (prints repo state + reminders).
+- Read `docs/README.md` (docs index + subsystem entry points).
 - Read `docs/proper-implementation.md`.
 - Read `docs/runbooks/proper-implementation-workflow.md` (repo-wide workflow).
 - Read the task’s relevant docs/runbooks/plans (start with `docs/` and `docs/runbooks/`).
