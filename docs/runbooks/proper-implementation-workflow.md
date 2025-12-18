@@ -63,8 +63,9 @@ If the feature affects auth, limits, billing, data integrity, or multi-user conc
    - require `Idempotency-Key` for retryable writes
    - include `correlationId` in *all* success/error responses
 4) Add/adjust DB smoke tests in `supabase/tests/` and run:
-   - `supabase db reset --workdir supabase`
-   - `supabase test db --workdir supabase`
+   - `supabase start`
+   - `supabase db reset`
+   - `supabase test db`
 
 ### Phase 2 — Client implementation (UX + offline + safe retries)
 1) Add/adjust API calls (headers + typed errors + retries where appropriate).
@@ -96,8 +97,9 @@ JS/TS:
 - Targeted: `pnpm --filter @smart-shopper/mobile typecheck`
 
 Supabase (schema/tests):
-- `supabase db reset --workdir supabase`
-- `supabase test db --workdir supabase`
+- `supabase start`
+- `supabase db reset`
+- `supabase test db`
 
 CI must be green:
 - `.github/workflows/ci.yml`
@@ -110,4 +112,3 @@ CI must be green:
 
 ## Definition of Done
 Use the checklist in `AGENTS.md` and `docs/proper-implementation.md`.
-

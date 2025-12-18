@@ -13,7 +13,7 @@ If you’re starting work, begin with:
 
 ## 1) Always start with the gates (do this before push)
 - `pnpm verify`
-- If DB/schema changed: `supabase db reset --workdir supabase` and `supabase test db --workdir supabase`
+- If DB/schema changed (local): `supabase start`, then `supabase db reset` and `supabase test db`
 
 CI must be green:
 - `.github/workflows/ci.yml`
@@ -44,4 +44,3 @@ Recommended docs to keep current:
 - `docs/roadmap.md` (sequencing)
 - `docs/setup.md` (developer onboarding)
 - `docs/runbooks/*` (operational truth)
-

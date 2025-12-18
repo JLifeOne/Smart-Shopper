@@ -54,8 +54,9 @@ printSection(
   [
     'pnpm verify',
     'pnpm --filter @smart-shopper/mobile typecheck',
-    'supabase db reset --workdir supabase',
-    'supabase test db --workdir supabase'
+    'supabase start',
+    'supabase db reset',
+    'supabase test db'
   ].join('\n')
 );
 

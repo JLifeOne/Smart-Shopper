@@ -22,9 +22,9 @@ jobs:
       - name: DB smoke tests (local)
         run: |
           set -e
-          supabase start --workdir supabase
-          supabase db reset --workdir supabase
-          supabase test db --workdir supabase
+          supabase start
+          supabase db reset
+          supabase test db
 
       - name: Setup Deno (for function typecheck)
         uses: denoland/setup-deno@v2

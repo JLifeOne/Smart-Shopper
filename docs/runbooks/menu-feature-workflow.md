@@ -110,6 +110,7 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
 
 ## Manual testing (PowerShell) — get JWT + call `menu-regenerate`
 Note: some Supabase CLI versions do not support `supabase functions invoke`; use HTTPS calls instead.
+Important PowerShell note: don’t type or paste the prompts `PS C:\ss>` or `>>` — those are **not** part of the command. If you ever see your prompt switch to `>>` unexpectedly, press `Ctrl+C` to cancel and get back to `PS C:\ss>` before trying again.
 
 1) Fill these values (do not change the rest of the script):
    - `$projectRef`: Supabase project ref (e.g. `itokvgjhtqzhrjlzazpm`)

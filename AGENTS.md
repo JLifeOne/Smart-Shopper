@@ -39,13 +39,14 @@ This repo prioritizes correctness, resiliency, and production-readiness over spe
 - Packages: `pnpm --filter @smart-shopper/core test`, `pnpm --filter @smart-shopper/ui test`, `pnpm --filter @smart-shopper/theming test`
 
 ### Supabase (schema + tests)
-- Local schema apply: `supabase db reset --workdir supabase`
-- DB smoke tests: `supabase test db --workdir supabase`
-- Remote apply (manual, after review): `supabase db push --workdir supabase`
+- Start local stack (Docker): `supabase start`
+- Local schema apply: `supabase db reset`
+- DB smoke tests: `supabase test db`
+- Remote apply (manual, after review): `supabase db push`
 
 ### Supabase (functions packaging/deploy)
-- Deploy a single function (bundles as part of deploy): `supabase functions deploy <function-name> --workdir supabase`
-- Deploy all functions: `supabase functions deploy --workdir supabase`
+- Deploy a single function (bundles as part of deploy): `supabase functions deploy <function-name>`
+- Deploy all functions: `supabase functions deploy`
 
 ### CI references (these must be green)
 - `.github/workflows/ci.yml` (runs `pnpm verify`)

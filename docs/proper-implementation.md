@@ -26,8 +26,9 @@ Targeted loops:
 - `pnpm --filter @smart-shopper/mobile typecheck`
 
 Supabase schema/tests:
-- `supabase db reset --workdir supabase`
-- `supabase test db --workdir supabase`
+- `supabase start`
+- `supabase db reset`
+- `supabase test db`
 
 CI enforcement:
 - `.github/workflows/ci.yml` runs `pnpm verify`
@@ -139,7 +140,7 @@ CI enforcement:
 
 - [ ] CI passes (`ci.yml` + `verify-supabase.yml`)
 - [ ] `pnpm verify` passes locally
-- [ ] If DB/schema changed: `supabase test db --workdir supabase` passes
+- [ ] If DB/schema changed: `supabase test db` passes
 - [ ] Server-side enforcement exists for limits/authZ (RLS/function checks), not client-only gating
 - [ ] Retryable writes require idempotency keys; safe replay behavior verified
 - [ ] Errors are typed (`code`) and user-facing errors include `correlationId`
