@@ -111,45 +111,49 @@ select set_config(
   true
 );
 
-with session_key as (
-  select 'menu-session-' || gen_random_uuid()::text as key
-),
-first_session as (
-  select * from public.menu_create_session(
-    (select key from session_key),
-    null::text,
-    'camera'::text,
-    '{}'::jsonb,
-    null::boolean
-  )
-),
-second_session as (
-  select * from public.menu_create_session(
-    (select key from session_key),
-    null::text,
-    'camera'::text,
-    '{}'::jsonb,
-    null::boolean
-  )
-),
-usage_after_session as (
-  select uploads, list_creates
-  from public.menu_usage_counters
-  where owner_id = :'owner_id'::uuid
-    and usage_date = (timezone('utc', now()))::date
+-- NOTE: These tests intentionally separate "write" function calls from "read" assertions.
+-- Postgres statement snapshots mean writes performed inside a function may not be visible
+-- to other CTEs in the *same* SQL statement. Using separate statements avoids flaky NULL reads.
+select 'menu-session-' || gen_random_uuid()::text as session_key \gset
+
+select
+  session_id as first_session_id,
+  replay as first_session_replay
+from public.menu_create_session(
+  :'session_key',
+  null::text,
+  'camera'::text,
+  '{}'::jsonb,
+  null::boolean
 )
-select * from (
-  select ok((select replay from first_session) = false, 'menu_create_session replay=false on first call')
-  union all
-  select ok((select replay from second_session) = true, 'menu_create_session replay=true on second call')
-  union all
-  select ok(
-    (select session_id from first_session) = (select session_id from second_session),
-    'menu_create_session returns stable session_id on replay'
-  )
-  union all
-  select ok((select uploads from usage_after_session) = 1, 'menu_usage_counters.uploads increments once for session')
-) as tap_results;
+\gset
+
+select
+  session_id as second_session_id,
+  replay as second_session_replay
+from public.menu_create_session(
+  :'session_key',
+  null::text,
+  'camera'::text,
+  '{}'::jsonb,
+  null::boolean
+)
+\gset
+
+select ok(:'first_session_replay'::boolean = false, 'menu_create_session replay=false on first call');
+select ok(:'second_session_replay'::boolean = true, 'menu_create_session replay=true on second call');
+select ok(:'first_session_id'::uuid = :'second_session_id'::uuid, 'menu_create_session returns stable session_id on replay');
+
+select is(
+  (
+    select uploads
+    from public.menu_usage_counters
+    where owner_id = :'owner_id'::uuid
+      and usage_date = (timezone('utc', now()))::date
+  ),
+  1,
+  'menu_usage_counters.uploads increments once for session'
+);
 
 -- premium claims for list creation
 select set_config(
@@ -158,46 +162,45 @@ select set_config(
   true
 );
 
-with list_key as (
-  select 'menu-list-' || gen_random_uuid()::text as key
-),
-items as (
-  select jsonb_build_array(
-    jsonb_build_object('label', 'Bananas', 'desired_qty', 2, 'notes', null),
-    jsonb_build_object('label', 'Salt', 'desired_qty', 1, 'notes', '1 jar')
-  ) as payload
-),
-first_list as (
-  select * from public.menu_create_list((select key from list_key), 'Stage 3 list', (select payload from items))
-),
-second_list as (
-  select * from public.menu_create_list((select key from list_key), 'Stage 3 list', (select payload from items))
-),
-usage_after_list as (
-  select uploads, list_creates
-  from public.menu_usage_counters
-  where owner_id = :'owner_id'::uuid
-    and usage_date = (timezone('utc', now()))::date
-),
-list_item_count as (
-  select count(*)::int as cnt
-  from public.list_items
-  where list_id = (select list_id from first_list)
-)
-select * from (
-  select ok((select replay from first_list) = false, 'menu_create_list replay=false on first call')
-  union all
-  select ok((select replay from second_list) = true, 'menu_create_list replay=true on second call')
-  union all
-  select ok(
-    (select list_id from first_list) = (select list_id from second_list),
-    'menu_create_list returns stable list_id on replay'
-  )
-  union all
-  select ok((select list_creates from usage_after_list) = 1, 'menu_usage_counters.list_creates increments once for list')
-  union all
-  select ok((select cnt from list_item_count) = 2, 'menu_create_list inserts list_items once')
-) as tap_results;
+select 'menu-list-' || gen_random_uuid()::text as list_key \gset
+
+select jsonb_build_array(
+  jsonb_build_object('label', 'Bananas', 'desired_qty', 2, 'notes', null),
+  jsonb_build_object('label', 'Salt', 'desired_qty', 1, 'notes', '1 jar')
+) as list_items \gset
+
+select
+  list_id as first_list_id,
+  replay as first_list_replay
+from public.menu_create_list(:'list_key', 'Stage 3 list', :'list_items'::jsonb)
+\gset
+
+select
+  list_id as second_list_id,
+  replay as second_list_replay
+from public.menu_create_list(:'list_key', 'Stage 3 list', :'list_items'::jsonb)
+\gset
+
+select ok(:'first_list_replay'::boolean = false, 'menu_create_list replay=false on first call');
+select ok(:'second_list_replay'::boolean = true, 'menu_create_list replay=true on second call');
+select ok(:'first_list_id'::uuid = :'second_list_id'::uuid, 'menu_create_list returns stable list_id on replay');
+
+select is(
+  (
+    select list_creates
+    from public.menu_usage_counters
+    where owner_id = :'owner_id'::uuid
+      and usage_date = (timezone('utc', now()))::date
+  ),
+  1,
+  'menu_usage_counters.list_creates increments once for list'
+);
+
+select is(
+  (select count(*)::int from public.list_items where list_id = :'first_list_id'::uuid),
+  2,
+  'menu_create_list inserts list_items once'
+);
 
 select finish();
 rollback;

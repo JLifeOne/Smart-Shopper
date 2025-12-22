@@ -31,7 +31,7 @@ select is(
 -- exceed upload limit (function returns empty set when the conflict update path would exceed limits)
 select is(
   (select count(*) from public.increment_menu_usage(:'user_id'::uuid, current_date, 5, 0, 3, 1)),
-  0,
+  0::bigint,
   'increment returns empty when over limit'
 );
 
