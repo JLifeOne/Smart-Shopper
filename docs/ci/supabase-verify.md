@@ -13,8 +13,10 @@ Setup
    - `SUPABASE_ANON_KEY` = `<your anon token starting with eyJ...>`
 3) Push a commit or use “Re-run jobs” to execute the workflow.
 4) Windows note: `supabase test db --debug` may print `open supabase\\.temp\\profile: The system cannot find the file specified.`; it’s non-fatal.
-   - If you want to silence it, write your Supabase CLI profile name into `supabase/.temp/profile` (usually `supabase`), e.g. PowerShell: `Set-Content -NoNewline supabase\\.temp\\profile supabase`.
-   - Do **not** create an empty file; an empty profile can cause `failed to read profile: Config File "config" Not Found in "[]"`.
+   - Recommended: ignore the warning (or run without `--debug`).
+   - If you created `supabase/.temp/profile` and now see `failed to read profile: Config File "config" Not Found in "[]"`, delete it: `Remove-Item supabase\\.temp\\profile`.
+   - If you still want to silence the warning, write a valid Supabase CLI profile name into `supabase/.temp/profile` (commonly `supabase`), e.g. PowerShell: `Set-Content -NoNewline supabase\\.temp\\profile supabase`.
+   - Do **not** leave the file empty/whitespace.
 
 Troubleshooting
 - `docs/runbooks/supabase-test-db-troubleshooting.md`
