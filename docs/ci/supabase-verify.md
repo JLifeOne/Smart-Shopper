@@ -12,7 +12,9 @@ Setup
    - `SUPABASE_PROJECT_REF` = `itokvgjhtqzhrjlzazpm`
    - `SUPABASE_ANON_KEY` = `<your anon token starting with eyJ...>`
 3) Push a commit or use “Re-run jobs” to execute the workflow.
-4) Windows note: `supabase test db --debug` may print `open supabase\\.temp\\profile: The system cannot find the file specified.`; it’s non-fatal. To silence it, create an empty `supabase/.temp/profile` (directory is gitignored).
+4) Windows note: `supabase test db --debug` may print `open supabase\\.temp\\profile: The system cannot find the file specified.`; it’s non-fatal.
+   - If you want to silence it, write your Supabase CLI profile name into `supabase/.temp/profile` (usually `supabase`), e.g. PowerShell: `Set-Content -NoNewline supabase\\.temp\\profile supabase`.
+   - Do **not** create an empty file; an empty profile can cause `failed to read profile: Config File "config" Not Found in "[]"`.
 
 Troubleshooting
 - `docs/runbooks/supabase-test-db-troubleshooting.md`

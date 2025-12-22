@@ -12,6 +12,28 @@
 
 ## Troubleshooting Log (newest-first)
 
+### 2025-12-22 — `failed to read profile: Config File "config" Not Found in "[]"` after creating `supabase/.temp/profile`
+**Environment**
+- Windows PowerShell, Supabase CLI `2.65.5`
+
+**Symptom**
+- `supabase test db --debug` fails immediately with:
+  - `Loading profile from file: supabase\\.temp\\profile`
+  - `failed to read profile: Config File "config" Not Found in "[]"`
+
+**Root cause**
+- `supabase/.temp/profile` is treated as a “profile override” input. If it exists but is empty/invalid, the CLI ends up with an empty profile name/path and fails to load profile config.
+
+**Fix**
+- Prefer: delete the override file: `Remove-Item supabase\\.temp\\profile`
+- Or: set it to your configured profile name (commonly `supabase`):
+  - PowerShell: `Set-Content -NoNewline supabase\\.temp\\profile supabase`
+
+**Verification**
+- `supabase test db --debug` proceeds to DB connection and runs pgTAP files.
+
+---
+
 ### 2025-12-22 — `is(bigint, integer, unknown) does not exist` in pgTAP
 **Environment**
 - Windows PowerShell, Supabase CLI `2.65.5`, Postgres `17.6` (local Supabase)
@@ -96,5 +118,7 @@
 - Supabase CLI tries to read `supabase/.temp/profile` in debug mode; file may not exist in a fresh checkout.
 
 **Fix**
-- Create an empty file: `New-Item -ItemType File -Force supabase\\.temp\\profile`
+- This warning is non-fatal; you can ignore it.
+- If you want to silence it, create the file with a valid profile name (commonly `supabase`):
+  - PowerShell: `Set-Content -NoNewline supabase\\.temp\\profile supabase`
 - Note: `supabase/.temp` is gitignored.
