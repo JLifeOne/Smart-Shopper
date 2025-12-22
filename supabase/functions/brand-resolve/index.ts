@@ -33,7 +33,9 @@ type AliasRow = {
   confidence: number | null;
   source: string | null;
   store_id: string | null;
-  brands: { id: string; name: string } | null;
+  // PostgREST relationship embedding can be returned as an object (many-to-one) or an array
+  // depending on the relationship inference. Handle both to keep Deno typecheck stable.
+  brands: { id: string; name: string } | Array<{ id: string; name: string }> | null;
 };
 
 export type ResolveResult =
@@ -114,6 +116,14 @@ function computeConfidence(candidate: AliasRow, target: string) {
     1 - levenshtein(alias, target) / Math.max(alias.length, target.length, 1);
   const weighted = Math.max(base, (tokenScore + levScore) / 2);
   return Number(weighted.toFixed(3));
+}
+
+function firstBrand(value: AliasRow["brands"]) {
+  if (!value) return null;
+  if (Array.isArray(value)) {
+    return value.length ? value[0] : null;
+  }
+  return value;
 }
 
 async function createAlias(
@@ -209,11 +219,12 @@ export async function resolveBrand(
     if (payload.brandId) {
       const created = await createAlias(client, payload, normalised);
       if (created) {
+        const brand = firstBrand(created.brands);
         return {
           httpStatus: 200,
           response: {
             status: "alias_created",
-            brand: created.brands ? { id: created.brands.id, name: created.brands.name } : null,
+            brand: brand ? { id: brand.id, name: brand.name } : null,
             brandId: created.brand_id,
             confidence: created.confidence ?? 0.45,
           },
@@ -238,8 +249,9 @@ export async function resolveBrand(
         status: "fallback",
         reason: "conflict",
         matches: candidates.slice(0, 5).map((entry) => ({
+          // When embedded as an array, take the first match for display.
           brandId: entry.brand_id,
-          brandName: entry.brands?.name ?? null,
+          brandName: firstBrand(entry.brands)?.name ?? null,
           confidence: entry.confidence ?? null,
           source: entry.source ?? null,
         })),
@@ -248,6 +260,7 @@ export async function resolveBrand(
   }
 
   const match = candidates[0];
+  const brand = firstBrand(match?.brands ?? null);
   const confidence = match?.confidence ?? 0.5;
   if (confidence < 0.55) {
     return {
@@ -264,7 +277,7 @@ export async function resolveBrand(
     httpStatus: 200,
     response: {
       status: "matched",
-      brand: match?.brands ? { id: match.brands.id, name: match.brands.name } : null,
+      brand: brand ? { id: brand.id, name: brand.name } : null,
       brandId: match?.brand_id ?? null,
       confidence,
       source: match?.source ?? "alias",
