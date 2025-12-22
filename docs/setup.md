@@ -15,6 +15,12 @@ pnpm --filter @smart-shopper/mobile start -- --tunnel
 
 If pnpm is unavailable, run `npx pnpm install` to use the bundled version.
 
+> Notes on package managers:
+> - This repo is a `pnpm` workspace. Use `pnpm --filter <pkg> <script>` for workspace commands.
+> - `npm --filter ...` is **not** supported (that flag is pnpm-only) and will warn/error.
+> - If you must use `npm`, use workspaces instead: `npm -w @smart-shopper/mobile test`.
+> - `.npmrc` contains pnpm-specific settings (`virtual-store-dir`, etc.) for Windows/Metro; `npm` may warn about these. Prefer `pnpm`.
+
 ## Windows Path Gotchas
 
 Native Android builds fail if the project lives deep in your home directory (long path issue).
