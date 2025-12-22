@@ -6,11 +6,62 @@
 - If a previous entry becomes outdated, add a short **Follow-up** under a new entry; don’t rewrite history.
 - Never paste secrets (JWTs, anon/service keys). Redact tokens/headers; share only `correlationId`, error `code`, and sanitized shapes.
 
+## Entry template (copy/paste)
+```md
+### YYYY-MM-DD — <short title>
+**Environment**
+- OS:
+- Supabase CLI:
+- Postgres (local):
+
+**Command**
+- `<command>`
+
+**Symptom**
+- `<exact error text>`
+
+**Root cause**
+- <what was actually wrong, and why it happened>
+
+**Fix**
+- <what changed, where, and why it is safe>
+- References:
+  - `<path:line>`
+  - Commit: `<sha>`
+
+**Verification**
+- `<commands run>` + expected output
+```
+
 ## Quick commands
 - Reset local DB: `supabase db reset`
 - Run DB smoke tests: `supabase test db --debug`
 
 ## Troubleshooting Log (newest-first)
+
+### 2025-12-22 — Resolved: `supabase test db --debug` passes (Menus pgTAP)
+**Environment**
+- Windows PowerShell, Supabase CLI `2.65.5`, Postgres `17.6` (local Supabase)
+
+**Command**
+- `supabase db reset`
+- `supabase test db --debug`
+
+**What was fixed**
+- pgTAP type mismatch (`count(*)` is `bigint`): cast expected values (commit `409dadb`).
+- Postgres snapshot behavior: split write RPC calls from read assertions to avoid NULL reads (commit `409dadb`).
+- PL/pgSQL name ambiguity in `increment_menu_usage()` (RETURNS TABLE vars vs column names): forward migration (commit `6b0d9af`).
+- GoTrue schema drift: generated `auth.users.confirmed_at` must be omitted from INSERTs (commit `6c4f3db`).
+- `throws_ok` + `\gset` variables: build SQL strings via `format(...)` (commit `ac6a2f2`).
+
+**References**
+- `supabase/tests/0022_menu_usage_limits.test.sql`
+- `supabase/tests/0026_menu_idempotency_sessions_lists_reviews.test.sql`
+- `supabase/tests/0029_menu_title_only_sync.test.sql`
+- `supabase/tests/0000_test_helpers.sql`
+- `supabase/migrations/0032_menu_usage_limits_plpgsql_fix.sql`
+
+---
 
 ### 2025-12-22 — `throws_ok` fails with `syntax error at or near ":"`
 **Environment**
