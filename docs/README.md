@@ -7,6 +7,7 @@ This folder is the source of truth for product requirements, architecture, runbo
 2. `docs/proper-implementation.md`
 3. `docs/runbooks/proper-implementation-workflow.md`
 4. `docs/setup.md`
+5. `scripts/README.md`
 
 Optional helper:
 - `node scripts/session_start.mjs`
@@ -51,4 +52,3 @@ Start here when working in a subsystem:
 
 ## CI references
 - `docs/ci/supabase-verify.md` — What the Supabase CI workflow checks and how to configure secrets.
-

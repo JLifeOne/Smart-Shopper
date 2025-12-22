@@ -18,13 +18,15 @@ If a feature has its own workflow runbook (example: `docs/runbooks/menu-feature-
 
 1) **Repo state**
 - `git status`
-- `git --no-pager log --oneline -n 30`
+- `git --no-pager log --oneline -n 40`
 - Optional helper: `node scripts/session_start.mjs`
 
 2) **Baseline docs (always)**
 - `AGENTS.md`
+- `docs/README.md` (docs index)
 - `docs/proper-implementation.md`
 - `docs/setup.md` (env + emulator expectations)
+- `scripts/README.md` (scripts index)
 
 3) **Pick the subsystem and read its runbook(s)**
 - Mobile/Expo dev: `docs/runbooks/expo-metro-windows.md`
@@ -36,8 +38,8 @@ If a feature has its own workflow runbook (example: `docs/runbooks/menu-feature-
 
 4) **Read *recent history* for what you will touch**
 - Example:
-  - `git --no-pager log --oneline -n 30 -- apps/mobile/src`
-  - `git --no-pager log --oneline -n 30 -- supabase/functions supabase/migrations supabase/tests`
+  - `git --no-pager log --oneline -n 40 -- apps/mobile/src`
+  - `git --no-pager log --oneline -n 40 -- supabase/functions supabase/migrations supabase/tests`
 
 5) **Search before you build**
 - `rg -n "<key terms>"` and read surrounding context to avoid duplicate implementations.

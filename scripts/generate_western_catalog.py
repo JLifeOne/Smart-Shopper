@@ -365,7 +365,14 @@ def build_catalog_records(items: List[Dict]):
         tags = sorted(set(item["tags"] + ["western-shared", "culinary", item["category"]]))
         for region in regions:
             store_list = STORE_BY_REGION[region]
-            store_index = abs(hash(item["name"] + region)) % len(store_list)
+            # NOTE: Do not use Python's built-in `hash()` here. Since Python 3.3 it is
+            # randomized per-process (PYTHONHASHSEED) which would make this script's
+            # output non-deterministic across runs/machines.
+            store_hash = int(
+                hashlib.sha1(f"{item['name']}|{region}|store".encode("utf-8")).hexdigest()[:8],
+                16,
+            )
+            store_index = store_hash % len(store_list)
             record = {
                 "name": item["name"],
                 "category": item["category"],

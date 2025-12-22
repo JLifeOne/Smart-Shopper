@@ -9,14 +9,14 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
 - If a feature depends on another for correctness, treat it as a production-tier dependency chain (backend enforcement + client UX + tests + rollout plan) — do not ship half a stack.
 
 ## Session start checklist (every work session)
-1. Repo state: `git status` and `git --no-pager log --oneline -n 30`
+1. Repo state: `git status` and `git --no-pager log --oneline -n 40`
 2. Read docs (Menus + quality bar):
    - `docs/proper-implementation.md`
    - `docs/planning/menus-production-plan.md`
    - `docs/planning/menus-api-contracts.md`
    - `docs/runbooks/menu-feature-workflow.md`
 3. Read recent history for touched areas (pick the relevant ones):
-   - `git --no-pager log --oneline -n 30 -- apps/mobile/src/features/menus supabase/functions/menu-* supabase/migrations`
+   - `git --no-pager log --oneline -n 40 -- apps/mobile/src/features/menus supabase/functions/menu-* supabase/migrations`
 4. Locate existing code before adding new code: `rg -n "menu-(sessions|recipes|regenerate)|menus-(llm|lists|policy|pairings|reviews)"`.
 
 ## System map (where things live)

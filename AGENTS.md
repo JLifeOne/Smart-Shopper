@@ -17,7 +17,7 @@ This repo prioritizes correctness, resiliency, and production-readiness over spe
 - Read `docs/proper-implementation.md`.
 - Read `docs/runbooks/proper-implementation-workflow.md` (repo-wide workflow).
 - Read the task’s relevant docs/runbooks/plans (start with `docs/` and `docs/runbooks/`).
-- Review recent history for the area you will touch (`git --no-pager log --oneline -n 30 -- <paths>`).
+- Review recent history for the area you will touch (`git --no-pager log --oneline -n 40 -- <paths>`).
 - Search for existing implementations first (`rg -n "<key terms>"`) and read the full surrounding context to avoid duplication/regressions.
 
 ## Project Map (where to look first)

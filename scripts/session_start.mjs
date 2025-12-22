@@ -27,7 +27,8 @@ if (!repoRoot) {
 const branch = run('git rev-parse --abbrev-ref HEAD') ?? '<unknown>';
 const head = run('git rev-parse --short HEAD') ?? '<unknown>';
 const status = run('git status --porcelain') ?? '';
-const recentCommits = run('git --no-pager log --oneline -n 20') ?? '';
+// Keep this aligned with `AGENTS.md` session-start guidance (last ~40 commits).
+const recentCommits = run('git --no-pager log --oneline -n 40') ?? '';
 
 process.stdout.write('Smart Shopper — Session Start\n');
 process.stdout.write(`Repo:   ${repoRoot}\n`);
@@ -42,6 +43,7 @@ printSection(
   [
     'AGENTS.md',
     'docs/README.md',
+    'scripts/README.md',
     'docs/proper-implementation.md',
     'docs/runbooks/proper-implementation-workflow.md',
     'docs/setup.md',
