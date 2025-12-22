@@ -15,6 +15,7 @@
 2. **Supabase functions/contracts**
    - `/menu-sessions` POST/GET/PATCH (creates session, polls OCR/ML status, updates cards) with premium enforcement.
    - `/menu-recipes` CRUD endpoints for persisted cards + smart edits.
+   - `/menus-titles` GET/POST – title-only library sync + daily cap enforcement (idempotent).
    - `/menus/lists` POST – consolidation service returning normalized list lines + writes to `lists/list_items` when requested (idempotent).
    - `/menus/pairings` GET/POST/DELETE – curated combos + user-saved combos.
    - `/menu-session-items` POST/GET/PATCH – OCR detections (text, bounding boxes, classifier tags).
@@ -30,7 +31,7 @@
 1. Wire `menuPrompt` into LLM service with clarifying question support and multi-dish output (`cards`, `consolidated_list`, `menus`).
 2. Packaging post-processor that maps ingredients to local pack sizes (uses `menu_packaging_profiles`).
 3. Hallucination guards: schema validation, min confidence, fallback template, `clarification_needed` responses.
-4. Observability: log prompt metadata, clarification selections, packaging adjustments, fallback usage.
+4. Observability: log prompt metadata, clarification selections, packaging adjustments, fallback usage; enforce timeouts (e.g. `MENU_LLM_TIMEOUT_MS`) and propagate `x-correlation-id` to downstream LLM calls.
 
 ## Stage 3 – Frontend Integration
 

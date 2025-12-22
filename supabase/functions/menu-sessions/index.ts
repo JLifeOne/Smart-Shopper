@@ -182,6 +182,12 @@ serve(async (req) => {
         });
         if (createError) {
           const message = createError.message ?? "session_create_failed";
+          if (message.includes("concurrent_session_limit")) {
+            return jsonResponse(
+              { error: "limit_exceeded", scope: "concurrent_sessions", correlationId },
+              { status: 429 },
+            );
+          }
           if (message.includes("limit_exceeded")) {
             return jsonResponse({ error: "limit_exceeded", scope: "uploads", correlationId }, { status: 429 });
           }
@@ -338,6 +344,7 @@ serve(async (req) => {
         console.log(
           JSON.stringify({
             event: "menu_session_updated",
+            correlationId,
             sessionId,
             ownerId: userId,
             durationMs,

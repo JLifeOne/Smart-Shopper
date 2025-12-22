@@ -158,12 +158,33 @@ serve(async (req) => {
         if (replay) {
           return jsonResponse({ status: replay.status ?? "queued", item: replay, replay: true, correlationId });
         }
+
+        // Another common uniqueness collision is a duplicate pending review per card (double-taps/app restarts).
+        if (payload.cardId) {
+          const { data: existingByCard } = await supabase
+            .from("menu_review_queue")
+            .select("id, status, card_id, session_id, dish_title, reason, note, created_at, reviewed_at")
+            .eq("owner_id", userId)
+            .eq("card_id", payload.cardId)
+            .in("status", ["pending", "acknowledged"])
+            .order("created_at", { ascending: false })
+            .maybeSingle();
+          if (existingByCard) {
+            return jsonResponse({
+              status: existingByCard.status ?? "queued",
+              item: existingByCard,
+              replay: true,
+              correlationId
+            });
+          }
+        }
       }
     }
 
     console.log(
       JSON.stringify({
         event: "menu_review_flag",
+        correlationId,
         userId,
         sessionId: payload.sessionId ?? null,
         cardId: payload.cardId ?? null,

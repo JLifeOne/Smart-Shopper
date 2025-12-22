@@ -218,6 +218,14 @@ serve(async (req) => {
   const requestId = correlationId;
 
   try {
+    const { data: premiumData, error: premiumError } = await supabase.rpc("menu_is_premium_user");
+    if (premiumError) {
+      console.error("menu_is_premium_user rpc failed", { correlationId, premiumError });
+    }
+    if (!premiumData) {
+      return jsonResponse({ error: "policy_blocked", correlationId }, { status: 403 });
+    }
+
     switch (req.method) {
       case "GET": {
         if (recipeId) {

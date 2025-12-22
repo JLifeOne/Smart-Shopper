@@ -17,20 +17,21 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
    - `docs/runbooks/menu-feature-workflow.md`
 3. Read recent history for touched areas (pick the relevant ones):
    - `git --no-pager log --oneline -n 40 -- apps/mobile/src/features/menus supabase/functions/menu-* supabase/migrations`
-4. Locate existing code before adding new code: `rg -n "menu-(sessions|recipes|regenerate)|menus-(llm|lists|policy|pairings|reviews)"`.
+4. Locate existing code before adding new code: `rg -n "menu-(sessions|recipes|regenerate)|menus-(llm|lists|policy|pairings|reviews|titles)"`.
 
 ## System map (where things live)
 - Mobile entry/UI: `apps/mobile/app/(app)/menus/index.tsx`
 - Mobile hooks/api: `apps/mobile/src/features/menus/hooks.ts`, `apps/mobile/src/features/menus/api.ts`
 - Mobile offline cache (WatermelonDB): `apps/mobile/src/database/menu-storage.ts`
 - Runtime config (remote flags): `apps/mobile/src/lib/runtime-config.ts` (refreshed in `apps/mobile/src/context/auth-context.tsx`)
-- DB schema/migrations: `supabase/migrations/0012_menu_core.sql`, `supabase/migrations/0019_menu_intel_foundation.sql`, `supabase/migrations/0020_menu_recipe_dietary.sql`, `supabase/migrations/0021_menu_recipes_idempotency.sql`, `supabase/migrations/0025_menu_recipes_training_flags.sql`
-- DB tests: `supabase/tests/0012_menu_core.test.sql`, `supabase/tests/0021_menu_recipes_idempotency.test.sql`
+- DB schema/migrations: `supabase/migrations/0012_menu_core.sql`, `supabase/migrations/0019_menu_intel_foundation.sql`, `supabase/migrations/0020_menu_recipe_dietary.sql`, `supabase/migrations/0021_menu_recipes_idempotency.sql`, `supabase/migrations/0022_menu_usage_limits.sql`, `supabase/migrations/0026_menu_idempotency_sessions_lists_reviews.sql`, `supabase/migrations/0029_menu_title_only_sync.sql`, `supabase/migrations/0030_menu_entitlements_hardening.sql`, `supabase/migrations/0031_menu_reviews_dedupe.sql`
+- DB tests: `supabase/tests/0012_menu_core.test.sql`, `supabase/tests/0021_menu_recipes_idempotency.test.sql`, `supabase/tests/0022_menu_usage_limits.test.sql`, `supabase/tests/0029_menu_title_only_sync.test.sql`, `supabase/tests/0030_menu_entitlements_hardening.test.sql`, `supabase/tests/0031_menu_reviews_dedupe.test.sql`
 - Edge functions (Supabase):
   - Sessions: `supabase/functions/menu-sessions/index.ts`, `supabase/functions/menu-session-items/index.ts`
   - Policy/limits: `supabase/functions/menus-policy/index.ts`
   - Prompt: `supabase/functions/menus-llm/index.ts` (schemas in `supabase/functions/_shared/menu-prompt-types.ts`)
   - Recipes + regen + training: `supabase/functions/menu-recipes/index.ts`, `supabase/functions/menu-regenerate/index.ts`
+  - Title-only: `supabase/functions/menus-titles/index.ts`
   - Conversion/pairings/reviews: `supabase/functions/menus-lists/index.ts`, `supabase/functions/menus-pairings/index.ts`, `supabase/functions/menus-reviews/index.ts`
 
 ## Scope (what it is)
@@ -41,7 +42,7 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
 - Capture & sessions: Upload via camera/gallery; sessions persisted; UI shows status, warnings, clarifications; can clear/refresh.
 - Policy & gating: Menu policy fetched; premium/title-only limits and daily caps enforced client-side; dev bypass exists for dev builds (must remain removable/disabled outside dev).
 - Recipes & cards: Saved dishes render as recipe cards; swipe viewer; add-to-list/create-list actions (premium); save combo; portions/people adjustment per card.
-- Title-only flow: Non-premium can save titles; daily limit tracked in AsyncStorage; limit prompts shown.
+- Title-only flow: Non-premium can save titles; titles persist server-side (`/menus-titles`) and daily cap is enforced via `menu_usage_counters` (local cache + best-effort offline sync).
 - List conversion: Menu → list conversion with consolidated lines; summary card shown; list creation gated by limits/premium.
 - Reviews: “Flag for review” posts to menus-reviews function; status/queue shown when available.
 - Pairings: Suggested pairings rendered from API with fallback; save combo supported.
@@ -54,7 +55,7 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
 ## Open gaps (AI/ML + platform)
 - AI pipeline robustness: Better error surface + retry/backoff for menus-LLM, clarifications, preview failures; add correlation IDs and typed errors.
 - Entitlements: Remove dev bypass in prod; harden server-side enforcement and consistent client gating for upload/prompt/convert/save.
-- Idempotency/double-submit: Client sends `Idempotency-Key` and `x-correlation-id` (see `apps/mobile/src/features/menus/api.ts`), but server-side idempotency is still missing on some mutating endpoints (`menu-sessions`, `menus-lists`, `menus-reviews`). UI also needs consistent “in-flight” locking to prevent rapid repeats.
+- Idempotency/double-submit: Client sends `Idempotency-Key` and `x-correlation-id` (see `apps/mobile/src/features/menus/api.ts`); the server enforces replay-safety for sessions/lists/reviews/title-only saves and recipe writes. UI still needs consistent “in-flight” locking to prevent rapid repeats.
 - Session resilience: Full restore of highlights/open cards/clarifications across restarts; ensure polling resumes; auto-refresh after clarifications.
 - Preferences enforcement: Enforce dietary/allergen violations consistently in conversion/preview with actionable errors.
 - Observability: Structured logs/metrics/traces for upload → prompt → convert → review; correlation IDs in UI errors; dashboards/alerts.
@@ -71,9 +72,11 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
 - Dev bypass on device requires BOTH:
   - Local build flag: `featureFlags.menuDevFullAccess` (see `apps/mobile/src/lib/env.ts`)
   - Remote runtime flag: `isMenuDevBypassEnabled()` (see `apps/mobile/src/lib/runtime-config.ts`)
-  - Current UI gate: `featureFlags.menuDevFullAccess && __DEV__ && isMenuDevBypassEnabled()` in `apps/mobile/app/(app)/menus/index.tsx`
+  - Developer account (JWT claim): `user.app_metadata.is_developer` (or `dev`) so bypass never elevates non-dev users.
+  - Current UI gate: `featureFlags.menuDevFullAccess && __DEV__ && isDeveloperAccount && isMenuDevBypassEnabled()` in `apps/mobile/app/(app)/menus/index.tsx`
 - Backend enforcement (dev/staging only):
-  - `menu_create_session` / `menu_create_list` / `menu-regenerate` treat `menu_dev_bypass.enabled=true` as premium for gating/limits; ensure it is `false` in production.
+  - Premium checks are centralized in `public.menu_is_premium_user()` (see `supabase/migrations/0030_menu_entitlements_hardening.sql`) and treat `menu_dev_bypass.enabled=true` as premium **only** for developer JWTs.
+  - Ensure `menu_dev_bypass.enabled=false` in production before public release.
 - SQL helper (run per environment):
   ```sql
   insert into app_runtime_config (key, value)
@@ -182,13 +185,13 @@ Expected errors:
 
 ## Workflow Stages (execution order)
 1) **Session resilience**
-   - Status: 🚧 In progress
+   - Status: ✅ Done
    - Deliver: Persist `sessionId` + session snapshot to storage; restore on app start; auto-refetch until terminal status; retain highlights/open cards/clarifications.
-   - Exit: Restarting the app resumes polling and reflects server status without user action. (Initial resume implemented in `useMenuSession`; highlight/open-card retention still to be validated.)
+   - Exit: Restarting the app resumes polling and reflects server status without user action (session + UI state scoped per user on-device).
 2) **Entitlements & limits enforcement**
-   - Status: 🚧 In progress
-   - Deliver: Enforce `menus-policy` (accessLevel, blurRecipes, limits) on uploads, prompts, conversions, recipe fetch/edit; block non-premium/over-limit locally and ensure server rejects. Keep dev bypass for local work; make it removable/disabled in prod builds when ready to ship.
-   - Exit: Free users cannot call premium endpoints or view Recipes card until upgrade; limits respected even after storage clears; prod builds ship with dev bypass off.
+   - Status: ✅ Done
+   - Deliver: Enforce `menus-policy` (accessLevel, blurRecipes, limits) on uploads, prompts, conversions, recipe fetch/edit; block non-premium/over-limit locally and ensure server rejects. Dev bypass is developer-only and removable/disabled in prod builds.
+   - Exit: Free users cannot call premium endpoints or view Recipes card until upgrade; limits respected even after storage clears; prod builds ship with dev bypass off (and server bypass never elevates non-dev users).
 3) **Idempotency & double-submit guards**
    - Status: ✅ Done
    - Deliver: Make every mutating operation replay-safe end-to-end:
@@ -201,19 +204,19 @@ Expected errors:
    - Deliver: Wire “Scan a menu” CTA to start upload; add “Add all/Create list” affordance; implement card lock/rotation, consolidated-list delta highlighting; reusable entry points instead of toasts; ensure Recipes card shows generated content in-place and supports inline edit/save.
    - Exit: Users can start scans directly; list actions are obvious and spec-aligned.
 5) **Observability & alerts**
-   - Status: ❌ Not started
-   - Deliver: Structured logs + metrics + trace IDs for upload → session polling, prompt, conversion, clarify, review, preference violations; alerts on failures/latency spikes; surface correlation IDs in UI errors.
-   - Exit: Dashboards and alerts cover golden paths; failures are diagnosable.
+   - Status: 🚧 In progress
+   - Deliver: Structured logs + trace IDs for upload → session polling, prompt, conversion, clarify, review, preference violations; alerts on failures/latency spikes; surface correlation IDs in UI errors. Runbook: `docs/runbooks/menus-observability-and-alerts.md`.
+   - Exit: Dashboards and alerts cover golden paths; failures are diagnosable (configure in Supabase/external log sink per runbook).
 6) **Review & clarification robustness**
-   - Status: ❌ Not started
+   - Status: ✅ Done
    - Deliver: Retry/backoff for review submissions; clear queue/resolve banners; re-poll after submit/resolve; debounce repeated review posts; handle clarify payload/options gracefully.
    - Exit: Users see reliable review/clarify states; no silent drops.
 7) **Title-only sync & policy alignment**
-   - Status: ❌ Not started
+   - Status: ✅ Done
    - Deliver: Account-scoped persistence (Supabase) for title-only saves and daily limits; reconcile with library; disable local-only bypass if policy forbids.
    - Exit: Title-only behavior matches server policy across devices.
 8) **Testing & QA**
-   - Status: ❌ Not started
+   - Status: 🚧 In progress
    - Deliver: Unit tests for hooks (resume, gating, idempotency), UI render keys, conversion/clarify flows; e2e for upload→prompt→convert (happy/blocked); regression coverage for duplicate-key bug.
    - Exit: CI gates menu changes; key flows covered.
 
@@ -226,7 +229,7 @@ Expected errors:
 6. Update docs: keep this runbook + `docs/planning/menus-api-contracts.md` accurate; note remaining gaps explicitly if any work is intentionally deferred behind flags.
 
 ## Open Risks (track)
-- Users bypassing premium/limits by clearing local storage.
+- Offline title-only saves may queue locally and later fail to sync if the daily cap is exceeded; ensure UX surfaces sync failures and upgrade prompts.
 - Duplicate lists/pairings/sessions from double-submit.
 - Lost session state after app restart causing orphaned uploads.
 - Lack of observability hides ingestion/LLM/regeneration failures.

@@ -104,18 +104,11 @@ serve(async (req) => {
   }
 
   try {
-    const isPremiumUser =
-      Boolean(user?.app_metadata?.is_menu_premium) ||
-      Boolean(user?.app_metadata?.is_developer) ||
-      Boolean(user?.app_metadata?.dev);
-
-    const runtimeBypass = await supabase
-      .rpc("get_runtime_config", { config_key: "menu_dev_bypass" })
-      .then(({ data }) => data as { enabled?: boolean } | null)
-      .catch(() => null);
-    const isDevBypassEnabled = Boolean(runtimeBypass?.enabled);
-
-    if (!isPremiumUser && !isDevBypassEnabled) {
+    const { data: premiumData, error: premiumError } = await supabase.rpc("menu_is_premium_user");
+    if (premiumError) {
+      console.error("menu_is_premium_user rpc failed", { correlationId, premiumError });
+    }
+    if (!premiumData) {
       return jsonResponse({ error: "policy_blocked", correlationId }, { status: 403 });
     }
 

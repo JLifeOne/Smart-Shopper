@@ -3,7 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, Idempotency-Key, x-correlation-id",
 };
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -39,6 +40,14 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
     headers: { "content-type": "application/json", ...corsHeaders },
     ...init,
   });
+}
+
+function getCorrelationId(req: Request) {
+  return (
+    req.headers.get("x-correlation-id") ??
+    req.headers.get("Idempotency-Key") ??
+    crypto.randomUUID()
+  );
 }
 
 async function getUsage(client: any, userId: string) {
@@ -80,6 +89,8 @@ serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  const correlationId = getCorrelationId(req);
+
   let client;
   let user;
   try {
@@ -89,7 +100,7 @@ serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "auth_error";
     const status = message === "auth_required" ? 401 : 500;
-    return jsonResponse({ error: message }, { status });
+    return jsonResponse({ error: message, correlationId }, { status });
   }
 
   try {
@@ -136,12 +147,11 @@ serve(async (req) => {
 
     const preferences = preferencesRecord ?? null;
 
-    const isPremium = Boolean(
-      user.app_metadata?.is_menu_premium ??
-        user.app_metadata?.is_developer ??
-        user.app_metadata?.dev ??
-        false
-    );
+    const { data: premiumData, error: premiumError } = await client.rpc("menu_is_premium_user");
+    if (premiumError) {
+      console.error("menu_is_premium_user rpc failed", { correlationId, premiumError });
+    }
+    const isPremium = Boolean(premiumData) || Boolean(user.app_metadata?.is_menu_premium ?? false);
     const limitsBase = isPremium
       ? { maxUploadsPerDay: 25, concurrentSessions: 5, maxListCreates: 25 }
       : { maxUploadsPerDay: 3, concurrentSessions: 1, maxListCreates: 1 };
@@ -170,9 +180,9 @@ serve(async (req) => {
       allergenFlags: preferences?.allergen_flags ?? [],
     };
 
-    return jsonResponse({ policy, preferences: prefs } satisfies PolicyResponse);
+    return jsonResponse({ policy, preferences: prefs, correlationId } satisfies PolicyResponse & { correlationId: string });
   } catch (error) {
     console.error("menus-policy failure", error);
-    return jsonResponse({ error: "policy_load_failed" }, { status: 500 });
+    return jsonResponse({ error: "policy_load_failed", correlationId }, { status: 500 });
   }
 });

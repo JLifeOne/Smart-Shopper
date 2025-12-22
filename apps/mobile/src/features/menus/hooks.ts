@@ -41,6 +41,7 @@ import { cacheMenuReviews, getCachedMenuReviews } from '@/src/database/menu-stor
 
 type UploadArgs = { mode: 'camera' | 'gallery'; premium: boolean; sourceUri?: string | null };
 const SESSION_STORAGE_KEY = 'menus_active_session';
+const getSessionStorageKey = (userId?: string | null) => `${SESSION_STORAGE_KEY}:${userId ?? 'anon'}`;
 
 const TERMINAL_SESSION_STATUSES = new Set(['completed', 'ready', 'title_only', 'failed', 'canceled', 'cancelled']);
 const EMPTY_RECIPES: MenuRecipe[] = [];
@@ -76,18 +77,19 @@ const sessionShouldPoll = (status?: string | null) => {
   return !TERMINAL_SESSION_STATUSES.has(normalized);
 };
 
-export function useMenuSession() {
+export function useMenuSession(options: { userId?: string | null } = {}) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const bootstrappedRef = useRef(false);
+  const bootstrappedRef = useRef<string | null>(null);
+  const storageKey = getSessionStorageKey(options.userId);
 
   const persistSessionSnapshot = async (session: MenuSession | null) => {
     if (!session) {
-      await AsyncStorage.removeItem(SESSION_STORAGE_KEY);
+      await AsyncStorage.removeItem(storageKey);
       return;
     }
     await AsyncStorage.setItem(
-      SESSION_STORAGE_KEY,
+      storageKey,
       JSON.stringify({
         sessionId: session.id,
         session
@@ -96,14 +98,15 @@ export function useMenuSession() {
   };
 
   useEffect(() => {
-    if (bootstrappedRef.current) {
+    if (bootstrappedRef.current === storageKey) {
       return;
     }
-    bootstrappedRef.current = true;
+    bootstrappedRef.current = storageKey;
+    setSessionId(null);
     (async () => {
       let restoredId: string | null = null;
       try {
-        const stored = await AsyncStorage.getItem(SESSION_STORAGE_KEY);
+        const stored = await AsyncStorage.getItem(storageKey);
         if (stored) {
           const parsed = JSON.parse(stored);
           if (parsed?.sessionId) {
@@ -126,8 +129,14 @@ export function useMenuSession() {
       if (restoredId) {
         setSessionId(restoredId);
       }
+
+      // Backward-compat clean-up: previous versions stored the active session under a global key.
+      // That can leak between accounts on the same device, so remove it once we have a scoped key.
+      if (options.userId) {
+        AsyncStorage.removeItem(SESSION_STORAGE_KEY).catch(() => {});
+      }
     })();
-  }, [queryClient]);
+  }, [queryClient, storageKey, options.userId]);
 
   const sessionQuery = useQuery({
     queryKey: ['menu-session', sessionId],
@@ -200,6 +209,7 @@ export function useMenuReviews(filters: { sessionId?: string; cardId?: string } 
   const [reviews, setReviews] = useState<MenuReview[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -229,18 +239,44 @@ export function useMenuReviews(filters: { sessionId?: string; cardId?: string } 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.sessionId, filters.cardId]);
 
+  useEffect(() => {
+    if (pollRef.current) {
+      clearTimeout(pollRef.current);
+      pollRef.current = null;
+    }
+    const hasPending = reviews.some((item) => item.status === 'pending' || item.status === 'acknowledged');
+    if (!hasPending) {
+      return;
+    }
+    pollRef.current = setTimeout(() => {
+      load();
+    }, 5000);
+    return () => {
+      if (pollRef.current) {
+        clearTimeout(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviews, filters.sessionId, filters.cardId]);
+
   return { reviews, reviewsLoading: loading, reviewsError: error, refreshReviews: load };
 }
 
-export function useMenuRecipes() {
+export function useMenuRecipes(options: { enabled?: boolean } = {}) {
+  const enabled = options.enabled ?? true;
   const queryClient = useQueryClient();
   useEffect(() => {
+    if (!enabled) {
+      queryClient.removeQueries({ queryKey: ['menu-recipes'] });
+      return;
+    }
     getCachedMenuRecipes().then((cached) => {
       if (cached.length) {
         queryClient.setQueryData(['menu-recipes'], cached);
       }
     });
-  }, [queryClient]);
+  }, [enabled, queryClient]);
 
   const recipesQuery = useQuery({
     queryKey: ['menu-recipes'],
@@ -256,7 +292,8 @@ export function useMenuRecipes() {
         }
         throw error;
       }
-    }
+    },
+    enabled
   });
 
   const createMutation = useMutation({

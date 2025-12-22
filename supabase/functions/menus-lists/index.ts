@@ -94,6 +94,7 @@ serve(async (req) => {
   }
 
   const correlationId = getCorrelationId(req);
+  const startedAt = performance.now();
 
   let supabase;
   let userId;
@@ -114,6 +115,14 @@ serve(async (req) => {
   }
 
   try {
+    const { data: premiumData, error: premiumError } = await supabase.rpc("menu_is_premium_user");
+    if (premiumError) {
+      console.error("menu_is_premium_user rpc failed", { correlationId, premiumError });
+    }
+    if (!premiumData) {
+      return jsonResponse({ error: "premium_required", correlationId }, { status: 403 });
+    }
+
     const payload = (await req.json().catch(() => ({}))) as ConvertPayload;
     const dishIds = Array.isArray(payload.dishIds) ? payload.dishIds.filter(Boolean) : [];
     if (!dishIds.length) {
@@ -224,6 +233,20 @@ serve(async (req) => {
         return jsonResponse({ error: "list_create_failed", correlationId }, { status: 400 });
       }
     }
+
+    const durationMs = Math.round(performance.now() - startedAt);
+    console.log(
+      JSON.stringify({
+        event: "menu_list_converted",
+        correlationId,
+        ownerId: userId,
+        dishCount: dishIds.length,
+        persisted: Boolean(payload.persistList),
+        listId,
+        replay: payload.persistList ? replay : undefined,
+        durationMs
+      })
+    );
 
     return jsonResponse({
       consolidatedList,

@@ -107,6 +107,8 @@ Payload:
 ### List – `GET /menu-recipes?cursor=`
 Returns paginated recipes owned by the caller with filters (`course`, `cuisineStyle`, `search`). Default sort: `updated_at desc`.
 
+Premium gating: `menu-recipes` is premium-only (server-enforced via RLS + edge function checks). Non-premium users should use the Title-only endpoint (`/menus-titles`) to save and sync dish titles.
+
 ### Create – `POST /menu-recipes`
 Payload mirrors `menu_recipes` columns. Validates JSON schema for ingredients/method entries.
 
@@ -133,7 +135,53 @@ Soft-delete optional by setting `deleted_at`; default is hard delete for owner.
 
 ---
 
-## 4. Packaging-aware list conversion (`POST /menus/lists`)
+## 4. Title-only dishes (`/menus-titles`)
+
+Title-only saves are the free-tier storage path: they persist dish titles server-side and enforce daily caps without relying on local storage.
+
+### List – `GET /menus-titles?sessionId=`
+Returns title-only dishes owned by the caller. Optional `sessionId` filter.
+
+### Create – `POST /menus-titles`
+Headers
+- `Idempotency-Key` (required): prevents duplicates under retries/double-taps and ensures daily usage is only counted once.
+- `x-correlation-id` (optional): traced through edge-function logs.
+
+```json
+Request body
+{
+  "title": "Ackee and saltfish",
+  "sessionId": "uuid-or-null"
+}
+```
+
+Response `200`
+```json
+{
+  "item": {
+    "id": "uuid",
+    "title": "Ackee and saltfish",
+    "session_id": null,
+    "created_at": "2025-03-14T00:02:33Z",
+    "updated_at": "2025-03-14T00:02:33Z"
+  },
+  "replay": false,
+  "correlationId": "string"
+}
+```
+
+Back-end responsibilities:
+- Persist to `menu_title_dishes` with owner-scoped RLS.
+- Increment `menu_usage_counters.uploads` so `menus-policy.limits.remainingUploads` matches the free-tier cap across devices.
+
+Expected errors:
+- `limit_exceeded` (429): user exceeded daily uploads/title-only cap (`scope: "uploads"`).
+- `title_required` (400): missing/empty title.
+- `idempotency_key_required` (400).
+
+---
+
+## 5. Packaging-aware list conversion (`POST /menus/lists`)
 
 Converts selected dishes into consolidated shopping lines and optionally writes to `lists`.
 
@@ -173,9 +221,11 @@ Back-end responsibilities:
 }
 ```
 
+Premium gating: list conversion is premium-only (both preview and list persistence). Non-premium users should only save titles via `/menus-titles`.
+
 ---
 
-## 5. Pairing suggestions (`GET /menus/pairings`)
+## 6. Pairing suggestions (`GET /menus/pairings`)
 
 `GET /menus/pairings?locale=jm_JM&limit=5`
 
@@ -198,7 +248,7 @@ Callers can “save combo” by POSTing to `/menus-pairings` (payload `{ title, 
 
 ---
 
-## 6. Menus policy (`GET /menus-policy`)
+## 7. Menus policy (`GET /menus-policy`)
 
 Returns entitlement data (premium vs. title-only) and user preferences that drive blur states, limits, and dietary defaults.
 
@@ -250,7 +300,7 @@ Response mirrors the GET shape with updated preferences.
 
 ---
 
-## 7. Packaging update (`POST /menus-packaging`)
+## 8. Packaging update (`POST /menus-packaging`)
 
 Endpoint invoked by the packaging normalizer service (or stub) to upsert pack sizes per ingredient.
 

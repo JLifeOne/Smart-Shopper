@@ -295,14 +295,30 @@ async function callLLM(payload: MenuPromptInput, requestId: string, correlationI
     throw new Error("llm_url_missing");
   }
   const startedAt = performance.now();
-  const response = await fetch(llmUrl, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...(llmApiKey ? { Authorization: `Bearer ${llmApiKey}` } : {})
-    },
-    body: JSON.stringify(payload)
-  });
+  const timeoutMs = Number(Deno.env.get("MENU_LLM_TIMEOUT_MS") ?? 15000);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetch(llmUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-correlation-id': correlationId,
+        ...(llmApiKey ? { Authorization: `Bearer ${llmApiKey}` } : {})
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      console.error("llm_timeout", { requestId, correlationId, timeoutMs });
+      throw new Error("llm_timeout");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   const text = await response.text();
   let json: unknown = null;
   try {
@@ -344,6 +360,14 @@ serve(async (req) => {
   }
 
   try {
+    const { data: premiumData, error: premiumError } = await supabase.rpc("menu_is_premium_user");
+    if (premiumError) {
+      console.error("menu_is_premium_user rpc failed", { correlationId, premiumError });
+    }
+    if (!premiumData) {
+      return jsonResponse({ error: "policy_blocked", correlationId }, { status: 403 });
+    }
+
     const raw = await req.json();
     const parsed = menuPromptInputSchema.parse(raw);
     const styleChoices = await loadStyleChoices(supabase, userId, parsed.dishes);

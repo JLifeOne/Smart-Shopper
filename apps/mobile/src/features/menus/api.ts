@@ -276,10 +276,9 @@ export async function fetchMenuSession(sessionId: string) {
 }
 
 export async function resolveMenuClarifications(sessionId: string) {
-  const keySeed = `menu-clarify-resolve:${sessionId}`;
-  const idempotencyKey = generateIdempotencyKey(keySeed);
-  const correlationId = generateCorrelationId(keySeed);
-  return withRetry(() =>
+  const operationKey = `menu-clarify-resolve:${sessionId}`;
+  const { idempotencyKey, correlationId } = getRequestKeys(operationKey);
+  const result = await withRetry(() =>
     callMenuFunction<{ session: MenuSession }>(`menu-sessions/${sessionId}`, {
       method: 'PATCH',
       body: JSON.stringify({
@@ -291,26 +290,37 @@ export async function resolveMenuClarifications(sessionId: string) {
       correlationId
     })
   );
+  clearRequestKeys(operationKey);
+  return result;
 }
 
 export async function submitMenuClarifications(
   sessionId: string,
   answers: Array<{ dishKey: string; answer: string }>
 ) {
-  const keySeed = `menu-clarify-submit:${sessionId}:${answers.length}`;
-  const idempotencyKey = generateIdempotencyKey(keySeed);
-  const correlationId = generateCorrelationId(keySeed);
-  return withRetry(() =>
+  const stableAnswers = [...answers]
+    .map((item) => ({
+      dishKey: item.dishKey?.trim() ?? '',
+      answer: item.answer?.trim() ?? ''
+    }))
+    .filter((item) => item.dishKey.length && item.answer.length)
+    .sort((a, b) => a.dishKey.localeCompare(b.dishKey) || a.answer.localeCompare(b.answer));
+  const seed = stableAnswers.map((item) => `${item.dishKey}:${item.answer}`).join('|') || `${answers.length}`;
+  const operationKey = `menu-clarify-submit:${sessionId}:${seed}`;
+  const { idempotencyKey, correlationId } = getRequestKeys(operationKey);
+  const result = await withRetry(() =>
     callMenuFunction<{ session: MenuSession }>(`menu-sessions/${sessionId}`, {
       method: 'PATCH',
       body: JSON.stringify({
-        clarification_answers: answers,
+        clarification_answers: stableAnswers,
         status: 'processing'
       }),
       idempotencyKey,
       correlationId
     })
   );
+  clearRequestKeys(operationKey);
+  return result;
 }
 
 export async function saveDish(request: SaveDishRequest): Promise<SaveDishResponse> {
@@ -551,18 +561,20 @@ export async function submitMenuReview(input: {
   const operationKey = `menus-review:${input.sessionId ?? 'none'}:${input.cardId ?? input.dishTitle ?? 'unknown'}`;
   const { idempotencyKey, correlationId } = getRequestKeys(operationKey);
   try {
-    const result = await callMenuFunction<{ status: string }>('menus-reviews', {
-      method: 'POST',
-      body: JSON.stringify({
-        sessionId: input.sessionId ?? null,
-        cardId: input.cardId ?? null,
-        dishTitle: input.dishTitle ?? null,
-        reason: input.reason ?? 'flagged',
-        note: input.note ?? null
-      }),
-      idempotencyKey,
-      correlationId
-    });
+    const result = await withRetry(() =>
+      callMenuFunction<{ status: string }>('menus-reviews', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: input.sessionId ?? null,
+          cardId: input.cardId ?? null,
+          dishTitle: input.dishTitle ?? null,
+          reason: input.reason ?? 'flagged',
+          note: input.note ?? null
+        }),
+        idempotencyKey,
+        correlationId
+      })
+    );
     clearRequestKeys(operationKey);
     return result;
   } catch (error) {
@@ -589,4 +601,63 @@ export async function fetchMenuReviews(filters: { cardId?: string; sessionId?: s
   const query = params.toString() ? `?${params.toString()}` : '';
   const result = await callMenuFunction<{ items: MenuReview[] }>(`menus-reviews${query}`, { method: 'GET' });
   return result.items ?? [];
+}
+
+export type MenuTitleDish = {
+  id: string;
+  title: string;
+  session_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function fetchMenuTitleDishes(filters: { sessionId?: string } = {}) {
+  const params = new URLSearchParams();
+  if (filters.sessionId) params.set('sessionId', filters.sessionId);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const result = await callMenuFunction<{ items: MenuTitleDish[] }>(`menus-titles${query}`, { method: 'GET' });
+  return result.items ?? [];
+}
+
+const normalizeIdempotencySegment = (value: string) => {
+  return value
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .trim();
+};
+
+export function menuTitleDishIdempotencyKey(input: { title: string; createdDate: string }) {
+  // Stable key so offline retries/app restarts cannot create duplicates (server also enforces uniqueness).
+  const titleKey = normalizeIdempotencySegment(input.title) || hashSeed(input.title);
+  const day = input.createdDate.trim().slice(0, 10);
+  return clampKey(`menu-title:${day}:${titleKey}:${hashSeed(`${day}:${input.title.toLowerCase()}`)}`);
+}
+
+export async function createMenuTitleDish(input: {
+  title: string;
+  sessionId?: string | null;
+  createdDate: string;
+  idempotencyKey?: string;
+  correlationId?: string;
+}) {
+  const title = input.title.trim();
+  if (!title.length) {
+    throw new Error('title_required');
+  }
+  const idempotencyKey = input.idempotencyKey ?? menuTitleDishIdempotencyKey({ title, createdDate: input.createdDate });
+  const correlationId = input.correlationId ?? generateCorrelationId(`menus-title:${idempotencyKey}`);
+  return withRetry(() =>
+    callMenuFunction<{ item: MenuTitleDish; replay?: boolean }>('menus-titles', {
+      method: 'POST',
+      body: JSON.stringify({
+        title,
+        sessionId: input.sessionId ?? null
+      }),
+      idempotencyKey,
+      correlationId
+    })
+  );
 }

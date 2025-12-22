@@ -28,6 +28,7 @@ Start here when working in a subsystem:
 - `docs/runbooks/typecheck-and-safe-fetch.md` — Typecheck pitfalls + fetch typing guardrails.
 - `docs/runbooks/list-items-category-backfill.md` — Backfill classifier metadata on list items.
 - `docs/runbooks/menu-feature-workflow.md` — Menu/Recipes production-tier workflow.
+- `docs/runbooks/menus-observability-and-alerts.md` — Dashboards, alerts, and incident response for Menus.
 - `docs/runbooks/brand-insights-migration.md` — Brand insights migration + rollback.
 - `docs/runbooks/brand-insights-job.md` — Nightly brand job operations.
 
