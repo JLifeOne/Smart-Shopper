@@ -2,18 +2,40 @@ select plan(1);
 
 create schema if not exists tests;
 
+-- Returns true when a column exists on auth.users and is insertable.
+-- Some Supabase/GoTrue versions define columns like confirmed_at as generated; generated columns
+-- cannot accept non-DEFAULT values and must be omitted from INSERTs.
 create or replace function tests.has_auth_users_column(col_name text)
 returns boolean
-language sql
+language plpgsql
 stable
 as $$
-  select exists (
-    select 1
-    from information_schema.columns
-    where table_schema = 'auth'
-      and table_name = 'users'
-      and column_name = col_name
-  );
+declare
+  v_exists boolean := false;
+begin
+  begin
+    select exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'auth'
+        and table_name = 'users'
+        and column_name = col_name
+        and coalesce(is_generated, 'NEVER') = 'NEVER'
+    )
+    into v_exists;
+  exception when undefined_column then
+    select exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'auth'
+        and table_name = 'users'
+        and column_name = col_name
+    )
+    into v_exists;
+  end;
+
+  return v_exists;
+end;
 $$;
 
 create or replace function tests.ensure_auth_instance()
