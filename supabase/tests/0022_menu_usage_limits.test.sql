@@ -8,7 +8,7 @@ select tests.create_supabase_user('menu-usage-user'::text) as user_id \gset
 -- ensure no row exists initially
 select is(
   (select count(*) from public.menu_usage_counters where owner_id = :'user_id'),
-  0,
+  0::bigint,
   'usage counters start empty'
 );
 
