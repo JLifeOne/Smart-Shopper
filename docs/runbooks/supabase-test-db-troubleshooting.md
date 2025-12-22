@@ -12,6 +12,30 @@
 
 ## Troubleshooting Log (newest-first)
 
+### 2025-12-22 — `throws_ok` fails with `syntax error at or near ":"`
+**Environment**
+- Windows PowerShell, Supabase CLI `2.65.5`, Postgres `17.6` (local Supabase)
+
+**Symptom**
+- pgTAP fails with:
+  - `caught: 42601: syntax error at or near ":"`
+  - Typically when the failing assertion is `throws_ok(...)`
+
+**Root cause**
+- `\gset` variables like `:'user_id'` are expanded by `psql` **before** sending SQL to Postgres.
+- When you embed `:'user_id'` inside the *string* passed to `throws_ok($$...$$, ...)`, `psql` does not expand it, so Postgres receives a literal `:` token and errors.
+
+**Fix**
+- Build the query string using `format(...)` (or string concatenation) outside the `$$...$$` literal, e.g.:
+  - `format($$select ... (%L::uuid, ...)$$, :'user_id')`
+- Reference: `supabase/tests/0022_menu_usage_limits.test.sql`
+- Fix commit: `ac6a2f2`
+
+**Verification**
+- `supabase test db --debug`
+
+---
+
 ### 2025-12-22 — `failed to read profile: Config File "config" Not Found in "[]"` after creating `supabase/.temp/profile`
 **Environment**
 - Windows PowerShell, Supabase CLI `2.65.5`
