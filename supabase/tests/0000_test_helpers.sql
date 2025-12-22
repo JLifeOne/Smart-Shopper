@@ -52,29 +52,29 @@ begin
       and is_nullable = 'NO'
       and column_default is null
   loop
-    cols := cols || rec.column_name;
+    cols := array_append(cols, rec.column_name::text);
     if rec.column_name in ('id', 'uuid') then
-      vals := vals || (quote_literal(gen_random_uuid()::text) || '::uuid');
+      vals := array_append(vals, quote_literal(gen_random_uuid()::text) || '::uuid');
     elsif rec.data_type = 'uuid' then
-      vals := vals || (quote_literal(gen_random_uuid()::text) || '::uuid');
+      vals := array_append(vals, quote_literal(gen_random_uuid()::text) || '::uuid');
     elsif rec.data_type like 'timestamp%' then
-      vals := vals || 'now()';
+      vals := array_append(vals, 'now()');
     elsif rec.data_type in ('text', 'character varying', 'character') then
       if rec.column_name like '%base_url%' or rec.column_name like '%site_url%' then
-        vals := vals || quote_literal('http://localhost');
+        vals := array_append(vals, quote_literal('http://localhost'));
       else
-        vals := vals || quote_literal('test');
+        vals := array_append(vals, quote_literal('test'));
       end if;
     elsif rec.data_type in ('jsonb', 'json') then
-      vals := vals || (quote_literal('{}') || format('::%s', rec.data_type));
+      vals := array_append(vals, quote_literal('{}') || format('::%s', rec.data_type));
     elsif rec.data_type = 'ARRAY' then
-      vals := vals || (quote_literal('{}') || format('::%s', rec.udt_name));
+      vals := array_append(vals, quote_literal('{}') || format('::%s', rec.udt_name));
     elsif rec.data_type = 'boolean' then
-      vals := vals || 'false';
+      vals := array_append(vals, 'false');
     elsif rec.data_type in ('integer', 'bigint', 'smallint', 'numeric', 'double precision', 'real') then
-      vals := vals || '0';
+      vals := array_append(vals, '0');
     else
-      vals := vals || quote_literal('test');
+      vals := array_append(vals, quote_literal('test'));
     end if;
   end loop;
 
@@ -121,61 +121,61 @@ begin
 
   if tests.has_auth_users_column('instance_id') then
     v_instance_id := tests.ensure_auth_instance();
-    cols := cols || 'instance_id';
-    vals := vals || (quote_literal(v_instance_id::text) || '::uuid');
+    cols := array_append(cols, 'instance_id');
+    vals := array_append(vals, quote_literal(v_instance_id::text) || '::uuid');
   end if;
 
-  cols := cols || 'id';
-  vals := vals || (quote_literal(v_user_id::text) || '::uuid');
+  cols := array_append(cols, 'id');
+  vals := array_append(vals, quote_literal(v_user_id::text) || '::uuid');
 
   if tests.has_auth_users_column('aud') then
-    cols := cols || 'aud';
-    vals := vals || quote_literal('authenticated');
+    cols := array_append(cols, 'aud');
+    vals := array_append(vals, quote_literal('authenticated'));
   end if;
 
   if tests.has_auth_users_column('role') then
-    cols := cols || 'role';
-    vals := vals || quote_literal('authenticated');
+    cols := array_append(cols, 'role');
+    vals := array_append(vals, quote_literal('authenticated'));
   end if;
 
   if tests.has_auth_users_column('email') then
-    cols := cols || 'email';
-    vals := vals || quote_literal(v_email);
+    cols := array_append(cols, 'email');
+    vals := array_append(vals, quote_literal(v_email));
   end if;
 
   if tests.has_auth_users_column('encrypted_password') then
-    cols := cols || 'encrypted_password';
-    vals := vals || quote_literal('');
+    cols := array_append(cols, 'encrypted_password');
+    vals := array_append(vals, quote_literal(''));
   end if;
 
   if tests.has_auth_users_column('email_confirmed_at') then
-    cols := cols || 'email_confirmed_at';
-    vals := vals || 'now()';
+    cols := array_append(cols, 'email_confirmed_at');
+    vals := array_append(vals, 'now()');
   end if;
 
   if tests.has_auth_users_column('confirmed_at') then
-    cols := cols || 'confirmed_at';
-    vals := vals || 'now()';
+    cols := array_append(cols, 'confirmed_at');
+    vals := array_append(vals, 'now()');
   end if;
 
   if tests.has_auth_users_column('raw_app_meta_data') then
-    cols := cols || 'raw_app_meta_data';
-    vals := vals || (quote_literal(coalesce(app_metadata, '{}'::jsonb)::text) || '::jsonb');
+    cols := array_append(cols, 'raw_app_meta_data');
+    vals := array_append(vals, quote_literal(coalesce(app_metadata, '{}'::jsonb)::text) || '::jsonb');
   end if;
 
   if tests.has_auth_users_column('raw_user_meta_data') then
-    cols := cols || 'raw_user_meta_data';
-    vals := vals || (quote_literal('{}') || '::jsonb');
+    cols := array_append(cols, 'raw_user_meta_data');
+    vals := array_append(vals, quote_literal('{}') || '::jsonb');
   end if;
 
   if tests.has_auth_users_column('created_at') then
-    cols := cols || 'created_at';
-    vals := vals || 'now()';
+    cols := array_append(cols, 'created_at');
+    vals := array_append(vals, 'now()');
   end if;
 
   if tests.has_auth_users_column('updated_at') then
-    cols := cols || 'updated_at';
-    vals := vals || 'now()';
+    cols := array_append(cols, 'updated_at');
+    vals := array_append(vals, 'now()');
   end if;
 
   execute format(
