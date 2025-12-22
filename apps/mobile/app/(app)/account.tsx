@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/src/context/auth-context';
 import { useTopBar } from '@/src/providers/TopBarProvider';
+import { formatDobInput, parseDob } from '@/src/lib/dob';
 
 type ProfileRow = {
   email: string | null;
@@ -55,49 +56,6 @@ const COUNTRIES = [
 
 type CountryOption = (typeof COUNTRIES)[number];
 type GenderOption = 'male' | 'female' | 'prefer_not_to_say';
-
-function parseDob(dobRaw: string): { normalized: string; age: number } | null {
-  const trimmed = dobRaw.trim();
-  if (!trimmed) {
-    return null;
-  }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return null;
-  }
-  const candidate = new Date(`${trimmed}T00:00:00.000Z`);
-  if (Number.isNaN(candidate.getTime())) {
-    return null;
-  }
-  const [year, month, day] = trimmed.split('-').map((part) => Number(part));
-  if (!year || !month || !day) {
-    return null;
-  }
-  const now = new Date();
-  if (candidate > now) {
-    return null;
-  }
-  const monthIndex = month - 1;
-  const reconstructed = new Date(Date.UTC(year, monthIndex, day));
-  if (
-    reconstructed.getUTCFullYear() !== year ||
-    reconstructed.getUTCMonth() !== monthIndex ||
-    reconstructed.getUTCDate() !== day
-  ) {
-    return null;
-  }
-
-  let age = now.getUTCFullYear() - year;
-  const hasHadBirthdayThisYear =
-    now.getUTCMonth() > monthIndex || (now.getUTCMonth() === monthIndex && now.getUTCDate() >= day);
-  if (!hasHadBirthdayThisYear) {
-    age -= 1;
-  }
-  if (age < 0 || age > 130) {
-    return null;
-  }
-
-  return { normalized: trimmed, age };
-}
 
 export default function AccountScreen() {
   const router = useRouter();
@@ -144,7 +102,9 @@ export default function AccountScreen() {
         .map((part) => part.charAt(0).toUpperCase())
         .join('')
         .slice(0, 2);
-      if (initials) return initials;
+      if (initials) {
+        return initials;
+      }
     }
 
     const emailBasis = (primaryEmail ?? '').trim();
@@ -413,9 +373,13 @@ export default function AccountScreen() {
             <Text style={styles.fieldLabel}>Date of birth</Text>
             <TextInput
               value={dob}
-              onChangeText={setDob}
+              onChangeText={(next) => setDob(formatDobInput(next))}
               placeholder="YYYY-MM-DD"
               placeholderTextColor={palette.muted}
+              keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+              textContentType="birthdate"
+              autoCorrect={false}
+              maxLength={10}
               style={styles.input}
             />
             <Text style={styles.helperText}>

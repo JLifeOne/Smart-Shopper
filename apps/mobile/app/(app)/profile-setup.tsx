@@ -16,6 +16,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/src/context/auth-context';
 import { useTopBar } from '@/src/providers/TopBarProvider';
+import { formatDobInput, parseDob } from '@/src/lib/dob';
 
 const COUNTRIES = [
   { code: 'US', dialCode: '+1', label: 'United States' },
@@ -39,47 +40,6 @@ type ProfileRow = {
   location_postal_code?: string | null;
   location_country?: string | null;
 };
-
-function parseDob(dobRaw: string): { normalized: string; age: number } | null {
-  const trimmed = dobRaw.trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return null;
-  }
-  const candidate = new Date(`${trimmed}T00:00:00.000Z`);
-  if (Number.isNaN(candidate.getTime())) {
-    return null;
-  }
-  const [year, month, day] = trimmed.split('-').map((part) => Number(part));
-  if (!year || !month || !day) {
-    return null;
-  }
-  const now = new Date();
-  const earliest = new Date('1900-01-01T00:00:00.000Z');
-  if (candidate < earliest || candidate > now) {
-    return null;
-  }
-  const monthIndex = month - 1;
-  const reconstructed = new Date(Date.UTC(year, monthIndex, day));
-  if (
-    reconstructed.getUTCFullYear() !== year ||
-    reconstructed.getUTCMonth() !== monthIndex ||
-    reconstructed.getUTCDate() !== day
-  ) {
-    return null;
-  }
-
-  let age = now.getUTCFullYear() - year;
-  const hasHadBirthdayThisYear =
-    now.getUTCMonth() > monthIndex || (now.getUTCMonth() === monthIndex && now.getUTCDate() >= day);
-  if (!hasHadBirthdayThisYear) {
-    age -= 1;
-  }
-  if (age < 0 || age > 130) {
-    return null;
-  }
-
-  return { normalized: trimmed, age };
-}
 
 function isProfileComplete(profile: ProfileRow | null | undefined): boolean {
   if (!profile) {
@@ -295,9 +255,13 @@ export default function CompleteProfileScreen() {
           <Text style={styles.label}>Date of birth</Text>
           <TextInput
             value={dob}
-            onChangeText={setDob}
+            onChangeText={(next) => setDob(formatDobInput(next))}
             placeholder="YYYY-MM-DD"
             placeholderTextColor="#9CA8BC"
+            keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+            textContentType="birthdate"
+            autoCorrect={false}
+            maxLength={10}
             style={styles.input}
             editable={!isBusy}
           />
