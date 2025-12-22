@@ -1,25 +1,34 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
+import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type"
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-correlation-id, x-internal-key"
 };
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
-const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const internalKey = Deno.env.get("MENU_PACKAGING_INTERNAL_KEY");
 
-type PackagingPayload = {
-  profileId?: string;
-  locale?: string;
-  storeId?: string | null;
-  updates: Array<{
-    ingredientKey: string;
-    packSize: number;
-    packUnit: string;
-    displayLabel?: string | null;
-  }>;
-};
+const packagingPayloadSchema = z.object({
+  profileId: z.string().uuid().optional(),
+  locale: z.string().min(2).optional(),
+  storeId: z.string().uuid().nullable().optional(),
+  source: z.string().min(1).max(64).optional(),
+  updates: z
+    .array(
+      z.object({
+        ingredientKey: z.string().min(1).max(200),
+        packSize: z.number().positive(),
+        packUnit: z.string().min(1).max(32),
+        displayLabel: z.string().max(200).nullable().optional()
+      })
+    )
+    .min(1)
+    .max(250)
+});
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -28,17 +37,19 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
   });
 }
 
-async function getAuthedClient(req: Request) {
-  if (!supabaseUrl || !anonKey) throw new Error("supabase_not_configured");
-  const token = req.headers.get("authorization")?.replace("Bearer ", "") ?? "";
-  if (!token) throw new Error("auth_required");
-  const client = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false }
-  });
-  const { data, error } = await client.auth.getUser();
-  if (error || !data?.user) throw new Error("auth_invalid");
-  return { client, userId: data.user.id };
+function getCorrelationId(req: Request) {
+  return req.headers.get("x-correlation-id") ?? crypto.randomUUID();
+}
+
+function authorizeInternalCall(req: Request) {
+  if (!internalKey || !internalKey.trim().length) {
+    return { ok: false as const, error: "packaging_service_disabled" };
+  }
+  const provided = req.headers.get("x-internal-key") ?? "";
+  if (provided !== internalKey) {
+    return { ok: false as const, error: "forbidden" };
+  }
+  return { ok: true as const };
 }
 
 serve(async (req) => {
@@ -46,48 +57,76 @@ serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  let supabase;
-  try {
-    ({ client: supabase } = await getAuthedClient(req));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "auth_error";
-    const status = message === "auth_required" ? 401 : 500;
-    return jsonResponse({ error: message }, { status });
+  const correlationId = getCorrelationId(req);
+
+  const auth = authorizeInternalCall(req);
+  if (!auth.ok) {
+    return jsonResponse({ error: auth.error, correlationId }, { status: auth.error === "forbidden" ? 403 : 503 });
+  }
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return jsonResponse({ error: "supabase_not_configured", correlationId }, { status: 500 });
   }
 
   if (req.method !== "POST") {
-    return jsonResponse({ error: "method_not_allowed" }, { status: 405 });
+    return jsonResponse({ error: "method_not_allowed", correlationId }, { status: 405 });
   }
 
   try {
     const startedAt = performance.now();
-    const payload = (await req.json().catch(() => ({}))) as PackagingPayload;
-    if (!Array.isArray(payload.updates) || payload.updates.length === 0) {
-      return jsonResponse({ error: "updates_required" }, { status: 400 });
+    const raw = await req.json().catch(() => ({}));
+    const parsed = packagingPayloadSchema.safeParse(raw);
+    if (!parsed.success) {
+      return jsonResponse({ error: "invalid_payload", details: parsed.error.flatten(), correlationId }, { status: 400 });
     }
+    const payload = parsed.data;
+
+    const supabase = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false }
+    });
 
     let profileId = payload.profileId;
     if (!profileId) {
-      const { data: profile, error: profileError } = await supabase
+      const desiredLocale = payload.locale ?? "en_US";
+      let profileQuery = supabase
         .from("menu_packaging_profiles")
-        .insert({
-          locale: payload.locale ?? "en_US",
-          store_id: payload.storeId ?? null,
-          label: payload.locale ? `Auto (${payload.locale})` : "Auto",
-          metadata: { source: "stub" }
-        })
-        .select("id")
-        .single();
-      if (profileError || !profile) {
-        console.error("packaging profile insert failed", profileError);
-        return jsonResponse({ error: "profile_create_failed" }, { status: 400 });
+        .select("id, created_at")
+        .eq("locale", desiredLocale);
+      if (payload.storeId) {
+        profileQuery = profileQuery.eq("store_id", payload.storeId);
+      } else {
+        profileQuery = profileQuery.is("store_id", null);
       }
-      profileId = profile.id;
+      const { data: existing, error: profileLookupError } = await profileQuery
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (profileLookupError) {
+        console.error("packaging profile lookup failed", { correlationId, profileLookupError });
+      }
+      if (existing?.length) {
+        profileId = existing[0].id;
+      } else {
+        const { data: profile, error: profileError } = await supabase
+          .from("menu_packaging_profiles")
+          .insert({
+            locale: desiredLocale,
+            store_id: payload.storeId ?? null,
+            label: payload.locale ? `Auto (${payload.locale})` : "Auto",
+            metadata: { source: payload.source ?? "internal" }
+          })
+          .select("id")
+          .single();
+        if (profileError || !profile) {
+          console.error("packaging profile insert failed", { correlationId, profileError });
+          return jsonResponse({ error: "profile_create_failed", correlationId }, { status: 400 });
+        }
+        profileId = profile.id;
+      }
     }
 
     const records = payload.updates.map((item) => ({
       profile_id: profileId,
-      ingredient_key: item.ingredientKey.toLowerCase(),
+      ingredient_key: item.ingredientKey.toLowerCase().trim(),
       pack_size: item.packSize,
       pack_unit: item.packUnit,
       display_label: item.displayLabel ?? `${item.packSize} ${item.packUnit}`,
@@ -99,13 +138,14 @@ serve(async (req) => {
       .upsert(records, { onConflict: "profile_id,ingredient_key" })
       .select("id, ingredient_key, pack_size, pack_unit, display_label");
     if (error) {
-      console.error("packaging units upsert failed", error);
-      return jsonResponse({ error: "packaging_update_failed" }, { status: 400 });
+      console.error("packaging units upsert failed", { correlationId, error });
+      return jsonResponse({ error: "packaging_update_failed", correlationId }, { status: 400 });
     }
     const durationMs = Math.round(performance.now() - startedAt);
     console.log(
       JSON.stringify({
         event: "menu_packaging_upsert",
+        correlationId,
         profileId,
         locale: payload.locale ?? "en_US",
         storeId: payload.storeId ?? null,
@@ -115,7 +155,7 @@ serve(async (req) => {
     );
     return jsonResponse({ profileId, units: data });
   } catch (error) {
-    console.error("menus-packaging failure", error);
-    return jsonResponse({ error: "internal_error" }, { status: 500 });
+    console.error("menus-packaging failure", { correlationId, error });
+    return jsonResponse({ error: "internal_error", correlationId }, { status: 500 });
   }
 });

@@ -18,6 +18,7 @@ import {
 import { useAuth } from '@/src/context/auth-context';
 import type {
   ConsolidatedLine,
+  MenuIngredient,
   MenuRecipe,
   PackagingGuidanceEntry,
   MenuPromptResponse
@@ -51,7 +52,7 @@ type DisplayCard = {
 type ConversionMeta = {
   label: string;
   dishCount: number;
-  people: number;
+  peopleLabel: string;
   persisted: boolean;
 };
 
@@ -138,6 +139,59 @@ const normalizeTitleOnlyDishes = (items: any[]): TitleOnlyDish[] => {
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
+const parseScaleableQuantity = (value: MenuIngredient['quantity']) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed.length) {
+    return null;
+  }
+  const fractionMatch = trimmed.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (fractionMatch) {
+    const numerator = Number.parseInt(fractionMatch[1], 10);
+    const denominator = Number.parseInt(fractionMatch[2], 10);
+    if (Number.isFinite(numerator) && Number.isFinite(denominator) && denominator !== 0) {
+      return numerator / denominator;
+    }
+    return null;
+  }
+  const numericMatch = trimmed.match(/^\d+(\.\d+)?$/);
+  if (!numericMatch) {
+    return null;
+  }
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const roundQuantity = (value: number, decimals = 2) => {
+  if (!Number.isFinite(value)) {
+    return value;
+  }
+  const factor = Math.pow(10, decimals);
+  return Math.round(value * factor) / factor;
+};
+
+const scaleIngredients = (ingredients: MenuIngredient[], scaleFactor: number): MenuIngredient[] => {
+  if (!Number.isFinite(scaleFactor) || scaleFactor === 1) {
+    return ingredients;
+  }
+  if (!Array.isArray(ingredients) || ingredients.length === 0) {
+    return [];
+  }
+  return ingredients.map((ingredient) => {
+    const numericQuantity = parseScaleableQuantity(ingredient.quantity ?? null);
+    if (numericQuantity === null) {
+      return ingredient;
+    }
+    const scaled = roundQuantity(numericQuantity * scaleFactor, 2);
+    return { ...ingredient, quantity: scaled };
+  });
+};
+
 export default function MenuInboxScreen() {
   const { user } = useAuth();
   const isDeveloperAccount = Boolean(user?.app_metadata?.is_developer ?? user?.app_metadata?.dev ?? false);
@@ -170,12 +224,18 @@ export default function MenuInboxScreen() {
   const [optimisticDishes, setOptimisticDishes] = useState<{ id: string; title: string }[]>([]);
   const [cardViewerOpen, setCardViewerOpen] = useState(false);
   const [cardViewerIndex, setCardViewerIndex] = useState(0);
+  const [lockedCards, setLockedCards] = useState<Set<string>>(new Set());
+  const [scaleAllPeople, setScaleAllPeople] = useState(1);
+  const scaleAllTouchedRef = useRef(false);
 
   useEffect(() => {
     // Avoid leaking UI state between accounts on the same device.
     setRestoredUI(false);
     setSessionHighlights([]);
     setOpenCards(new Set());
+    setLockedCards(new Set());
+    scaleAllTouchedRef.current = false;
+    setScaleAllPeople(1);
   }, [uiStateStorageKey]);
 
   const addOpenCards = (ids: string | string[]) => {
@@ -560,6 +620,13 @@ export default function MenuInboxScreen() {
             if (Array.isArray(state.openCards)) {
               setOpenCards(new Set(state.openCards));
             }
+            if (Array.isArray(state.lockedCards)) {
+              setLockedCards(new Set(state.lockedCards));
+            }
+            if (typeof state.scaleAllPeople === 'number' && Number.isFinite(state.scaleAllPeople) && state.scaleAllPeople > 0) {
+              setScaleAllPeople(Math.max(1, Math.floor(state.scaleAllPeople)));
+              scaleAllTouchedRef.current = true;
+            }
           }
         })
         .catch(() => {})
@@ -586,10 +653,12 @@ export default function MenuInboxScreen() {
       uiStateStorageKey,
       JSON.stringify({
         highlights: sessionHighlights,
-        openCards: Array.from(openCards)
+        openCards: Array.from(openCards),
+        lockedCards: Array.from(lockedCards),
+        scaleAllPeople
       })
     ).catch(() => {});
-  }, [sessionHighlights, openCards, restoredUI, uiStateStorageKey]);
+  }, [sessionHighlights, openCards, lockedCards, scaleAllPeople, restoredUI, uiStateStorageKey]);
 
   useEffect(() => {
     if (showPreferencesSheet && menuPolicy) {
@@ -604,6 +673,16 @@ export default function MenuInboxScreen() {
       setOverlayCollapsed(true);
     }
   }, [isPremium]);
+
+  useEffect(() => {
+    if (scaleAllTouchedRef.current) {
+      return;
+    }
+    const next = menuPolicy?.preferences.defaultPeopleCount;
+    if (typeof next === 'number' && Number.isFinite(next) && next > 0) {
+      setScaleAllPeople(Math.max(1, Math.floor(next)));
+    }
+  }, [menuPolicy?.preferences.defaultPeopleCount]);
 
   const cardsSource = useMemo(() => {
     if (!recipes.length) {
@@ -682,6 +761,41 @@ export default function MenuInboxScreen() {
     ? 'Unable to convert menus right now. Please try again in a few moments.'
     : null;
   const highlightSet = useMemo(() => new Set(sessionHighlights), [sessionHighlights]);
+  const previousConversionRef = useRef<ConsolidatedLine[] | null>(null);
+  const [conversionDeltaKeys, setConversionDeltaKeys] = useState<Set<string>>(new Set());
+
+  const conversionLineKey = (line: ConsolidatedLine) =>
+    `${String(line.name ?? '').toLowerCase()}|${String(line.unit ?? '').toLowerCase()}`;
+
+  useEffect(() => {
+    if (!conversionResult?.consolidatedList?.length) {
+      previousConversionRef.current = null;
+      setConversionDeltaKeys(new Set());
+      return;
+    }
+
+    const prevList = previousConversionRef.current ?? [];
+    const prevByKey = new Map(prevList.map((line) => [conversionLineKey(line), line]));
+
+    const delta = new Set<string>();
+    conversionResult.consolidatedList.forEach((line) => {
+      const key = conversionLineKey(line);
+      const prev = prevByKey.get(key);
+      if (!prev) {
+        delta.add(key);
+        return;
+      }
+      const qtyChanged = typeof prev.quantity === 'number' && typeof line.quantity === 'number' ? prev.quantity !== line.quantity : false;
+      const packagingChanged = (prev.packaging ?? null) !== (line.packaging ?? null);
+      const notesChanged = (prev.notes ?? null) !== (line.notes ?? null);
+      if (qtyChanged || packagingChanged || notesChanged) {
+        delta.add(key);
+      }
+    });
+
+    previousConversionRef.current = conversionResult.consolidatedList;
+    setConversionDeltaKeys(delta);
+  }, [conversionResult]);
 
   const isOverLimitError = (error: unknown) => {
     if (!error) return false;
@@ -750,6 +864,8 @@ export default function MenuInboxScreen() {
     Alert.alert('Upgrade required', 'Visit Account & Billing to upgrade your plan for menu recipes.');
   };
 
+  const formatPeopleLabel = (value: number) => (value === 1 ? '1 person' : `${value} people`);
+
   const handleAddSingle = async (cardId: string, people: number, label: string) => {
     if (!ensureEntitlementsReady()) {
       return;
@@ -768,7 +884,7 @@ export default function MenuInboxScreen() {
       setConversionMeta({
         label,
         dishCount: 1,
-        people,
+        peopleLabel: formatPeopleLabel(people),
         persisted: Boolean(result.listId)
       });
     } catch (error) {
@@ -801,7 +917,10 @@ export default function MenuInboxScreen() {
 
   const handleAddSelected = async (action: 'list' | 'create') => {
     const ids = Array.from(selectedIds.size ? selectedIds : sortedCards.map((card) => card.id));
-    const people = Math.max(1, Math.min(...ids.map((id) => cardPeople[id] ?? 1)));
+    const peopleCounts = ids.map((id) => cardPeople[id] ?? 1).map((count) => Math.max(1, count));
+    const uniquePeople = new Set(peopleCounts);
+    const peopleOverride = uniquePeople.size === 1 ? Array.from(uniquePeople)[0] : null;
+    const peopleLabel = peopleOverride ? formatPeopleLabel(peopleOverride) : 'Mixed servings';
     if (!ids.length) {
       Toast.show('Select at least one dish.', 1200);
       return;
@@ -823,7 +942,26 @@ export default function MenuInboxScreen() {
     }
     try {
       resetConversion();
-      const result = await convert(ids, people, {
+      if (peopleOverride === null) {
+        const pendingIds = ids.filter((id) => {
+          const pending = pendingServingsUpdates.current[id];
+          return typeof pending === 'number' && pending >= 1;
+        });
+        if (pendingIds.length) {
+          Toast.show('Saving servings…', 900);
+          try {
+            for (const recipeId of pendingIds) {
+              // Ensure we persist per-card servings before converting with "auto" mode.
+              await flushServingsUpdate(recipeId, { mode: 'blocking' });
+            }
+          } catch (error) {
+            logMenuError(error, 'flush-servings-before-convert');
+            Toast.show('Unable to save servings right now.', 1700);
+            return;
+          }
+        }
+      }
+      const result = await convert(ids, peopleOverride, {
         persist: action === 'create',
         listName: action === 'create' ? `Menu plan ${new Date().toLocaleDateString()}` : null
       });
@@ -831,7 +969,7 @@ export default function MenuInboxScreen() {
       setConversionMeta({
         label,
         dishCount: ids.length,
-        people: result.servings ?? people,
+        peopleLabel,
         persisted: Boolean(result.listId)
       });
     } catch (error) {
@@ -845,11 +983,171 @@ export default function MenuInboxScreen() {
     }
   };
 
+  const servingsUpdateTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const pendingServingsUpdates = useRef<Record<string, number>>({});
+  const inFlightServingsUpdates = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    return () => {
+      Object.values(servingsUpdateTimeouts.current).forEach((handle) => clearTimeout(handle));
+      servingsUpdateTimeouts.current = {};
+      pendingServingsUpdates.current = {};
+      inFlightServingsUpdates.current.clear();
+    };
+  }, []);
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const flushServingsUpdate = async (
+    recipeId: string,
+    options: { mode?: 'background' | 'blocking'; attempt?: number } = {}
+  ) => {
+    const mode = options.mode ?? 'background';
+    const attempt = options.attempt ?? 0;
+    const maxAttempts = mode === 'blocking' ? 3 : 1;
+
+    const timeoutHandle = servingsUpdateTimeouts.current[recipeId];
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+      delete servingsUpdateTimeouts.current[recipeId];
+    }
+
+    if (inFlightServingsUpdates.current.has(recipeId)) {
+      if (mode === 'blocking') {
+        const startedAt = Date.now();
+        while (inFlightServingsUpdates.current.has(recipeId) && Date.now() - startedAt < 5000) {
+          await sleep(75);
+        }
+        if (inFlightServingsUpdates.current.has(recipeId)) {
+          throw new Error('servings_update_in_flight');
+        }
+      } else {
+        return;
+      }
+    }
+
+    const nextPeople = pendingServingsUpdates.current[recipeId];
+    if (!nextPeople || nextPeople < 1) {
+      return;
+    }
+
+    const recipe = recipesRef.current.find((item) => item.id === recipeId);
+    if (!recipe) {
+      delete pendingServingsUpdates.current[recipeId];
+      return;
+    }
+
+    // Keep persisted recipes internally consistent: if we change servings.people_count we must scale the
+    // stored ingredient quantities too, otherwise server-side list conversion ("auto" mode) will mis-scale.
+    const basePeople = Number(recipe.servings?.people_count ?? recipe.scale_factor ?? 1) || 1;
+    const scaleFactor = nextPeople / basePeople;
+    const nextIngredients = scaleIngredients(Array.isArray(recipe.ingredients) ? recipe.ingredients : [], scaleFactor);
+
+    inFlightServingsUpdates.current.add(recipeId);
+    const appliedPeople = nextPeople;
+    let scheduledRetry = false;
+    try {
+      await updateRecipe(recipeId, {
+        servings: {
+          ...(recipe.servings ?? { people_count: appliedPeople }),
+          people_count: appliedPeople
+        },
+        ingredients: nextIngredients,
+        origin: 'user_scale',
+        edited_by_user: false,
+        needs_training: false,
+        version: typeof recipe.version === 'number' ? recipe.version : undefined,
+        expectedUpdatedAt: typeof recipe.version === 'number' ? undefined : recipe.updated_at
+      });
+
+      if (pendingServingsUpdates.current[recipeId] === appliedPeople) {
+        delete pendingServingsUpdates.current[recipeId];
+      }
+    } catch (error) {
+      const details = logMenuError(error, 'update-servings');
+      const retryable =
+        details.code === 'version_conflict' ||
+        details.code === 'stale_update' ||
+        details.code === 'version_mismatch' ||
+        isTransientMenuError(error);
+
+      if (!retryable) {
+        Toast.show('Unable to save servings right now.', 1700);
+        delete pendingServingsUpdates.current[recipeId];
+        if (mode === 'blocking') {
+          throw error;
+        }
+        return;
+      }
+
+      if (mode === 'blocking') {
+        if (attempt + 1 >= maxAttempts) {
+          throw error;
+        }
+        const baseDelay = 350 * Math.pow(2, attempt);
+        await sleep(baseDelay + Math.random() * 250);
+        return flushServingsUpdate(recipeId, { mode, attempt: attempt + 1 });
+      }
+
+      scheduledRetry = true;
+      setTimeout(() => flushServingsUpdate(recipeId), 600);
+    } finally {
+      inFlightServingsUpdates.current.delete(recipeId);
+      const pending = pendingServingsUpdates.current[recipeId];
+      if (!scheduledRetry && pending && pending >= 1 && pending !== appliedPeople) {
+        servingsUpdateTimeouts.current[recipeId] = setTimeout(() => flushServingsUpdate(recipeId), 0);
+      }
+    }
+  };
+
+  const queueServingsUpdate = (recipeId: string, nextPeople: number) => {
+    if (!allowRecipeViews) {
+      return;
+    }
+    pendingServingsUpdates.current[recipeId] = nextPeople;
+    const existing = servingsUpdateTimeouts.current[recipeId];
+    if (existing) {
+      clearTimeout(existing);
+    }
+    servingsUpdateTimeouts.current[recipeId] = setTimeout(() => flushServingsUpdate(recipeId), 650);
+  };
+
   const handleCardPeopleChange = (id: string, delta: number) => {
     setCardPeople((prev) => {
       const next = Math.max(1, (prev[id] ?? 1) + delta);
+      queueServingsUpdate(id, next);
       return { ...prev, [id]: next };
     });
+  };
+
+  const toggleServingsLock = (id: string) => {
+    setLockedCards((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const applyScaleAllPeople = () => {
+    scaleAllTouchedRef.current = true;
+    const target = Math.max(1, Math.floor(scaleAllPeople));
+    const ids = sortedCards.map((card) => card.id).filter((id) => !lockedCards.has(id));
+    if (!ids.length) {
+      return;
+    }
+    setCardPeople((prev) => {
+      const next = { ...prev };
+      ids.forEach((id) => {
+        next[id] = target;
+        queueServingsUpdate(id, target);
+      });
+      return next;
+    });
+    Toast.show(`Scaled unlocked cards to ${formatPeopleLabel(target)}.`, 1400);
   };
   const regenerateCard = async (card: DisplayCard) => {
     if (!isPremium && !devMenuOverride) {
@@ -900,12 +1198,18 @@ export default function MenuInboxScreen() {
     const nextPackaging = packagingDraft.trim();
     const expectedVersion = typeof card.recipe?.version === 'number' ? card.recipe.version : undefined;
     const expectedUpdatedAt = expectedVersion ? undefined : card.recipe?.updated_at;
+    // Same rule as debounced +/- updates: servings changes must carry scaled ingredient quantities.
+    const recipeBasePeople = Number(card.recipe?.servings?.people_count ?? card.recipe?.scale_factor ?? card.basePeople ?? 1) || 1;
+    const servingsChanged = nextServings !== recipeBasePeople;
+    const nextIngredients =
+      servingsChanged && card.recipe ? scaleIngredients(Array.isArray(card.recipe.ingredients) ? card.recipe.ingredients : [], nextServings / recipeBasePeople) : undefined;
     try {
       await updateRecipe(card.id, {
         servings: {
           ...(card.recipe?.servings ?? { people_count: card.basePeople ?? 1 }),
           people_count: nextServings
         },
+        ...(nextIngredients ? { ingredients: nextIngredients } : {}),
         packaging_notes: nextPackaging.length ? nextPackaging : null,
         origin: 'user_edit',
         edited_by_user: true,
@@ -1203,11 +1507,15 @@ export default function MenuInboxScreen() {
       }
       try {
         resetConversion();
-        const result = await convert(ids, 1, { persist: true, listName: 'Saved menu list' });
+        const peopleCounts = ids.map((id) => cardPeople[id] ?? 1).map((count) => Math.max(1, count));
+        const uniquePeople = new Set(peopleCounts);
+        const peopleOverride = uniquePeople.size === 1 ? Array.from(uniquePeople)[0] : null;
+        const result = await convert(ids, peopleOverride, { persist: true, listName: 'Saved menu list' });
+        const peopleLabel = peopleOverride ? formatPeopleLabel(peopleOverride) : 'Mixed servings';
         setConversionMeta({
           label: 'Saved dishes',
           dishCount: ids.length,
-          people: result.servings ?? 1,
+          peopleLabel,
           persisted: Boolean(result.listId)
         });
       } catch (error) {
@@ -1706,7 +2014,7 @@ export default function MenuInboxScreen() {
               <Text style={styles.conversionTitle}>{conversionMeta.label}</Text>
               <Text style={styles.conversionMeta}>
                 {conversionMeta.dishCount} dish{conversionMeta.dishCount === 1 ? '' : 'es'} •{' '}
-                {conversionMeta.people} people • {conversionMeta.persisted ? 'Saved to list' : 'List ready to review'}
+                {conversionMeta.peopleLabel} • {conversionMeta.persisted ? 'Saved to list' : 'List ready to review'}
               </Text>
             </View>
             <Pressable style={styles.conversionClose} onPress={dismissConversionSummary}>
@@ -1715,7 +2023,13 @@ export default function MenuInboxScreen() {
           </View>
           <View style={styles.conversionLines}>
             {conversionResult.consolidatedList.map((line, index) => (
-              <View key={`${line.name}-${index}`} style={styles.conversionLine}>
+              <View
+                key={`${line.name}-${index}`}
+                style={[
+                  styles.conversionLine,
+                  conversionDeltaKeys.has(conversionLineKey(line)) && styles.conversionLineDelta
+                ]}
+              >
                 <Text style={styles.conversionLineName}>{line.name}</Text>
                 <Text style={styles.conversionLineMeta}>{formatListLine(line)}</Text>
                 {line.packaging ? <Text style={styles.conversionPackaging}>{line.packaging}</Text> : null}
@@ -1809,6 +2123,51 @@ export default function MenuInboxScreen() {
                     <Ionicons name="close" size={18} color="#0C1D37" />
                   </Pressable>
                 </View>
+                <View style={styles.viewerBulkRow}>
+                  <View style={styles.viewerScaleRow}>
+                    <Text style={styles.viewerScaleLabel}>Scale all</Text>
+                    <Pressable
+                      style={styles.viewerScaleButton}
+                      onPress={() => {
+                        scaleAllTouchedRef.current = true;
+                        setScaleAllPeople((prev) => Math.max(1, prev - 1));
+                      }}
+                    >
+                      <Ionicons name="remove" size={16} color="#0C1D37" />
+                    </Pressable>
+                    <Text style={styles.viewerScaleValue}>{scaleAllPeople}</Text>
+                    <Pressable
+                      style={styles.viewerScaleButton}
+                      onPress={() => {
+                        scaleAllTouchedRef.current = true;
+                        setScaleAllPeople((prev) => Math.max(1, prev + 1));
+                      }}
+                    >
+                      <Ionicons name="add" size={16} color="#0C1D37" />
+                    </Pressable>
+                    <Pressable style={styles.viewerScaleApply} onPress={applyScaleAllPeople}>
+                      <Text style={styles.viewerScaleApplyLabel}>Apply</Text>
+                    </Pressable>
+                  </View>
+                  <View style={styles.viewerBulkActions}>
+                    <Pressable
+                      style={[styles.secondaryInline, conversionLoading && styles.disabledButton]}
+                      disabled={conversionLoading}
+                      onPress={() => handleAddSelected('list')}
+                    >
+                      <Ionicons name="cart" size={14} color="#0C1D37" />
+                      <Text style={styles.secondaryInlineLabel}>Add all</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.primaryInline, conversionLoading && styles.disabledButton]}
+                      disabled={conversionLoading}
+                      onPress={() => handleAddSelected('create')}
+                    >
+                      <Ionicons name="list" size={14} color="#FFFFFF" />
+                      <Text style={styles.primaryInlineLabel}>Create list</Text>
+                    </Pressable>
+                  </View>
+                </View>
                 <FlatList
                   data={sortedCards}
                   horizontal
@@ -1827,13 +2186,46 @@ export default function MenuInboxScreen() {
                         const reviewStatus = reviewStatusMap[card.id];
                         const reviewQueued = reviewStatus === 'pending' || reviewStatus === 'queued';
                         const reviewTimestamps = reviewMeta[card.id];
-                        return (
-                      <View style={styles.viewerPage}>
-                        <Text style={styles.menuTitle}>{card.title}</Text>
-                        <Text style={styles.menuMeta}>
-                          {card.course} • {card.cuisine} • Serves {people} (base {card.basePeople})
-                        </Text>
-                        <View style={styles.menuActions}>
+	                        return (
+	                      <View style={styles.viewerPage}>
+	                        <Text style={styles.menuTitle}>{card.title}</Text>
+	                        <Text style={styles.menuMeta}>
+	                          {card.course} • {card.cuisine}
+	                        </Text>
+	                        <View style={styles.servingsRow}>
+	                          <Text style={styles.servingsLabel}>Serves</Text>
+	                          <Pressable
+	                            style={[
+	                              styles.servingsButton,
+	                              (!allowRecipeViews || cardLocked || editingCardId === card.id) && styles.disabledButton
+	                            ]}
+	                            disabled={!allowRecipeViews || cardLocked || editingCardId === card.id}
+	                            onPress={() => handleCardPeopleChange(card.id, -1)}
+	                          >
+	                            <Ionicons name="remove" size={14} color="#0C1D37" />
+	                          </Pressable>
+	                          <Text style={styles.servingsValue}>{people}</Text>
+	                          <Pressable
+	                            style={[
+	                              styles.servingsButton,
+	                              (!allowRecipeViews || cardLocked || editingCardId === card.id) && styles.disabledButton
+	                            ]}
+	                            disabled={!allowRecipeViews || cardLocked || editingCardId === card.id}
+	                            onPress={() => handleCardPeopleChange(card.id, 1)}
+	                          >
+	                            <Ionicons name="add" size={14} color="#0C1D37" />
+	                          </Pressable>
+	                          <Text style={styles.servingsHint}>Base {card.basePeople}</Text>
+	                          <Pressable style={styles.lockToggle} onPress={() => toggleServingsLock(card.id)}>
+	                            <Ionicons
+	                              name={lockedCards.has(card.id) ? "lock-closed" : "lock-open"}
+	                              size={14}
+	                              color="#0C1D37"
+	                            />
+	                            <Text style={styles.lockToggleLabel}>{lockedCards.has(card.id) ? "Locked" : "Lock"}</Text>
+	                          </Pressable>
+	                        </View>
+	                        <View style={styles.menuActions}>
                           <Pressable
                             style={[
                               styles.menuChip,
@@ -2129,7 +2521,8 @@ function formatListLineSummary(line: ConsolidatedLine) {
       ? `${line.quantity}${line.unit ? ` ${line.unit}` : ''}`
       : line.unit ?? '';
   const notes = line.notes ? ` (${line.notes})` : '';
-  return [line.name, qty].filter(Boolean).join(' - ').trim() + notes;
+  const packaging = line.packaging ? ` — ${line.packaging}` : '';
+  return [line.name, qty].filter(Boolean).join(' - ').trim() + notes + packaging;
 }
 
 function formatPackagingGuidance(entry: PackagingGuidanceEntry): string | null {
@@ -2722,6 +3115,54 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 8
   },
+  viewerBulkRow: {
+    gap: 8,
+    marginBottom: 10
+  },
+  viewerScaleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  viewerScaleLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  viewerScaleButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  viewerScaleValue: {
+    minWidth: 24,
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0C1D37'
+  },
+  viewerScaleApply: {
+    marginLeft: 'auto',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#0C1D37'
+  },
+  viewerScaleApplyLabel: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 12
+  },
+  viewerBulkActions: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap'
+  },
   viewerTitle: {
     fontSize: 16,
     fontWeight: '700',
@@ -3030,6 +3471,55 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#475569'
   },
+  servingsRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap'
+  },
+  servingsLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
+  servingsButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  servingsValue: {
+    minWidth: 22,
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0C1D37'
+  },
+  servingsHint: {
+    fontSize: 12,
+    color: '#475569'
+  },
+  lockToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF'
+  },
+  lockToggleLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0C1D37'
+  },
   dietaryRow: {
     marginTop: 4
   },
@@ -3303,6 +3793,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 10,
     gap: 4
+  },
+  conversionLineDelta: {
+    backgroundColor: '#ECFEFF',
+    borderWidth: 1,
+    borderColor: '#67E8F9'
   },
   conversionLineName: {
     fontSize: 13,

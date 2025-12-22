@@ -29,7 +29,11 @@
 ## Stage 2 – AI Pipeline
 
 1. Wire `menuPrompt` into LLM service with clarifying question support and multi-dish output (`cards`, `consolidated_list`, `menus`).
+   - Implementation note: `menus-llm` supports provider selection via env:
+     - `MENU_LLM_PROVIDER=custom` (default): `MENU_LLM_URL` must accept `MenuPromptInput` JSON and return `MenuPromptResponse` JSON.
+     - `MENU_LLM_PROVIDER=openai`: calls OpenAI-compatible `chat/completions` using `MENU_LLM_API_KEY`, `MENU_LLM_MODEL`, and optional `MENU_LLM_BASE_URL`.
 2. Packaging post-processor that maps ingredients to local pack sizes (uses `menu_packaging_profiles`).
+   - Writes to `menu_packaging_profiles/menu_packaging_units` are **internal-only** (service role + `MENU_PACKAGING_INTERNAL_KEY`); user requests should only **read** and apply guidance.
 3. Hallucination guards: schema validation, min confidence, fallback template, `clarification_needed` responses.
 4. Observability: log prompt metadata, clarification selections, packaging adjustments, fallback usage; enforce timeouts (e.g. `MENU_LLM_TIMEOUT_MS`) and propagate `x-correlation-id` to downstream LLM calls.
 

@@ -28,7 +28,7 @@ Expected structured events (examples):
   - `menu_session_created` (`supabase/functions/menu-sessions/index.ts`)
   - `menu_session_updated` (`supabase/functions/menu-sessions/index.ts`)
 - Prompt / AI preview:
-  - `menu_llm_call` / `menu_llm_stub` (`supabase/functions/menus-llm/index.ts`)
+  - `menu_llm_call` / `menu_llm_response` (`supabase/functions/menus-llm/index.ts`)
 - List conversion:
   - `menu_list_converted` (`supabase/functions/menus-lists/index.ts`)
 - Reviews:
@@ -63,6 +63,7 @@ Create dashboards (Supabase or external) per-function and per-flow:
 
 4) **AI fallback / quality signals**
 - `menus-llm` fallback usage (`usedFallback: true`)
+  - Break down by `provider` (`custom` vs `openai`) to spot provider-specific issues
 - clarification counts (`clarifications`)
 
 ## Alerts (recommended starting thresholds)
@@ -95,4 +96,3 @@ Tune thresholds per environment; start conservative:
 6) Post-incident:
    - write a short report (root cause, customer impact, prevention)
    - add/adjust alerts and tests for regression coverage
-

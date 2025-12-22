@@ -364,17 +364,21 @@ export function useMenuListConversion() {
       listName
     }: {
       dishIds: string[];
-      peopleCount: number;
+      peopleCount?: number | null;
       persistList?: boolean;
       listName?: string | null;
     }) => createListFromMenus(dishIds, peopleCount, { persistList, listName })
   });
 
   return {
-    convert: (dishIds: string[], peopleCount: number, options?: { persist?: boolean; listName?: string | null }) =>
+    convert: (
+      dishIds: string[],
+      peopleCount?: number | null,
+      options?: { persist?: boolean; listName?: string | null }
+    ) =>
       convertMutation.mutateAsync({
         dishIds,
-        peopleCount,
+        peopleCount: typeof peopleCount === 'number' && Number.isFinite(peopleCount) ? peopleCount : null,
         persistList: options?.persist,
         listName: options?.listName ?? null
       }),

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
+import { MENU_ASSISTANT_PROMPT } from "../_shared/menu-assistant-prompt.ts";
 import { menuPromptInputSchema, menuPromptResponseSchema, type MenuPromptInput, type MenuPromptResponse } from "../_shared/menu-prompt-types.ts";
 
 const corsHeaders = {
@@ -12,6 +13,10 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
 const llmUrl = Deno.env.get("MENU_LLM_URL");
 const llmApiKey = Deno.env.get("MENU_LLM_API_KEY");
+const llmProvider = (Deno.env.get("MENU_LLM_PROVIDER") ?? "custom").toLowerCase();
+const resolvedLlmProvider = llmProvider === "openai" ? "openai" : "custom";
+const llmModel = Deno.env.get("MENU_LLM_MODEL");
+const llmBaseUrl = Deno.env.get("MENU_LLM_BASE_URL") ?? "https://api.openai.com/v1";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -52,7 +57,7 @@ function normalizeKey(value: string) {
 
 type PackagingUnit = {
   ingredient_key: string;
-  pack_size: number | null;
+  pack_size: number | string | null;
   pack_unit: string | null;
   display_label: string | null;
 };
@@ -64,17 +69,84 @@ type IngredientMeta = {
   unit?: string | null;
 };
 
-function formatPackagingLabel(meta: IngredientMeta, unit?: Pick<PackagingUnit, 'pack_size' | 'pack_unit' | 'display_label'>) {
-  if (unit?.display_label) return unit.display_label;
-  const packSize =
-    typeof unit?.pack_size === 'number'
-      ? unit.pack_size
-      : typeof meta.quantity === 'number'
-        ? meta.quantity
-        : Number(meta.quantity) || 1;
-  const packUnit = unit?.pack_unit ?? meta.unit ?? 'unit';
-  const sizeLabel = packSize ? `${packSize} ${packUnit}`.trim() : packUnit;
-  return `Buy ${sizeLabel} of ${meta.name}`;
+function parseNumeric(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const fraction = trimmed.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (fraction) {
+    const numerator = Number.parseInt(fraction[1], 10);
+    const denominator = Number.parseInt(fraction[2], 10);
+    if (Number.isFinite(numerator) && Number.isFinite(denominator) && denominator !== 0) {
+      return numerator / denominator;
+    }
+  }
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeUnit(unit?: string | null) {
+  if (!unit) return null;
+  const normalized = unit.toString().trim().toLowerCase();
+  if (!normalized) return null;
+  if (['g', 'gram', 'grams'].includes(normalized)) return 'g';
+  if (['kg', 'kilogram', 'kilograms'].includes(normalized)) return 'kg';
+  if (['ml', 'milliliter', 'milliliters'].includes(normalized)) return 'ml';
+  if (['l', 'liter', 'litre', 'liters', 'litres'].includes(normalized)) return 'l';
+  if (['tsp', 'teaspoon', 'teaspoons'].includes(normalized)) return 'tsp';
+  if (['tbsp', 'tablespoon', 'tablespoons'].includes(normalized)) return 'tbsp';
+  if (['cup', 'cups'].includes(normalized)) return 'cup';
+  if (['unit', 'units'].includes(normalized)) return 'unit';
+  return normalized;
+}
+
+function convertQuantity(quantity: number, fromUnit: string, toUnit: string): number | null {
+  if (!Number.isFinite(quantity)) return null;
+  if (fromUnit === toUnit) return quantity;
+  if (fromUnit === 'kg' && toUnit === 'g') return quantity * 1000;
+  if (fromUnit === 'g' && toUnit === 'kg') return quantity / 1000;
+  if (fromUnit === 'l' && toUnit === 'ml') return quantity * 1000;
+  if (fromUnit === 'ml' && toUnit === 'l') return quantity / 1000;
+  return null;
+}
+
+function formatPackagingLabel(
+  meta: IngredientMeta,
+  unit?: Pick<PackagingUnit, 'pack_size' | 'pack_unit' | 'display_label'>
+) {
+  const packSize = parseNumeric(unit?.pack_size);
+  const packUnit = normalizeUnit(unit?.pack_unit ?? null);
+  const displayLabel =
+    unit?.display_label && unit.display_label.toString().trim().length
+      ? unit.display_label.toString().trim()
+      : packSize && packUnit
+        ? `${packSize} ${packUnit}`
+        : null;
+
+  const qty = parseNumeric(meta.quantity);
+  const qtyUnit = normalizeUnit(meta.unit ?? null);
+
+  if (packSize && packUnit && qty && qtyUnit) {
+    const converted = convertQuantity(qty, qtyUnit, packUnit);
+    if (converted && Number.isFinite(converted) && converted > 0) {
+      const packCount = Math.max(1, Math.ceil(converted / packSize));
+      if (displayLabel) {
+        return packCount === 1 ? `Buy 1 × ${displayLabel} of ${meta.name}` : `Buy ${packCount} × ${displayLabel} of ${meta.name}`;
+      }
+    }
+  }
+
+  if (displayLabel) {
+    return `Buy ${displayLabel} of ${meta.name}`;
+  }
+
+  if (qty && Number.isFinite(qty) && qty > 0) {
+    const unitLabel = qtyUnit ? ` ${qtyUnit}` : '';
+    return `Approx. ${qty}${unitLabel} of ${meta.name}`;
+  }
+
+  return `Buy ${meta.name}`;
 }
 
 async function loadStyleChoices(
@@ -198,6 +270,7 @@ async function applyPackagingGuidance(
   response: MenuPromptResponse,
   locale?: string
 ) {
+  const normalizedLocale = locale && locale.trim().length ? locale.trim() : 'en_US';
   const ingredientMeta: IngredientMeta[] = [];
   for (const card of response.cards) {
     card.ingredients.forEach((ingredient) => {
@@ -220,47 +293,33 @@ async function applyPackagingGuidance(
   }, {});
 
   const packagingMap = new Map<string, string>();
-  if (uniqueKeys.length) {
-    const { data: existing } = await client
-      .from('menu_packaging_units')
-      .select('ingredient_key, pack_size, pack_unit, display_label')
-      .in('ingredient_key', uniqueKeys);
-    existing?.forEach((unit) => {
-      const meta = metaByKey[unit.ingredient_key];
-      if (meta) {
-        packagingMap.set(unit.ingredient_key, formatPackagingLabel(meta, unit));
-      }
-    });
+  const packagingUnitsByKey = new Map<string, PackagingUnit>();
 
-    const missingKeys = uniqueKeys.filter((key) => !packagingMap.has(key));
-    if (missingKeys.length) {
-      const updates = missingKeys.map((key) => {
-        const meta = metaByKey[key];
-        return {
-          ingredientKey: key,
-          packSize:
-            typeof meta?.quantity === 'number'
-              ? meta.quantity || 1
-              : Number(meta?.quantity) || 1,
-          packUnit: meta?.unit || 'unit',
-          displayLabel: meta ? formatPackagingLabel(meta) : null
-        };
+  if (uniqueKeys.length) {
+    const { data: profiles, error: profileError } = await client
+      .from('menu_packaging_profiles')
+      .select('id, locale, store_id, created_at')
+      .eq('locale', normalizedLocale)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (profileError) {
+      console.error("menu_packaging_profiles select failed", { locale: normalizedLocale, profileError });
+    }
+
+    const selectedProfileId =
+      profiles?.find((profile) => !profile.store_id)?.id ?? profiles?.[0]?.id ?? null;
+
+    if (selectedProfileId) {
+      const { data: existing } = await client
+        .from('menu_packaging_units')
+        .select('ingredient_key, pack_size, pack_unit, display_label')
+        .eq('profile_id', selectedProfileId)
+        .in('ingredient_key', uniqueKeys);
+
+      existing?.forEach((unit) => {
+        packagingUnitsByKey.set(unit.ingredient_key, unit as PackagingUnit);
       });
-      const { data: invokeData, error: invokeError } = await client.functions.invoke('menus-packaging', {
-        body: {
-          locale: locale ?? 'en_US',
-          updates
-        }
-      });
-      if (!invokeError) {
-        const units: PackagingUnit[] = (invokeData as any)?.units ?? (invokeData as any)?.data?.units ?? [];
-        units.forEach((unit) => {
-          const meta = metaByKey[unit.ingredient_key];
-          if (meta) {
-            packagingMap.set(unit.ingredient_key, formatPackagingLabel(meta, unit));
-          }
-        });
-      }
     }
   }
 
@@ -270,11 +329,14 @@ async function applyPackagingGuidance(
     for (const ingredient of card.ingredients) {
       const key = normalizeKey(ingredient.name);
       if (!key) continue;
-      const label =
-        packagingMap.get(key) ??
-        formatPackagingLabel({ key, name: ingredient.name, quantity: ingredient.quantity, unit: ingredient.unit });
+      const unit = packagingUnitsByKey.get(key);
+      const label = formatPackagingLabel(
+        { key, name: ingredient.name, quantity: ingredient.quantity, unit: ingredient.unit },
+        unit
+      );
       guidance.push(label);
       consolidatedGuidance[key] = label;
+      packagingMap.set(key, label);
     }
     card.packaging_guidance = guidance;
   }
@@ -290,10 +352,8 @@ async function applyPackagingGuidance(
   }
 }
 
-async function callLLM(payload: MenuPromptInput, requestId: string, correlationId: string) {
-  if (!llmUrl) {
-    throw new Error("llm_url_missing");
-  }
+async function callCustomLLM(payload: MenuPromptInput, requestId: string, correlationId: string) {
+  if (!llmUrl) throw new Error("llm_url_missing");
   const startedAt = performance.now();
   const timeoutMs = Number(Deno.env.get("MENU_LLM_TIMEOUT_MS") ?? 15000);
   const controller = new AbortController();
@@ -332,8 +392,113 @@ async function callLLM(payload: MenuPromptInput, requestId: string, correlationI
     throw new Error("llm_failed");
   }
   const durationMs = Math.round(performance.now() - startedAt);
-  console.log(JSON.stringify({ event: "menu_llm_call", requestId, correlationId, durationMs }));
+  console.log(JSON.stringify({ event: "menu_llm_call", requestId, correlationId, provider: "custom", durationMs }));
   return json as unknown;
+}
+
+async function callOpenAI(payload: MenuPromptInput, requestId: string, correlationId: string) {
+  if (!llmApiKey) throw new Error("llm_api_key_missing");
+  const model = llmModel ?? "gpt-4o-mini";
+  const baseUrl = (llmBaseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
+  const startedAt = performance.now();
+  const timeoutMs = Number(Deno.env.get("MENU_LLM_TIMEOUT_MS") ?? 15000);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  const requestBody = {
+    model,
+    temperature: 0.2,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: MENU_ASSISTANT_PROMPT },
+      {
+        role: "user",
+        content: `Input JSON:\n${JSON.stringify(payload)}\n\nReturn ONLY valid JSON. Do not wrap in markdown.`
+      }
+    ]
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Authorization: `Bearer ${llmApiKey}`,
+        "x-correlation-id": correlationId
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      console.error("llm_timeout", { requestId, correlationId, timeoutMs, provider: "openai" });
+      throw new Error("llm_timeout");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const json = await response.json().catch(() => null);
+  if (!response.ok) {
+    console.error("llm_error", { requestId, correlationId, provider: "openai", status: response.status, body: json });
+    throw new Error("llm_failed");
+  }
+
+  const content = (json as any)?.choices?.[0]?.message?.content;
+  if (typeof content !== "string" || !content.trim().length) {
+    console.error("llm_empty_response", { requestId, correlationId, provider: "openai" });
+    throw new Error("llm_invalid_json");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    console.error("llm_invalid_json", { requestId, correlationId, provider: "openai", text: content.slice(0, 500) });
+    throw new Error("llm_invalid_json");
+  }
+
+  const durationMs = Math.round(performance.now() - startedAt);
+  console.log(JSON.stringify({ event: "menu_llm_call", requestId, correlationId, provider: "openai", model, durationMs }));
+  return parsed;
+}
+
+async function callLLM(payload: MenuPromptInput, requestId: string, correlationId: string) {
+  if (resolvedLlmProvider === "openai") {
+    return callOpenAI(payload, requestId, correlationId);
+  }
+  return callCustomLLM(payload, requestId, correlationId);
+}
+
+function sanitizeResponseShape(raw: MenuPromptResponse): MenuPromptResponse {
+  const maxCards = 25;
+  const cards = Array.isArray(raw.cards) ? raw.cards.slice(0, maxCards) : [];
+  const sanitizedCards = cards.map((card, index) => {
+    const ingredients = Array.isArray(card.ingredients) ? card.ingredients : [];
+    const method = Array.isArray(card.method) ? card.method : [];
+    const listLines = Array.isArray(card.list_lines) ? card.list_lines : [];
+    const normalizedMethod = method
+      .filter((step) => step && typeof step.text === "string" && step.text.trim().length)
+      .map((step, idx) => ({ ...step, step: idx + 1 }));
+    return {
+      ...card,
+      id: card.id && card.id.toString().trim().length ? card.id : `card-${index + 1}`,
+      title: card.title?.toString().trim() ?? `Dish ${index + 1}`,
+      ingredients,
+      method: normalizedMethod,
+      list_lines: listLines
+    };
+  });
+
+  return {
+    ...raw,
+    cards: sanitizedCards,
+    consolidated_list: Array.isArray(raw.consolidated_list) ? raw.consolidated_list : [],
+    menus: Array.isArray(raw.menus) ? raw.menus : undefined,
+    clarification_needed: Array.isArray(raw.clarification_needed) ? raw.clarification_needed : undefined
+  };
 }
 
 serve(async (req) => {
@@ -389,7 +554,7 @@ serve(async (req) => {
         policy: hydrated.policy ?? {}
       };
       const llmRaw = await callLLM(llmPayload, requestId, correlationId);
-      generated = menuPromptResponseSchema.parse(llmRaw);
+      generated = sanitizeResponseShape(menuPromptResponseSchema.parse(llmRaw));
     } catch (error) {
       console.error("llm_parse_failed", { requestId, correlationId, error: String(error) });
       generated = buildResponse(hydrated);
@@ -419,11 +584,12 @@ serve(async (req) => {
     }
     console.log(
       JSON.stringify({
-        event: 'menu_llm_stub',
+        event: 'menu_llm_response',
         correlationId,
         dishCount: parsed.dishes.length,
         people: parsed.peopleCount,
         clarifications: validated.clarification_needed?.length ?? 0,
+        provider: resolvedLlmProvider,
         usedFallback
       })
     );

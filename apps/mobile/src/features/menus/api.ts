@@ -362,24 +362,43 @@ export type MenuListConversionResult = {
   servings?: number;
 };
 
+export function buildMenuListConversionBody(input: {
+  dishIds: string[];
+  peopleCountOverride?: number | null;
+  persistList?: boolean;
+  listName?: string | null;
+}) {
+  return {
+    dishIds: input.dishIds,
+    ...(typeof input.peopleCountOverride === 'number' && Number.isFinite(input.peopleCountOverride)
+      ? { peopleCountOverride: input.peopleCountOverride }
+      : {}),
+    persistList: input.persistList ?? false,
+    listName: input.listName ?? null
+  };
+}
+
 export async function createListFromMenus(
   ids: string[],
-  people: number,
+  people?: number | null,
   options: { persistList?: boolean; listName?: string | null } = {}
 ): Promise<MenuListConversionResult> {
   const normalizedIds = normalizeIdList(ids);
-  const operationKey = `menus-convert:${normalizedIds}:${people}:${options.persistList ? 'persist' : 'temp'}:${
+  const peopleLabel = typeof people === 'number' && Number.isFinite(people) ? String(people) : 'auto';
+  const operationKey = `menus-convert:${normalizedIds}:${peopleLabel}:${options.persistList ? 'persist' : 'temp'}:${
     options.listName ?? 'none'
   }`;
   const { idempotencyKey, correlationId } = getRequestKeys(operationKey);
   const result = await callMenuFunction<MenuListConversionResult>('menus-lists', {
     method: 'POST',
-    body: JSON.stringify({
-      dishIds: ids,
-      peopleCountOverride: people,
-      persistList: options.persistList ?? false,
-      listName: options.listName ?? null
-    }),
+    body: JSON.stringify(
+      buildMenuListConversionBody({
+        dishIds: ids,
+        peopleCountOverride: people,
+        persistList: options.persistList,
+        listName: options.listName
+      })
+    ),
     idempotencyKey,
     correlationId
   });

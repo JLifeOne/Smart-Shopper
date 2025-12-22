@@ -44,7 +44,8 @@ export const menuPromptListLineSchema = z.object({
   name: z.string(),
   quantity: z.number().optional(),
   unit: z.string().optional().nullable(),
-  notes: z.string().optional().nullable()
+  notes: z.string().optional().nullable(),
+  packaging: z.string().optional().nullable()
 });
 
 export const menuPromptCardSchema = z.object({

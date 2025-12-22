@@ -86,6 +86,13 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
   Set `enabled` to `false` for prod before public release. Ensure `brand_insights` row exists.
 - Client refresh: `AuthProvider` calls `refreshRuntimeConfig()` after session load; add a manual refresh hook before menu actions if runtime-config age is stale.
 
+## Environment config — edge-function env (Menus AI + packaging)
+- `MENU_LLM_PROVIDER`:
+  - `custom` (default): `MENU_LLM_URL` must accept `MenuPromptInput` JSON and return `MenuPromptResponse` JSON.
+  - `openai`: calls OpenAI-compatible `chat/completions` with `MENU_LLM_API_KEY`, `MENU_LLM_MODEL`, and optional `MENU_LLM_BASE_URL`.
+- `MENU_LLM_TIMEOUT_MS`: hard timeout for downstream LLM calls (default 15000ms).
+- `MENU_PACKAGING_INTERNAL_KEY`: internal-only secret for `/menus-packaging` writes (do not expose to clients); required only for packaging normalizer jobs/services.
+
 ## Idempotency & concurrency map (must be true before production rollout)
 - Client defaults:
   - Auto-attaches `Idempotency-Key` for non-GET requests and `x-correlation-id` for all requests: `apps/mobile/src/features/menus/api.ts`
@@ -200,8 +207,14 @@ Expected errors:
      - UX: disable/lock buttons while a request is in-flight; surface correlationId on failures.
    - Exit: Retries/double-taps do not create duplicate sessions, lists, or review rows; server returns replay responses consistently.
 4) **UX parity with spec**
-   - Status: 🚧 In progress
-   - Deliver: Wire “Scan a menu” CTA to start upload; add “Add all/Create list” affordance; implement card lock/rotation, consolidated-list delta highlighting; reusable entry points instead of toasts; ensure Recipes card shows generated content in-place and supports inline edit/save.
+   - Status: 🚧 In progress (core UX parity done; toast cleanup pending)
+   - Deliver:
+     - ✅ Wire “Scan a menu” CTA to start upload.
+     - ✅ Add “Add all/Create list” affordance (bulk actions in the Recipes viewer).
+     - ✅ Implement servings scale controls + per-card lock (opt-out from “Scale all”).
+     - ✅ Add consolidated-list delta highlighting in the conversion summary.
+     - ✅ Keep Recipes card inline edit/save for servings + packaging notes.
+     - 🚧 Replace remaining critical toasts with in-UI banners/sheets where appropriate.
    - Exit: Users can start scans directly; list actions are obvious and spec-aligned.
 5) **Observability & alerts**
    - Status: 🚧 In progress

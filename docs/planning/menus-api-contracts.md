@@ -329,6 +329,7 @@ Response `200`
 - When `profileId` is omitted, the service creates a new profile for the supplied locale/store.
 - Upserts are idempotent on `(profile_id, ingredient_key)`.
 - Telemetry should record how many units were updated and whether the request originated from ML vs. fallback.
+- **Security:** this endpoint is **internal-only** (not for mobile clients). Require an internal secret header (e.g. `x-internal-key`) and execute writes using the service-role key server-side.
 
 ---
 
@@ -391,4 +392,7 @@ Response `200`
 ```
 
 - Request payload is validated with Zod; invalid payloads return `400 { error: 'invalid_payload', details: [...] }`.
-- The current implementation is a deterministic stub; integrate the live LLM by replacing the generator while keeping schema validation.
+- Provider selection is runtime-configured in the edge function:
+  - `MENU_LLM_PROVIDER=custom` (default): `MENU_LLM_URL` must accept `MenuPromptInput` JSON and return `MenuPromptResponse` JSON.
+  - `MENU_LLM_PROVIDER=openai`: calls OpenAI-compatible `chat/completions` with `MENU_LLM_API_KEY`, `MENU_LLM_MODEL`, and optional `MENU_LLM_BASE_URL`.
+- If the configured provider fails schema validation or times out, the function falls back to a deterministic stub while preserving typed errors and correlation IDs.
