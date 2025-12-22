@@ -59,7 +59,10 @@ select is(
 -- auth mismatch should raise
 select set_config('request.jwt.claim.sub', gen_random_uuid()::text, true);
 select throws_ok(
-  $$select * from public.increment_menu_usage(:'user_id'::uuid, current_date, 1, 0, 3, 1);$$,
+  format(
+    $$select * from public.increment_menu_usage(%L::uuid, current_date, 1, 0, 3, 1);$$,
+    :'user_id'
+  ),
   'not_owner',
   'increment rejects non-owner'
 );
