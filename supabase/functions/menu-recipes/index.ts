@@ -67,7 +67,7 @@ const baseRecipeSchema = z.object({
   allergenTags: z.array(z.string()).optional(),
   source: z.string().trim().optional().nullable(),
   version: z.number().int().positive().optional(),
-  origin: z.enum(["llm_initial", "llm_regen", "user_edit"]).optional(),
+  origin: z.enum(["llm_initial", "llm_regen", "user_edit", "user_scale"]).optional(),
   editedByUser: z.boolean().optional(),
   needsTraining: z.boolean().optional(),
   expectedUpdatedAt: isoDateString.optional(),
@@ -81,7 +81,9 @@ const updateRecipeSchema = baseRecipeSchema.extend({
   title: baseRecipeSchema.shape.title.optional(),
 });
 
-type NormalizedRecipePayload = z.input<typeof baseRecipeSchema>;
+// Normalization maps client payloads (camelCase + snake_case variants) into a single shape.
+// This is still *untrusted* input; Zod schemas are the validation boundary.
+type NormalizedRecipePayload = Record<string, unknown>;
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -117,37 +119,39 @@ function parseRecipeId(url: URL) {
 }
 
 function normalizeRecipePayload(raw: Record<string, unknown>): NormalizedRecipePayload {
+  const snake = raw as Record<string, unknown> & {
+    cuisine_style?: unknown;
+    scale_factor?: unknown;
+    packaging_notes?: unknown;
+    packaging_guidance?: unknown;
+    premium_required?: unknown;
+    dietary_tags?: unknown;
+    allergen_tags?: unknown;
+    edited_by_user?: unknown;
+    needs_training?: unknown;
+    updated_at?: unknown;
+  };
+
   return {
-    title: typeof raw.title === "string" ? raw.title : undefined,
-    course: (raw.course as string | null | undefined) ?? undefined,
-    cuisineStyle: (raw.cuisineStyle as string | null | undefined) ?? (raw.cuisine_style as string | null | undefined),
-    servings: (raw.servings as Record<string, unknown>) ?? undefined,
-    scaleFactor:
-      (typeof raw.scaleFactor === "number" ? raw.scaleFactor : undefined) ??
-      (typeof (raw as any).scale_factor === "number" ? (raw as any).scale_factor : undefined),
-    ingredients: (raw.ingredients as unknown[]) ?? undefined,
-    method: (raw.method as unknown[]) ?? undefined,
-    tips: (raw.tips as string[]) ?? undefined,
-    packagingNotes: (raw.packagingNotes as string | null | undefined) ?? (raw.packaging_notes as string | null | undefined),
-    packagingGuidance:
-      (raw.packagingGuidance as unknown[]) ?? (raw.packaging_guidance as unknown[]) ?? undefined,
-    premiumRequired:
-      typeof raw.premiumRequired === "boolean"
-        ? raw.premiumRequired
-        : typeof (raw as any).premium_required === "boolean"
-          ? (raw as any).premium_required
-          : undefined,
-  dietaryTags: (raw.dietaryTags as string[]) ?? (raw as any).dietary_tags,
-  allergenTags: (raw.allergenTags as string[]) ?? (raw as any).allergen_tags,
-  source: (raw.source as string | null | undefined) ?? undefined,
-  version: typeof raw.version === "number" ? raw.version : undefined,
-  origin: (raw.origin as string | null | undefined) ?? (raw as any).origin,
-  editedByUser: (raw.editedByUser as boolean | undefined) ?? (raw as any).edited_by_user,
-  needsTraining: (raw.needsTraining as boolean | undefined) ?? (raw as any).needs_training,
-  expectedUpdatedAt:
-    (raw.updatedAt as string | undefined) ??
-    (raw.updated_at as string | undefined) ??
-    (raw as any).expectedUpdatedAt,
+    title: raw.title,
+    course: raw.course,
+    cuisineStyle: raw.cuisineStyle ?? snake.cuisine_style,
+    servings: raw.servings,
+    scaleFactor: raw.scaleFactor ?? snake.scale_factor,
+    ingredients: raw.ingredients,
+    method: raw.method,
+    tips: raw.tips,
+    packagingNotes: raw.packagingNotes ?? snake.packaging_notes,
+    packagingGuidance: raw.packagingGuidance ?? snake.packaging_guidance,
+    premiumRequired: raw.premiumRequired ?? snake.premium_required,
+    dietaryTags: raw.dietaryTags ?? snake.dietary_tags,
+    allergenTags: raw.allergenTags ?? snake.allergen_tags,
+    source: raw.source,
+    version: raw.version,
+    origin: raw.origin,
+    editedByUser: raw.editedByUser ?? snake.edited_by_user,
+    needsTraining: raw.needsTraining ?? snake.needs_training,
+    expectedUpdatedAt: raw.updatedAt ?? snake.updated_at ?? (raw as any).expectedUpdatedAt,
   };
 }
 
