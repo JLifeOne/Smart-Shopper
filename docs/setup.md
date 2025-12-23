@@ -52,10 +52,14 @@ This setup screen is **not** shown during sign in. All fields remain editable la
 
 ## Mobile App Scripts
 - pnpm --filter @smart-shopper/mobile start - start Metro bundler
+- pnpm --filter @smart-shopper/mobile start:clear - start Metro bundler with cache cleared
 - pnpm --filter @smart-shopper/mobile android - launch Android build (requires dev client)
 - pnpm --filter @smart-shopper/mobile ios - launch iOS build (requires dev client)
 - pnpm --filter @smart-shopper/mobile test - run vitest suite
 - pnpm --filter @smart-shopper/mobile lint - run ESLint
+
+If you are already in `apps/mobile/`, you can run the same scripts without `--filter`, e.g.:
+- `pnpm start:clear`
 
 > **Note:** WatermelonDB relies on JSI. Use a custom development client (expo run:android / expo run:ios) rather than Expo Go when testing database features.
 

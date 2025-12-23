@@ -32,7 +32,12 @@ pnpm install
 pnpm add --filter @smart-shopper/mobile -D metro-runtime
 
 # 5) Start on 8081 with a clean cache
-pnpm --filter @smart-shopper/mobile start -- --dev-client --port 8081 --clear
+pnpm --filter @smart-shopper/mobile start:clear -- --port 8081
+```
+
+If you are already in `apps/mobile/`, run:
+```powershell
+pnpm start:clear -- --port 8081
 ```
 
 ## Fix: `SocketTimeoutException` to `192.168.x.x` (Emulator cannot reach Metro)
@@ -41,19 +46,19 @@ If the dev client is trying to load the bundle from a LAN IP (example: `192.168.
 
 1) **Tunnel (most reliable across networks)**
 ```powershell
-pnpm --filter @smart-shopper/mobile start -- --dev-client --port 8081 --clear --host tunnel
+pnpm --filter @smart-shopper/mobile start:clear -- --port 8081 --host tunnel
 ```
 
 2) **Localhost + adb reverse (fastest for Android emulator)**
 ```powershell
 adb reverse tcp:8081 tcp:8081
-pnpm --filter @smart-shopper/mobile start -- --dev-client --port 8081 --clear --host localhost
+pnpm --filter @smart-shopper/mobile start:clear -- --port 8081 --host localhost
 ```
 
 3) **LAN (requires firewall allowance)**
 - Ensure Windows Firewall allows inbound connections for Node/Metro on port `8081`, then:
 ```powershell
-pnpm --filter @smart-shopper/mobile start -- --dev-client --port 8081 --clear --host lan
+pnpm --filter @smart-shopper/mobile start:clear -- --port 8081 --host lan
 ```
 
 If you are switching between WSL and PowerShell, reinstall dependencies in the same environment you run Metro from to avoid platform-specific optional dependency issues.
