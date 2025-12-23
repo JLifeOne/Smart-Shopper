@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
-import { classifyProductName, normalizeProductName } from "../_shared/hybrid-classifier.ts";
+import { classifyProductName, confidenceBand, normalizeProductName } from "../_shared/hybrid-classifier.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -102,8 +102,10 @@ serve(async (req) => {
         const classification = classifyProductName(normalized, { limit: 1 })?.[0];
         const tags = item.classifierTags ?? [];
         if (classification) {
+          const band = confidenceBand(classification.confidence);
+          const intent = band === "auto" ? "template" : band === "suggestion" ? "suggestion" : "llm";
           tags.push(`category:${classification.category}`);
-          tags.push(`intent:${classification.category === "suggestion" ? "suggestion" : "llm"}`);
+          tags.push(`intent:${intent}`);
         }
         return {
           id: item.id,
@@ -158,9 +160,11 @@ serve(async (req) => {
       if (body.updates.normalizedText !== undefined && !body.updates.classifierTags) {
         const classification = classifyProductName(body.updates.normalizedText ?? "", { limit: 1 })?.[0];
         if (classification) {
+          const band = confidenceBand(classification.confidence);
+          const intent = band === "auto" ? "template" : band === "suggestion" ? "suggestion" : "llm";
           updates.classifier_tags = [
             `category:${classification.category}`,
-            `intent:${classification.category === "suggestion" ? "suggestion" : "llm"}`
+            `intent:${intent}`
           ];
           updates.confidence = classification.confidence;
         }

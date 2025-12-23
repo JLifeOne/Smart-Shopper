@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
-import { classifyProductName, normalizeProductName } from "../_shared/hybrid-classifier.ts";
+import { classifyProductName, confidenceBand, normalizeProductName } from "../_shared/hybrid-classifier.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -106,12 +106,13 @@ async function classifyIntent(rows: any[]) {
     const normalized = row.normalized_text ?? normalizeProductName(row.raw_text);
     const topMatch = classifyProductName(normalized, { limit: 1 })[0];
     let intent: IntentRoute = "llm";
-    if (!topMatch) {
-      intent = "llm";
-    } else if (topMatch.category === "menu" || topMatch.category === "entree") {
-      intent = "template";
-    } else if (topMatch.category === "suggestion") {
-      intent = "suggestion";
+    if (topMatch) {
+      const band = confidenceBand(topMatch.confidence);
+      if (band === "auto") {
+        intent = "template";
+      } else if (band === "suggestion") {
+        intent = "suggestion";
+      }
     }
     const tags = [`intent:${intent}`, `category:${topMatch?.category ?? "unknown"}`];
     results.push({ itemId: row.id, intent, classifierTags: tags });
