@@ -41,6 +41,20 @@ This runbook documents causes, fixes, and preventive guardrails.
 - Keep the helper minimal—avoid referencing DOM-specific `AbortSignal` types in shared code.
 - When updating `safeFetch`, validate in both PowerShell and WSL with `pnpm exec tsc --project apps/mobile/tsconfig.json --pretty false`.
 
+## 3. Deno Edge Function Typecheck (SupabaseClient + implicit arrays)
+### Cause
+- `ReturnType<typeof createClient>` resolves to a different generic signature than the instantiated client, causing `SupabaseClient<any, "public", any>` vs `SupabaseClient<unknown, never, GenericSchema>` mismatches.
+- Un-typed `let detections = []` triggers `implicit any[]` errors in Deno typecheck.
+
+### Fix
+- Import and use `SupabaseClient` from the same `@supabase/supabase-js` version as `createClient` and type helper function params with it.
+- Add explicit array types for intermediate variables (`SessionItemRow[]`, `SessionDetection[]`).
+- Reference: `supabase/functions/menu-sessions/index.ts`
+
+### Guardrails
+- Keep edge functions using the same `@supabase/supabase-js` version for both `createClient` and `SupabaseClient` imports.
+- Avoid `ReturnType<typeof createClient>` for shared helpers; prefer `SupabaseClient` or a local `type SupabaseClientType = SupabaseClient<any, "public", any>`.
+
 ## Verification Checklist
 - `pnpm verify` (PowerShell): PASS ✓
 - `pnpm exec tsc --project apps/mobile/tsconfig.json --pretty false` (WSL optional)

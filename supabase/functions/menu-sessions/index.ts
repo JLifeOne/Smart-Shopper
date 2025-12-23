@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
 import { classifyProductName, confidenceBand, normalizeProductName } from "../_shared/hybrid-classifier.ts";
 
 const corsHeaders = {
@@ -14,18 +15,20 @@ const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
 type SessionStatus = "pending" | "processing" | "needs_clarification" | "ready" | "error";
 type IntentRoute = "template" | "llm" | "suggestion";
 
+type SessionDetection = {
+  id?: string;
+  rawText: string;
+  normalizedText?: string | null;
+  confidence?: number | null;
+  boundingBox?: Record<string, unknown>;
+};
+
 type CreateSessionPayload = {
   source?: { type?: "camera" | "gallery" | "upload"; uri?: string | null };
   titleHint?: string | null;
   isPremium?: boolean;
   metadata?: Record<string, unknown>;
-  detections?: Array<{
-    id?: string;
-    rawText: string;
-    normalizedText?: string | null;
-    confidence?: number | null;
-    boundingBox?: Record<string, unknown>;
-  }>;
+  detections?: SessionDetection[];
 };
 
 type UpdateSessionPayload = {
@@ -35,13 +38,15 @@ type UpdateSessionPayload = {
   warnings?: string[];
   clarification_answers?: Array<{ dishKey: string; answer: string }>;
   payload?: Record<string, unknown>;
-  detections?: Array<{
-    id?: string;
-    rawText: string;
-    normalizedText?: string | null;
-    confidence?: number | null;
-    boundingBox?: Record<string, unknown>;
-  }>;
+  detections?: SessionDetection[];
+};
+
+type SessionItemRow = {
+  id: string;
+  raw_text: string;
+  normalized_text: string | null;
+  confidence: number | null;
+  bounding_box: Record<string, unknown>;
 };
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
@@ -73,10 +78,10 @@ function parseSessionIdFromUrl(url: URL) {
 }
 
 async function insertDetections(
-  client: ReturnType<typeof createClient>,
+  client: SupabaseClient,
   userId: string,
   sessionId: string,
-  detections?: CreateSessionPayload["detections"]
+  detections?: SessionDetection[]
 ) {
   if (!Array.isArray(detections) || detections.length === 0) {
     return [];
@@ -97,10 +102,10 @@ async function insertDetections(
     console.error("menu_session_items insert failed", error);
     throw new Error("session_items_insert_failed");
   }
-  return data ?? [];
+  return (data ?? []) as SessionItemRow[];
 }
 
-async function classifyIntent(rows: any[]) {
+async function classifyIntent(rows: SessionItemRow[]) {
   const results: Array<{ itemId: string; intent: IntentRoute; classifierTags: string[] }> = [];
   for (const row of rows) {
     const normalized = row.normalized_text ?? normalizeProductName(row.raw_text);
@@ -216,7 +221,7 @@ serve(async (req) => {
           return jsonResponse({ error: "session_create_failed", correlationId }, { status: 400 });
         }
 
-        let detections = [];
+        let detections: SessionItemRow[] = [];
         if (!replay && payload.detections?.length) {
           detections = await insertDetections(client, userId, data.id, payload.detections);
         }
@@ -318,7 +323,7 @@ serve(async (req) => {
             .select("*")
             .eq("session_id", sessionId);
           if (!latest.error && latest.data?.length) {
-            const intentDecisions = await classifyIntent(latest.data);
+            const intentDecisions = await classifyIntent(latest.data as SessionItemRow[]);
             if (intentDecisions.length) {
               await client
                 .from("menu_session_items")
