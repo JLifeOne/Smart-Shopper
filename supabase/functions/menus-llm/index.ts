@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
 import { MENU_ASSISTANT_PROMPT } from "../_shared/menu-assistant-prompt.ts";
 import { menuPromptInputSchema, menuPromptResponseSchema, type MenuPromptInput, type MenuPromptResponse } from "../_shared/menu-prompt-types.ts";
 
@@ -68,6 +69,39 @@ type IngredientMeta = {
   quantity?: number | string | null;
   unit?: string | null;
 };
+
+type StyleChoiceRow = {
+  dish_key: string;
+  style_choice: string;
+};
+
+function coerceStyleChoiceRow(value: unknown): StyleChoiceRow | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const dishKey = typeof row.dish_key === "string" ? row.dish_key : null;
+  const styleChoice = typeof row.style_choice === "string" ? row.style_choice : null;
+  if (!dishKey || !styleChoice) return null;
+  return { dish_key: dishKey, style_choice: styleChoice };
+}
+
+function coercePackagingUnit(value: unknown): PackagingUnit | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const ingredientKey = typeof row.ingredient_key === "string" ? row.ingredient_key : null;
+  if (!ingredientKey) return null;
+  const packSize =
+    typeof row.pack_size === "number" || typeof row.pack_size === "string"
+      ? row.pack_size
+      : null;
+  const packUnit = typeof row.pack_unit === "string" ? row.pack_unit : null;
+  const displayLabel = typeof row.display_label === "string" ? row.display_label : null;
+  return {
+    ingredient_key: ingredientKey,
+    pack_size: packSize,
+    pack_unit: packUnit,
+    display_label: displayLabel
+  };
+}
 
 function parseNumeric(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -150,7 +184,7 @@ function formatPackagingLabel(
 }
 
 async function loadStyleChoices(
-  client: ReturnType<typeof createClient>,
+  client: SupabaseClient,
   userId: string,
   dishes: { title: string; cuisineStyle?: string | null }[]
 ) {
@@ -164,8 +198,12 @@ async function loadStyleChoices(
   if (error || !data) {
     return {};
   }
-  return data.reduce<Record<string, string>>((acc, row) => {
-    acc[row.dish_key] = row.style_choice;
+  const rows = Array.isArray(data) ? data : [];
+  return rows.reduce<Record<string, string>>((acc, row) => {
+    const typed = coerceStyleChoiceRow(row);
+    if (typed) {
+      acc[typed.dish_key] = typed.style_choice;
+    }
     return acc;
   }, {});
 }
@@ -181,7 +219,7 @@ function buildStubRecipe(input: { dish: string; people: number; locale?: string 
     name: item.name,
     quantity: typeof item.quantity === 'number' ? item.quantity : undefined,
     unit: item.unit ?? null,
-    notes: item.notes ?? null
+    notes: null
   }));
   return {
     id: slug,
@@ -266,7 +304,7 @@ function buildResponse(payload: MenuPromptInput): MenuPromptResponse {
 }
 
 async function applyPackagingGuidance(
-  client: ReturnType<typeof createClient>,
+  client: SupabaseClient,
   response: MenuPromptResponse,
   locale?: string
 ) {
@@ -317,8 +355,11 @@ async function applyPackagingGuidance(
         .eq('profile_id', selectedProfileId)
         .in('ingredient_key', uniqueKeys);
 
-      existing?.forEach((unit) => {
-        packagingUnitsByKey.set(unit.ingredient_key, unit as PackagingUnit);
+      (existing ?? []).forEach((unit) => {
+        const typed = coercePackagingUnit(unit);
+        if (typed) {
+          packagingUnitsByKey.set(typed.ingredient_key, typed);
+        }
       });
     }
   }
@@ -551,7 +592,7 @@ serve(async (req) => {
       const llmPayload = {
         ...hydrated,
         preferences: hydrated.preferences ?? {},
-        policy: hydrated.policy ?? {}
+        policy: hydrated.policy ?? { isPremium: false, blurRecipes: true }
       };
       const llmRaw = await callLLM(llmPayload, requestId, correlationId);
       generated = sanitizeResponseShape(menuPromptResponseSchema.parse(llmRaw));
