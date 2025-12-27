@@ -16,6 +16,9 @@ web-build/
 # TypeScript
 *.tsbuildinfo
 
+# Deno
+/deno.lock
+
 # Build artifacts
 /dist/
 /build/
