@@ -8,6 +8,7 @@ type RuntimeFlags = {
 
 const DEFAULT_FLAGS: RuntimeFlags = {
   brandInsights: true,
+  // Keep enabled during development; production is still blocked server-side by app_environment.
   menuDevBypass: true
 };
 

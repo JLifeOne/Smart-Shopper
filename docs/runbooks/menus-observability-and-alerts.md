@@ -84,7 +84,7 @@ Tune thresholds per environment; start conservative:
    - `supabase/functions/menu-*`, `supabase/functions/menus-*`
    - `supabase/migrations/*menu*`
 3) Determine category:
-   - **policy/limits** (429/403 spikes): validate `menus-policy` output and runtime flags (`menu_dev_bypass`)
+   - **policy/limits** (429/403 spikes): validate `menus-policy` output and runtime flags (`menu_dev_bypass`, `app_environment`)
    - **LLM** (502/5xx): validate `MENU_LLM_URL` reachability and contract/schema parsing
    - **DB/RPC** errors: validate RPCs (`menu_create_session`, `menu_create_title_dish`, `menu_create_list`) and RLS policies
 4) Mitigate:

@@ -2,6 +2,11 @@ begin;
 
 select plan(4);
 
+-- Enable dev-only behavior for this test run (non-production environment).
+insert into public.app_runtime_config (key, value)
+values ('app_environment', jsonb_build_object('name', 'development'))
+on conflict (key) do update set value = excluded.value, updated_at = now();
+
 -- Enable the developer-only bypass (should only affect dev accounts).
 insert into public.app_runtime_config (key, value)
 values ('menu_dev_bypass', jsonb_build_object('enabled', true))
@@ -48,4 +53,3 @@ select throws_ok(
 
 select finish();
 rollback;
-

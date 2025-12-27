@@ -30,6 +30,16 @@ type Out = Item & {
   categoryCanonical?: string | null;
 };
 
+type BrandRef = { id?: string | null; name?: string | null } | null | undefined;
+
+function getBrandName(brands: BrandRef | BrandRef[]): string | null {
+  // Supabase may return a single related row or an array; normalize to a name.
+  if (Array.isArray(brands)) {
+    return brands[0]?.name ?? null;
+  }
+  return brands?.name ?? null;
+}
+
 function normalise(value: string) {
   return value.toLowerCase().normalize("NFKD").replace(/\p{Diacritic}/gu, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -82,7 +92,7 @@ async function resolveOne(client: SupabaseClient, it: Item): Promise<Out> {
           ...classifyFields,
           status: 'alias_created',
           brandId: data.brand_id,
-          brandName: data.brands?.name ?? null,
+          brandName: getBrandName(data.brands),
           confidence: data.confidence ?? 0.45
         };
       }
@@ -108,7 +118,7 @@ async function resolveOne(client: SupabaseClient, it: Item): Promise<Out> {
     ...classifyFields,
     status: 'matched',
     brandId: best.brand_id ?? null,
-    brandName: best.brands?.name ?? null,
+    brandName: getBrandName(best.brands),
     confidence: conf
   };
 }

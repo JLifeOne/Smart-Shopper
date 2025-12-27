@@ -67,23 +67,28 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
 
 ## Environment config — runtime flags
 - `app_runtime_config` rows:
+  - `app_environment`: `{ name: 'production' }` (default). Set to `development` or `staging` to permit dev bypass. Missing/unknown values are treated as production.
   - `brand_insights`: `{ enabled: true }` (default).
-  - `menu_dev_bypass`: `{ enabled: true }` in dev/staging; `{ enabled: false }` in prod.
+  - `menu_dev_bypass`: `{ enabled: true }` while building; only honored when `app_environment` is not `production`.
 - Dev bypass on device requires BOTH:
   - Local build flag: `featureFlags.menuDevFullAccess` (see `apps/mobile/src/lib/env.ts`)
   - Remote runtime flag: `isMenuDevBypassEnabled()` (see `apps/mobile/src/lib/runtime-config.ts`)
   - Developer account (JWT claim): `user.app_metadata.is_developer` (or `dev`) so bypass never elevates non-dev users.
   - Current UI gate: `featureFlags.menuDevFullAccess && __DEV__ && isDeveloperAccount && isMenuDevBypassEnabled()` in `apps/mobile/app/(app)/menus/index.tsx`
 - Backend enforcement (dev/staging only):
-  - Premium checks are centralized in `public.menu_is_premium_user()` (see `supabase/migrations/0030_menu_entitlements_hardening.sql`) and treat `menu_dev_bypass.enabled=true` as premium **only** for developer JWTs.
-  - Ensure `menu_dev_bypass.enabled=false` in production before public release.
+  - Premium checks are centralized in `public.menu_is_premium_user()` (see `supabase/migrations/0034_menu_dev_bypass_env_guard.sql`) and treat `menu_dev_bypass.enabled=true` as premium **only** for developer JWTs in non-production environments.
+  - For production, keep `app_environment.name='production'` and set `menu_dev_bypass.enabled=false` before public release.
 - SQL helper (run per environment):
   ```sql
+  insert into app_runtime_config (key, value)
+  values ('app_environment', jsonb_build_object('name', 'development'))
+  on conflict (key) do update set value = excluded.value, updated_at = now();
+
   insert into app_runtime_config (key, value)
   values ('menu_dev_bypass', jsonb_build_object('enabled', true))
   on conflict (key) do update set value = excluded.value, updated_at = now();
   ```
-  Set `enabled` to `false` for prod before public release. Ensure `brand_insights` row exists.
+  Set `app_environment.name='production'` and `menu_dev_bypass.enabled=false` for prod before public release. Ensure `brand_insights` row exists.
 - Client refresh: `AuthProvider` calls `refreshRuntimeConfig()` after session load; add a manual refresh hook before menu actions if runtime-config age is stale.
 
 ## Environment config — edge-function env (Menus AI + packaging)
