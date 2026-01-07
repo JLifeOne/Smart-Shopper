@@ -4,6 +4,20 @@ import type { ConfigContext, ExpoConfig } from 'expo/config';
 const APP_NAME = 'Smart Shopper';
 const APP_SLUG = 'smart-shopper';
 const VERSION = '0.1.0';
+const ONE_SIGNAL_APP_ID = process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? '';
+
+const plugins: ExpoConfig['plugins'] = [
+  'expo-router',
+  'expo-secure-store',
+  'expo-image-picker',
+  'expo-system-ui',
+  'expo-audio',
+  'expo-notifications'
+];
+
+if (ONE_SIGNAL_APP_ID) {
+  plugins.push(['onesignal-expo-plugin', { oneSignalAppId: ONE_SIGNAL_APP_ID }]);
+}
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
@@ -37,14 +51,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#FFFFFF'
     },
-    permissions: []
+    permissions: ['POST_NOTIFICATIONS']
   },
   web: {
     bundler: 'metro',
     output: 'static',
     favicon: './assets/favicon.png'
   },
-  plugins: ['expo-router', 'expo-secure-store', 'expo-image-picker', 'expo-system-ui', 'expo-audio'],
+  plugins,
   experiments: {
     typedRoutes: true
   },
@@ -60,6 +74,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     featureListParserV2: process.env.EXPO_PUBLIC_FEATURE_LIST_PARSER_V2 === 'true',
     featureListSharing: process.env.EXPO_PUBLIC_FEATURE_LIST_SHARING === 'true',
     featureAiSuggestions: process.env.EXPO_PUBLIC_FEATURE_AI_SUGGESTIONS === 'true',
-    recoServiceUrl: process.env.EXPO_PUBLIC_RECO_SERVICE_URL ?? ''
+    recoServiceUrl: process.env.EXPO_PUBLIC_RECO_SERVICE_URL ?? '',
+    featurePromoNotifications: process.env.EXPO_PUBLIC_FEATURE_PROMO_NOTIFICATIONS === 'true',
+    expoProjectId: process.env.EXPO_PUBLIC_EXPO_PROJECT_ID ?? '',
+    notificationsProvider: process.env.EXPO_PUBLIC_NOTIFICATIONS_PROVIDER ?? '',
+    oneSignalAppId: process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? ''
   }
 });

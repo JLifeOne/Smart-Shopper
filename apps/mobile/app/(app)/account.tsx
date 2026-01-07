@@ -16,6 +16,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/src/context/auth-context';
+import { featureFlags } from '@/src/lib/env';
+import {
+  fetchNotificationPreferences,
+  updateNotificationPreferences
+} from '@/src/features/notifications/api';
+import { registerForPromoNotifications } from '@/src/features/notifications/push';
 import { useTopBar } from '@/src/providers/TopBarProvider';
 import { formatDobInput, parseDob } from '@/src/lib/dob';
 
@@ -84,6 +90,10 @@ export default function AccountScreen() {
   const [emailDraft, setEmailDraft] = useState('');
   const [passwordDraft, setPasswordDraft] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationsError, setNotificationsError] = useState<string | null>(null);
+  const [promosEnabled, setPromosEnabled] = useState(true);
+  const [pushEnabled, setPushEnabled] = useState(true);
 
   const primaryEmail = useMemo(() => {
     const nextEmail = (user as unknown as { new_email?: string | null })?.new_email;
@@ -198,6 +208,26 @@ export default function AccountScreen() {
   }, [loadProfile]);
 
   useEffect(() => {
+    if (!featureFlags.promoNotifications || !user?.id) {
+      return;
+    }
+    setNotificationsLoading(true);
+    fetchNotificationPreferences()
+      .then((prefs) => {
+        setPromosEnabled(Boolean(prefs.promos_enabled));
+        setPushEnabled(Boolean(prefs.push_enabled));
+        setNotificationsError(null);
+      })
+      .catch((error) => {
+        console.warn('Failed to load notification preferences', error);
+        setNotificationsError('Unable to load promo alerts settings.');
+      })
+      .finally(() => {
+        setNotificationsLoading(false);
+      });
+  }, [featureFlags.promoNotifications, user?.id]);
+
+  useEffect(() => {
     if (!profile) {
       return;
     }
@@ -271,6 +301,29 @@ export default function AccountScreen() {
     locationRegion,
     updateProfile
   ]);
+
+  const handleTogglePromos = useCallback(async (next: boolean) => {
+    setPromosEnabled(next);
+    try {
+      await updateNotificationPreferences({ promos_enabled: next });
+    } catch (error) {
+      setPromosEnabled(!next);
+      Alert.alert('Update failed', 'Unable to update promo alerts right now.');
+    }
+  }, []);
+
+  const handleTogglePush = useCallback(async (next: boolean) => {
+    setPushEnabled(next);
+    try {
+      await updateNotificationPreferences({ push_enabled: next });
+      if (next) {
+        await registerForPromoNotifications(user?.id);
+      }
+    } catch (error) {
+      setPushEnabled(!next);
+      Alert.alert('Update failed', 'Unable to update push alerts right now.');
+    }
+  }, []);
 
   const handleUpdateEmail = useCallback(async () => {
     const nextEmail = emailDraft.trim().toLowerCase();
@@ -532,6 +585,45 @@ export default function AccountScreen() {
             </Pressable>
           </View>
 
+          {featureFlags.promoNotifications ? (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Promo alerts</Text>
+              <Text style={styles.cardHint}>
+                Manage in-app promos and push alerts. You can keep the inbox on while muting push at any time.
+              </Text>
+              {notificationsError ? <Text style={styles.errorText}>{notificationsError}</Text> : null}
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleMeta}>
+                  <Text style={styles.toggleTitle}>In-app promos</Text>
+                  <Text style={styles.toggleSubtitle}>Show promo alerts inside your Smart Shopper inbox.</Text>
+                </View>
+                <Switch
+                  value={promosEnabled}
+                  onValueChange={handleTogglePromos}
+                  disabled={notificationsLoading}
+                />
+              </View>
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleMeta}>
+                  <Text style={styles.toggleTitle}>Push alerts</Text>
+                  <Text style={styles.toggleSubtitle}>Send real-time promo alerts to this device.</Text>
+                </View>
+                <Switch
+                  value={pushEnabled}
+                  onValueChange={handleTogglePush}
+                  disabled={notificationsLoading}
+                />
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push('/(app)/notifications')}
+                style={({ pressed }) => [styles.secondaryButton, pressed && styles.secondaryButtonPressed]}
+              >
+                <Text style={styles.secondaryButtonLabel}>View promo inbox</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           <Pressable
             accessibilityRole="button"
             onPress={handleSignOut}
@@ -621,6 +713,11 @@ const styles = StyleSheet.create({
   cardHint: {
     color: palette.subtext,
     fontSize: 13,
+    marginBottom: 12
+  },
+  errorText: {
+    color: palette.danger,
+    fontSize: 12,
     marginBottom: 12
   },
   fieldLabel: {
@@ -788,10 +885,6 @@ const styles = StyleSheet.create({
   inlineLoadingLabel: {
     color: palette.subtext,
     fontSize: 13
-  },
-  errorText: {
-    color: palette.danger,
-    marginBottom: 12
   },
   modalOverlay: {
     flex: 1,

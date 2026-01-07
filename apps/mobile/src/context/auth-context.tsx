@@ -6,6 +6,7 @@ import { ensureCatalogSeeded } from '@/src/catalog';
 import { syncService } from '@/src/database/sync-service';
 import { ensureBrandBackfillCompleted } from '@/src/database/backfill/brand-backfill';
 import { refreshRuntimeConfig } from '@/src/lib/runtime-config';
+import { disconnectPromoNotifications, registerForPromoNotifications } from '@/src/features/notifications/push';
 
 export interface AuthActionResult {
   success: boolean;
@@ -108,6 +109,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       refreshRuntimeConfig().catch((error) => {
         console.warn('Runtime config refresh failed', error);
+      });
+      registerForPromoNotifications(session.user?.id).catch((error) => {
+        console.warn('Promo notification registration failed', error);
       });
     }
   }, [session]);
@@ -342,6 +346,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setSession(null);
     setSignupProfileSetupCountryCode(null);
+    disconnectPromoNotifications();
     await syncService.reset();
     return null;
   }, [supabase]);

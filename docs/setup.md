@@ -84,9 +84,15 @@ Create `apps/mobile/.env` with the following placeholders:
 EXPO_PUBLIC_SUPABASE_URL=
 EXPO_PUBLIC_SUPABASE_ANON_KEY=
 EXPO_PUBLIC_ENABLE_MOCK_AUTH=false
+EXPO_PUBLIC_FEATURE_PROMO_NOTIFICATIONS=false
+EXPO_PUBLIC_EXPO_PROJECT_ID=
+EXPO_PUBLIC_NOTIFICATIONS_PROVIDER=expo
+EXPO_PUBLIC_ONESIGNAL_APP_ID=
 ```
 
 `app.config.ts` reads these values at build time. Never expose the Supabase service role key in the mobile app.
+Push alerts require a dev client (Expo Go does not support push notifications). Use `expo run:android` or `expo run:ios` after setting `EXPO_PUBLIC_EXPO_PROJECT_ID`.
+If you set `EXPO_PUBLIC_NOTIFICATIONS_PROVIDER=onesignal`, ensure `EXPO_PUBLIC_ONESIGNAL_APP_ID` is set and the OneSignal native config/plugin is enabled before building. `auto` will prefer OneSignal when configured, otherwise fall back to Expo.
 
 ## Next Engineering Tasks
 1. Install dependencies (pnpm install).

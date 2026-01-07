@@ -14,7 +14,11 @@ type Extra = {
   featureAiSuggestions?: boolean;
   featureMenuIngestion?: boolean;
   featureMenuDevFullAccess?: boolean;
+  featurePromoNotifications?: boolean;
   recoServiceUrl?: string;
+  expoProjectId?: string;
+  notificationsProvider?: string;
+  oneSignalAppId?: string;
 };
 
 const extra = (Constants.expoConfig?.extra ?? {}) as Extra;
@@ -23,7 +27,10 @@ const env = {
   supabaseUrl: extra.supabaseUrl ?? '',
   supabaseAnonKey: extra.supabaseAnonKey ?? '',
   enableMockAuth: extra.enableMockAuth ?? false,
-  recoServiceUrl: extra.recoServiceUrl ?? ''
+  recoServiceUrl: extra.recoServiceUrl ?? '',
+  expoProjectId: extra.expoProjectId ?? '',
+  notificationsProvider: extra.notificationsProvider ?? '',
+  oneSignalAppId: extra.oneSignalAppId ?? ''
 };
 
 const flags = {
@@ -36,6 +43,7 @@ const flags = {
   listSharing: extra.featureListSharing ?? false,
   aiSuggestions: extra.featureAiSuggestions ?? false,
   menuIngestion: extra.featureMenuIngestion ?? false,
+  promoNotifications: extra.featurePromoNotifications ?? false,
   // Default dev bypass ON in development builds to avoid gating while testing menus.
   menuDevFullAccess: extra.featureMenuDevFullAccess ?? (__DEV__ ? true : false)
 };
