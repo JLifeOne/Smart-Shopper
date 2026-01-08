@@ -368,7 +368,7 @@ serve(async (req) => {
           correlationId,
           sessionId,
           ownerId: userId,
-          status: body.status ?? null,
+          status: body.status ?? undefined,
           durationMs,
           metadata: {
             detectionsAdded: body.detections?.length ?? 0,
