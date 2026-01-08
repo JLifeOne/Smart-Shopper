@@ -2,6 +2,12 @@ import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 import { menuPromptResponseSchema, type MenuPromptResponse, menuPromptInputSchema } from "../_shared/menu-prompt-types.ts";
+import {
+  errorResponse,
+  getCorrelationId,
+  jsonResponse,
+  logEvent
+} from "../_shared/observability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,20 +28,11 @@ const regenerateSchema = z.object({
   cuisineStyle: z.string().optional().nullable(),
 });
 
-function jsonResponse(body: unknown, init: ResponseInit = {}) {
-  return new Response(JSON.stringify(body), {
-    headers: { "content-type": "application/json", ...corsHeaders },
-    ...init,
-  });
-}
+const respond = (body: unknown, init: ResponseInit = {}, correlationId?: string) =>
+  jsonResponse(body, init, corsHeaders, correlationId);
 
-function getCorrelationId(req: Request) {
-  return (
-    req.headers.get("x-correlation-id") ??
-    req.headers.get("Idempotency-Key") ??
-    crypto.randomUUID()
-  );
-}
+const respondError = (options: { code: string; correlationId: string; status?: number; details?: unknown }) =>
+  errorResponse({ ...options, corsHeaders });
 
 function requireIdempotencyKey(req: Request) {
   const key = req.headers.get("Idempotency-Key") ?? req.headers.get("idempotency-key");
@@ -85,33 +82,30 @@ serve(async (req) => {
     const message = error instanceof Error ? error.message : "auth_error";
     const status = message === "auth_required" ? 401 : 500;
     console.error("menu-regenerate auth error", { correlationId, message, status });
-    return jsonResponse({ error: message, correlationId }, { status });
+    return respondError({ code: message, correlationId, status });
   }
 
   if (req.method !== "POST") {
-    return jsonResponse({ error: "method_not_allowed", correlationId }, { status: 405 });
+    return respondError({ code: "method_not_allowed", correlationId, status: 405 });
   }
 
   const { key: idempotencyKey } = requireIdempotencyKey(req);
   if (!idempotencyKey) {
-    return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
+    return respondError({ code: "idempotency_key_required", correlationId, status: 400 });
   }
 
   const payload = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const parsed = regenerateSchema.safeParse(payload);
   if (!parsed.success) {
-    return jsonResponse({ error: "invalid_payload", details: parsed.error.flatten(), correlationId }, { status: 400 });
+    return respondError({
+      code: "invalid_payload",
+      correlationId,
+      status: 400,
+      details: parsed.error.flatten()
+    });
   }
 
   try {
-    const { data: premiumData, error: premiumError } = await supabase.rpc("menu_is_premium_user");
-    if (premiumError) {
-      console.error("menu_is_premium_user rpc failed", { correlationId, premiumError });
-    }
-    if (!premiumData) {
-      return jsonResponse({ error: "policy_blocked", correlationId }, { status: 403 });
-    }
-
     // Fetch recipe with ownership check
     const { data: recipe, error: recipeError } = await supabase
       .from("menu_recipes")
@@ -120,11 +114,11 @@ serve(async (req) => {
       .eq("owner_id", userId)
       .maybeSingle();
     if (recipeError || !recipe) {
-      return jsonResponse({ error: "recipe_not_found", correlationId }, { status: 404 });
+      return respondError({ code: "recipe_not_found", correlationId, status: 404 });
     }
 
     if (recipe.idempotency_key && recipe.idempotency_key === idempotencyKey) {
-      return jsonResponse({ recipe, replay: true, correlationId }, { status: 200 });
+      return respond({ recipe, replay: true, correlationId }, { status: 200 }, correlationId);
     }
 
     const now = new Date().toISOString();
@@ -160,33 +154,32 @@ serve(async (req) => {
         console.error("menu-regenerate llm_invoke_failed", { correlationId, llmError });
         throw new Error("llm_failed");
       }
-      console.log(
-        JSON.stringify({
-          event: "menu_regenerate_llm_call",
-          correlationId,
-          recipeId: recipe.id,
-          llmDurationMs,
-          status: "ok",
-        }),
-      );
+      logEvent({
+        event: "menu_regenerate_llm_call",
+        correlationId,
+        ownerId: userId,
+        entityId: recipe.id,
+        durationMs: llmDurationMs,
+        status: "ok"
+      });
       llmResponse = menuPromptResponseSchema.parse(llmData);
     } catch (error) {
       console.error("menu-regenerate llm_call_failed", { correlationId, error: String(error) });
-      console.log(
-        JSON.stringify({
-          event: "menu_regenerate_llm_call",
-          correlationId,
-          recipeId: recipe.id,
-          llmDurationMs,
-          status: "error",
-        }),
-      );
-      return jsonResponse({ error: "regen_generation_failed", correlationId }, { status: 502 });
+      logEvent({
+        event: "menu_regenerate_llm_call",
+        correlationId,
+        ownerId: userId,
+        entityId: recipe.id,
+        durationMs: llmDurationMs,
+        status: "error",
+        errorCode: "llm_failed"
+      });
+      return respondError({ code: "regen_generation_failed", correlationId, status: 502 });
     }
 
     const nextCard = llmResponse?.cards?.[0];
     if (!nextCard) {
-      return jsonResponse({ error: "no_recipe_generated", correlationId }, { status: 502 });
+      return respondError({ code: "no_recipe_generated", correlationId, status: 502 });
     }
 
     const updates: Record<string, unknown> = {
@@ -217,7 +210,7 @@ serve(async (req) => {
 
     if (updateError) {
       console.error("menu-regenerate update failed", { correlationId, updateError });
-      return jsonResponse({ error: "regen_failed", correlationId }, { status: 400 });
+      return respondError({ code: "regen_failed", correlationId, status: 400 });
     }
 
     await supabase
@@ -234,20 +227,21 @@ serve(async (req) => {
       .maybeSingle();
 
     const durationMs = Math.round(performance.now() - started);
-    console.log(
-      JSON.stringify({
-        event: "menu_regenerate",
-        correlationId,
-        recipeId: updated.id,
-        durationMs,
+    logEvent({
+      event: "menu_regenerate",
+      correlationId,
+      ownerId: userId,
+      entityId: updated.id,
+      durationMs,
+      metadata: {
         llmDurationMs,
-        source: "llm_pipeline",
-      }),
-    );
+        source: "llm_pipeline"
+      }
+    });
 
-    return jsonResponse({ recipe: updated, correlationId, durationMs });
+    return respond({ recipe: updated, correlationId, durationMs }, {}, correlationId);
   } catch (error) {
     console.error("menu-regenerate failure", { error, correlationId });
-    return jsonResponse({ error: "internal_error", correlationId }, { status: 500 });
+    return respondError({ code: "internal_error", correlationId, status: 500 });
   }
 });

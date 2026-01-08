@@ -1,5 +1,11 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
+import {
+  errorResponse,
+  getCorrelationId,
+  jsonResponse,
+  logEvent
+} from "../_shared/observability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -30,20 +36,11 @@ type ReviewRecord = {
   reviewed_at: string | null;
 };
 
-function jsonResponse(body: unknown, init: ResponseInit = {}) {
-  return new Response(JSON.stringify(body), {
-    headers: { "content-type": "application/json", ...corsHeaders },
-    ...init
-  });
-}
+const respond = (body: unknown, init: ResponseInit = {}, correlationId?: string) =>
+  jsonResponse(body, init, corsHeaders, correlationId);
 
-function getCorrelationId(req: Request) {
-  return (
-    req.headers.get("x-correlation-id") ??
-    req.headers.get("Idempotency-Key") ??
-    crypto.randomUUID()
-  );
-}
+const respondError = (options: { code: string; correlationId: string; status?: number; details?: unknown }) =>
+  errorResponse({ ...options, corsHeaders });
 
 function getIdempotencyKey(req: Request) {
   return req.headers.get("Idempotency-Key") ?? req.headers.get("idempotency-key");
@@ -76,7 +73,7 @@ serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "auth_error";
     const status = message === "auth_required" ? 401 : 500;
-    return jsonResponse({ error: message, correlationId }, { status });
+    return respondError({ code: message, correlationId, status });
   }
 
   const url = new URL(req.url);
@@ -91,7 +88,7 @@ serve(async (req) => {
         .eq("owner_id", userId);
       if (error) {
         console.error("menu_review_queue fetch failed", error);
-        return jsonResponse({ items: [] });
+        return respond({ items: [], correlationId }, {}, correlationId);
       }
       const items = Array.isArray(data) ? (data as ReviewRecord[]) : [];
       const filtered = items.filter((item) => {
@@ -99,11 +96,11 @@ serve(async (req) => {
         if (sessionId && item.session_id !== sessionId) return false;
         return true;
       });
-      return jsonResponse({ items: filtered });
+      return respond({ items: filtered, correlationId }, {}, correlationId);
     }
 
     if (req.method !== "POST") {
-      return jsonResponse({ error: "method_not_allowed", correlationId }, { status: 405 });
+      return respondError({ code: "method_not_allowed", correlationId, status: 405 });
     }
 
     const payload = (await req.json().catch(() => ({}))) as ReviewPayload;
@@ -111,7 +108,7 @@ serve(async (req) => {
 
     const idempotencyKey = getIdempotencyKey(req);
     if (!idempotencyKey) {
-      return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
+      return respondError({ code: "idempotency_key_required", correlationId, status: 400 });
     }
 
     const existing = await supabase
@@ -122,12 +119,12 @@ serve(async (req) => {
       .maybeSingle();
 
     if (!existing.error && existing.data) {
-      return jsonResponse({
+      return respond({
         status: existing.data.status ?? "queued",
         item: existing.data,
         replay: true,
         correlationId
-      });
+      }, {}, correlationId);
     }
 
     const { data, error } = await supabase
@@ -156,7 +153,7 @@ serve(async (req) => {
           .eq("idempotency_key", idempotencyKey)
           .maybeSingle();
         if (replay) {
-          return jsonResponse({ status: replay.status ?? "queued", item: replay, replay: true, correlationId });
+          return respond({ status: replay.status ?? "queued", item: replay, replay: true, correlationId }, {}, correlationId);
         }
 
         // Another common uniqueness collision is a duplicate pending review per card (double-taps/app restarts).
@@ -170,32 +167,31 @@ serve(async (req) => {
             .order("created_at", { ascending: false })
             .maybeSingle();
           if (existingByCard) {
-            return jsonResponse({
+            return respond({
               status: existingByCard.status ?? "queued",
               item: existingByCard,
               replay: true,
               correlationId
-            });
+            }, {}, correlationId);
           }
         }
       }
+      return respondError({ code: "review_create_failed", correlationId, status: 400 });
     }
 
-    console.log(
-      JSON.stringify({
-        event: "menu_review_flag",
-        correlationId,
-        userId,
-        sessionId: payload.sessionId ?? null,
-        cardId: payload.cardId ?? null,
-        reason: payload.reason ?? "flagged",
-        logged: !error
-      })
-    );
+    logEvent({
+      event: "menu_review_flag",
+      correlationId,
+      ownerId: userId,
+      sessionId: payload.sessionId ?? null,
+      entityId: payload.cardId ?? data?.id ?? null,
+      status: "queued",
+      metadata: { reason: payload.reason ?? "flagged" }
+    });
 
-    return jsonResponse({ status: "queued", item: data ?? null, correlationId });
+    return respond({ status: "queued", item: data ?? null, correlationId }, {}, correlationId);
   } catch (error) {
     console.error("menus-reviews failure", { correlationId, error });
-    return jsonResponse({ error: "internal_error", correlationId }, { status: 500 });
+    return respondError({ code: "internal_error", correlationId, status: 500 });
   }
 });

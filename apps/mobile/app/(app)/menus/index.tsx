@@ -216,8 +216,6 @@ export default function MenuInboxScreen() {
   const [sortOpen, setSortOpen] = useState(false);
   const [savedSelection, setSavedSelection] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
-  const [showUpgradeOverlay, setShowUpgradeOverlay] = useState(!devMenuOverride);
-  const [overlayCollapsed, setOverlayCollapsed] = useState(devMenuOverride);
   const [conversionMeta, setConversionMeta] = useState<ConversionMeta | null>(null);
   const [sessionHighlights, setSessionHighlights] = useState<string[]>([]);
   const [restoredUI, setRestoredUI] = useState(false);
@@ -333,8 +331,8 @@ export default function MenuInboxScreen() {
     const remainingListCreates = policy?.limits?.remainingListCreates ?? null;
     const base = {
       isPremium: Boolean(policy?.isPremium),
-      blurRecipes: policy?.blurRecipes ?? true,
-      allowListCreation: policy?.allowListCreation ?? false,
+      blurRecipes: policy?.blurRecipes ?? false,
+      allowListCreation: policy?.allowListCreation ?? true,
       limits: {
         ...limits,
         remainingUploads,
@@ -349,8 +347,8 @@ export default function MenuInboxScreen() {
         allowListCreation: true,
         limits: {
           ...limits,
-          maxUploadsPerDay: Math.max(limits.maxUploadsPerDay ?? TITLE_LIMIT_FALLBACK, 50),
-          maxListCreates: Math.max(limits.maxListCreates ?? 1, 50)
+          maxUploadsPerDay: Math.max(limits.maxUploadsPerDay ?? TITLE_LIMIT_FALLBACK, 10),
+          maxListCreates: Math.max(limits.maxListCreates ?? 1, 10)
         }
       };
     }
@@ -362,7 +360,7 @@ export default function MenuInboxScreen() {
   const remainingUploads = entitlements.limits.remainingUploads ?? null;
   const remainingListCreates = entitlements.limits.remainingListCreates ?? null;
   const allowListCreation = entitlements.allowListCreation;
-  const allowRecipeViews = isPremium || devMenuOverride;
+  const allowRecipeViews = Boolean(user?.id);
   const entitlementsReady = Boolean(menuPolicy) || devMenuOverride;
   const {
     recipes,
@@ -405,10 +403,6 @@ export default function MenuInboxScreen() {
   const handleSubmitClarifications = async () => {
     if (clarificationsSubmitting) return;
     if (!session?.id || !clarifications.length) {
-      return;
-    }
-    if (!isPremium) {
-      handleUpgradePress();
       return;
     }
     const answers = (clarifications as Array<{ dishKey: string; question: string }>)
@@ -455,7 +449,7 @@ export default function MenuInboxScreen() {
       ...recipes.map((recipe) => ({
         id: recipe.id,
         title: recipe.title?.trim() ?? '',
-        titleOnly: !isPremium && recipe.premium_required
+        titleOnly: false
       })),
       ...titleOnlyDishes.map((dish) => ({
         id: dish.id,
@@ -476,7 +470,7 @@ export default function MenuInboxScreen() {
       }
     });
     return Array.from(dedup.values()).sort((a, b) => a.title.localeCompare(b.title));
-  }, [recipes, isPremium, titleOnlyDishes, optimisticDishes]);
+  }, [recipes, titleOnlyDishes, optimisticDishes]);
 
   const recipeSignature = useMemo(() => {
     if (!recipes.length) {
@@ -668,13 +662,6 @@ export default function MenuInboxScreen() {
   }, [showPreferencesSheet, menuPolicy, dietaryTags, allergenFlags]);
 
   useEffect(() => {
-    if (isPremium) {
-      setShowUpgradeOverlay(false);
-      setOverlayCollapsed(true);
-    }
-  }, [isPremium]);
-
-  useEffect(() => {
     if (scaleAllTouchedRef.current) {
       return;
     }
@@ -861,7 +848,7 @@ export default function MenuInboxScreen() {
   };
 
   const handleUpgradePress = () => {
-    Alert.alert('Upgrade required', 'Visit Account & Billing to upgrade your plan for menu recipes.');
+    Alert.alert('Upgrade required', 'Upgrade to unlock 10 menu runs per day and higher limits.');
   };
 
   const formatPeopleLabel = (value: number) => (value === 1 ? '1 person' : `${value} people`);
@@ -871,11 +858,7 @@ export default function MenuInboxScreen() {
       return;
     }
     if (!allowListCreation) {
-      Toast.show('List creation is not allowed for your current plan.', 1700);
-      return;
-    }
-    if (!isPremium) {
-      handleUpgradePress();
+      Toast.show('List creation limit reached for today.', 1700);
       return;
     }
     try {
@@ -929,15 +912,11 @@ export default function MenuInboxScreen() {
       return;
     }
     if (!allowListCreation) {
-      Toast.show('List creation is not allowed for your current plan.', 1700);
+      Toast.show('List creation limit reached for today.', 1700);
       return;
     }
     if (typeof remainingListCreates === 'number' && remainingListCreates <= 0) {
       Toast.show('List creation limit reached for today.', 1700);
-      return;
-    }
-    if (!isPremium) {
-      handleUpgradePress();
       return;
     }
     try {
@@ -1150,10 +1129,6 @@ export default function MenuInboxScreen() {
     Toast.show(`Scaled unlocked cards to ${formatPeopleLabel(target)}.`, 1400);
   };
   const regenerateCard = async (card: DisplayCard) => {
-    if (!isPremium && !devMenuOverride) {
-      handleUpgradePress();
-      return;
-    }
     if (regeneratingCardId) {
       return;
     }
@@ -1354,9 +1329,22 @@ export default function MenuInboxScreen() {
     try {
       let titlesOnly = 0;
       const newTitleOnly: TitleOnlyDish[] = [];
-      if (!isPremium) {
-        const createdDate = new Date().toISOString().slice(0, 10);
-        for (const title of parts) {
+      const createdDate = new Date().toISOString().slice(0, 10);
+      for (const title of parts) {
+        try {
+          const result = await createRecipe({ title });
+          if (!result.recipe) {
+            throw new Error('recipe_missing');
+          }
+        } catch (error) {
+          if (isOverLimitError(error)) {
+            setLimitPromptVisible(true);
+            setLimitPromptCount(remainingUploads ?? 0);
+            break;
+          }
+          if (!isTransientMenuError(error)) {
+            throw error;
+          }
           try {
             const result = await createMenuTitleDish({
               title,
@@ -1368,32 +1356,19 @@ export default function MenuInboxScreen() {
               title: result.item.title,
               createdAt: result.item.created_at.slice(0, 10)
             });
-            titlesOnly += 1;
-          } catch (error) {
-            if (isOverLimitError(error)) {
+          } catch (fallbackError) {
+            if (isOverLimitError(fallbackError)) {
               setLimitPromptVisible(true);
               setLimitPromptCount(remainingUploads ?? 0);
               break;
             }
-            if (!isTransientMenuError(error)) {
-              throw error;
-            }
-            // Offline / transient failures: keep a local entry and sync later on next load.
             newTitleOnly.push({
               id: `local-title-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
               title,
               createdAt: createdDate
             });
-            titlesOnly += 1;
           }
-        }
-      } else {
-        for (const title of parts) {
-          const result = await createRecipe({ title, premium: true });
-          if (result.savedAsTitleOnly || !result.recipe) {
-            Toast.show('Unable to save recipe right now. Please retry.', 1800);
-            return;
-          }
+          titlesOnly += 1;
         }
       }
       // Remove optimistic placeholders that match saved parts
@@ -1410,16 +1385,14 @@ export default function MenuInboxScreen() {
         await refreshPolicy().catch(() => {});
       }
       setDishDraft('');
-      if (!isPremium) {
-        Toast.show('Saved dish titles. Upgrade to unlock recipes and shopping plans.', 1700);
-      } else if (titlesOnly === parts.length) {
-        Toast.show('Saved dish titles only. Upgrade to unlock recipes and shopping plans.', 1700);
+      if (titlesOnly === parts.length) {
+        Toast.show('Saved dish titles only. Recipes will sync when available.', 1700);
       } else if (titlesOnly > 0) {
         const recipeCount = parts.length - titlesOnly;
         Toast.show(
           `Saved ${recipeCount} recipe${recipeCount === 1 ? '' : 's'}; ${titlesOnly} title${
             titlesOnly === 1 ? '' : 's'
-          } need premium.`,
+          } stored as titles.`,
           1700
         );
       } else {
@@ -1436,12 +1409,8 @@ export default function MenuInboxScreen() {
   };
 
   const handleSavedPress = (dish: { id: string; title: string; titleOnly: boolean }) => {
-    if (!allowRecipeViews) {
-      handleUpgradePress();
-      return;
-    }
     if (dish.titleOnly) {
-      handleUpgradePress();
+      Toast.show('Title-only dish saved. Upload a menu or regenerate to see recipes.', 1700);
       return;
     }
     addOpenCards(dish.id);
@@ -1478,13 +1447,9 @@ export default function MenuInboxScreen() {
     }
     const ids = Array.from(savedSelection);
     if (action === 'open') {
-      if (!allowRecipeViews) {
-        handleUpgradePress();
-        return;
-      }
       const locked = savedDishes.filter((dish) => savedSelection.has(dish.id) && dish.titleOnly);
       if (locked.length) {
-        handleUpgradePress();
+        Toast.show('Title-only dishes selected. Upload a menu to generate recipes.', 1700);
         return;
       }
       addOpenCards(ids);
@@ -1494,15 +1459,11 @@ export default function MenuInboxScreen() {
         return;
       }
       if (!allowListCreation) {
-        Toast.show('List creation is not allowed for your current plan.', 1700);
+        Toast.show('List creation limit reached for today.', 1700);
         return;
       }
       if (typeof remainingListCreates === 'number' && remainingListCreates <= 0) {
         Toast.show('List creation limit reached for today.', 1700);
-        return;
-      }
-      if (!isPremium) {
-        handleUpgradePress();
         return;
       }
       try {
@@ -1536,8 +1497,10 @@ export default function MenuInboxScreen() {
     if (!ensureEntitlementsReady()) {
       return;
     }
-    if (!isPremium) {
-      handleUpgradePress();
+    if (!session?.id && typeof remainingUploads === 'number' && remainingUploads <= 0 && !devMenuOverride) {
+      setLimitPromptVisible(true);
+      setLimitPromptCount(remainingUploads ?? 0);
+      Toast.show('Daily menu limit reached.', 1700);
       return;
     }
     const sourceTitles = sessionDishTitles.length ? sessionDishTitles : sortedCards.map((card) => card.title);
@@ -1595,53 +1558,6 @@ export default function MenuInboxScreen() {
           </View>
         </View>
       ) : null}
-      {!isPremium && showUpgradeOverlay && !overlayCollapsed ? (
-        <View style={styles.upgradeOverlay}>
-          <View style={styles.upgradeCard}>
-            <Ionicons name="lock-closed" size={20} color="#0C1D37" />
-            <Text style={styles.upgradeTitle}>Premium required</Text>
-            <Text style={styles.upgradeBody}>
-              Upgrade to unlock full menu parsing. Or save dishes as titles only to your library.
-            </Text>
-            <Pressable
-              style={[styles.primary, styles.upgradeFancy]}
-              onPress={handleUpgradePress}
-            >
-              <Ionicons name="sparkles" size={16} color="#FFFFFF" />
-              <Text style={styles.primaryLabel}>Upgrade</Text>
-            </Pressable>
-            <Pressable
-              style={styles.secondary}
-              onPress={() => {
-                Toast.show('Saved dish title only.', 1500);
-                setOverlayCollapsed(true);
-              }}
-            >
-              <Text style={styles.secondaryLabel}>Save dish only</Text>
-            </Pressable>
-            <View style={[styles.intelCard, styles.intelCardMuted]}>
-              <View style={styles.intelHeader}>
-                <Ionicons name="sparkles" size={16} color="#475569" />
-                <Text style={styles.intelTitle}>What AI does</Text>
-              </View>
-              <Text style={styles.intelMeta}>
-                - Detects dishes, course type, and key ingredients.{'\n'}
-                - Builds a shopping plan and suggests substitutions.{'\n'}
-                - Saves recipe cards to revisit later.
-              </Text>
-            </View>
-            <Pressable
-              style={styles.dismissLink}
-              onPress={() => {
-                setShowUpgradeOverlay(false);
-                setOverlayCollapsed(true);
-              }}
-            >
-              <Text style={styles.dismissLabel}>Not now</Text>
-            </Pressable>
-          </View>
-        </View>
-      ) : null}
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.headerRow}>
           <Text style={styles.title}>Menus</Text>
@@ -1650,7 +1566,7 @@ export default function MenuInboxScreen() {
           </View>
         </View>
         <Text style={styles.subtitle}>
-          Review menu captures. Premium unlocks recipes and shopping plans; non-premium can save dish titles only.
+          Review menu captures. Free plan includes 3 full menu runs; premium unlocks 10 per day.
         </Text>
       <View style={styles.quickActionsRow}>
         <Pressable
@@ -1723,22 +1639,30 @@ export default function MenuInboxScreen() {
             <View style={styles.limitIcon}>
               <Ionicons name="alert-circle" size={20} color="#0F172A" />
             </View>
-            <Text style={styles.limitTitle}>Daily save limit reached</Text>
+            <Text style={styles.limitTitle}>Daily menu limit reached</Text>
             <Text style={styles.limitSubtitle}>
-              You can save up to {limitPerDay} dishes per day while on the free plan. Remaining today:{' '}
-              {Math.max(0, limitPromptCount)}. Upgrade to unlock full menu recipes, unlimited saves, and auto shopping
-              plans.
+              {isPremium
+                ? `You have used your ${limitPerDay} menu runs for today. Remaining today: ${Math.max(
+                    0,
+                    limitPromptCount
+                  )}. Try again tomorrow.`
+                : `Free plan includes ${limitPerDay} menu runs per day. Remaining today: ${Math.max(
+                    0,
+                    limitPromptCount
+                  )}. Upgrade to unlock 10 per day.`}
             </Text>
-            <Pressable
-              style={[styles.primary, styles.upgradeFancy, styles.limitUpgrade]}
-              onPress={() => {
-                setLimitPromptVisible(false);
-                handleUpgradePress();
-              }}
-            >
-              <Ionicons name="sparkles" size={16} color="#FFFFFF" />
-              <Text style={styles.primaryLabel}>Upgrade</Text>
-            </Pressable>
+            {!isPremium ? (
+              <Pressable
+                style={[styles.primary, styles.upgradeFancy, styles.limitUpgrade]}
+                onPress={() => {
+                  setLimitPromptVisible(false);
+                  handleUpgradePress();
+                }}
+              >
+                <Ionicons name="sparkles" size={16} color="#FFFFFF" />
+                <Text style={styles.primaryLabel}>Upgrade</Text>
+              </Pressable>
+            ) : null}
             <Pressable style={styles.limitDismiss} onPress={() => setLimitPromptVisible(false)}>
               <Text style={styles.limitDismissLabel}>Close</Text>
             </Pressable>
@@ -1958,7 +1882,7 @@ export default function MenuInboxScreen() {
                 >
                   <View>
                     <Text style={styles.savedTitle}>{formatDishTitle(dish.title)}</Text>
-                    {dish.titleOnly ? <Text style={styles.savedUpsell}>Title only – tap to upgrade</Text> : null}
+                    {dish.titleOnly ? <Text style={styles.savedUpsell}>Title only</Text> : null}
                   </View>
                   {selectionMode ? (
                     <Ionicons
@@ -2048,70 +1972,68 @@ export default function MenuInboxScreen() {
         </View>
       ) : null}
 
-      {isPremium ? (
-        <>
-          <View style={styles.card}>
-            <View style={styles.menuReviewHeader}>
-              <Ionicons name="restaurant" size={20} color="#0C1D37" />
-              <Text style={styles.cardTitle}>Menu review</Text>
-            </View>
-            {recipesLoading ? <ActivityIndicator size="small" color="#0C1D37" /> : null}
-            {recipesError ? <Text style={styles.errorText}>Unable to load menus. Pull to refresh.</Text> : null}
-            <Text style={styles.cardBody}>
-              Tap a saved dish to view recipe cards. Swipe between cards; add to list or flag for review.
-            </Text>
-            <View style={styles.intelCard}>
-              <View style={styles.intelHeader}>
-                <Ionicons name="sparkles" size={16} color="#0F172A" />
-                <Text style={styles.intelTitle}>AI preview</Text>
-                {previewLoading ? <ActivityIndicator size="small" color="#0F172A" /> : null}
-              </View>
-              <Text style={styles.intelMeta}>
-                Generate recipe cards and a consolidated shopping list before saving them to your pantry.
-              </Text>
-              <Pressable
-                style={[styles.previewButton, previewLoading && styles.disabledButton]}
-                disabled={previewLoading}
-                onPress={handleGeneratePreview}
-              >
-                <Ionicons name="sparkles" size={14} color="#FFFFFF" />
-                <Text style={styles.previewButtonLabel}>{previewLoading ? 'Generating…' : 'Generate preview'}</Text>
-              </Pressable>
-              {previewError ? <Text style={styles.errorText}>Unable to generate preview. Try again later.</Text> : null}
-              {previewCards.length ? (
-                previewCards.map((card) => (
-                  <View key={card.id} style={styles.previewCard}>
-                    <View style={styles.intelText}>
-                      <Text style={styles.intelDish}>{card.title}</Text>
-                      <Text style={styles.intelMeta}>
-                        {card.course} • Serves {card.people}
-                      </Text>
-                    </View>
-                    {card.listLines
-                      .map((line) => line?.trim())
-                      .filter(Boolean)
-                      .map((line, index) => (
-                        <Text key={`${card.id}-preview-${index}`} style={styles.previewListLine}>
-                          • {line}
-                        </Text>
-                      ))}
-                  </View>
-                ))
-              ) : (
-                <Text style={styles.intelMeta}>Add dishes or save a menu, then tap Generate preview.</Text>
-              )}
-            {previewList.length ? (
-              <View style={styles.previewSummary}>
-                <Text style={styles.intelTitle}>Consolidated list</Text>
-                {previewList.map((line, index) => (
-                  <Text key={`${line.name}-${index}`} style={styles.previewListLine}>
-                    • {formatListLineSummary(line)}
+      <View style={styles.card}>
+        <View style={styles.menuReviewHeader}>
+          <Ionicons name="restaurant" size={20} color="#0C1D37" />
+          <Text style={styles.cardTitle}>Menu review</Text>
+        </View>
+        {recipesLoading ? <ActivityIndicator size="small" color="#0C1D37" /> : null}
+        {recipesError ? <Text style={styles.errorText}>Unable to load menus. Pull to refresh.</Text> : null}
+        <Text style={styles.cardBody}>
+          Tap a saved dish to view recipe cards. Swipe between cards; add to list or flag for review.
+        </Text>
+        <View style={styles.intelCard}>
+          <View style={styles.intelHeader}>
+            <Ionicons name="sparkles" size={16} color="#0F172A" />
+            <Text style={styles.intelTitle}>AI preview</Text>
+            {previewLoading ? <ActivityIndicator size="small" color="#0F172A" /> : null}
+          </View>
+          <Text style={styles.intelMeta}>
+            Generate recipe cards and a consolidated shopping list before saving them to your pantry.
+          </Text>
+          <Pressable
+            style={[styles.previewButton, previewLoading && styles.disabledButton]}
+            disabled={previewLoading}
+            onPress={handleGeneratePreview}
+          >
+            <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+            <Text style={styles.previewButtonLabel}>{previewLoading ? 'Generating…' : 'Generate preview'}</Text>
+          </Pressable>
+          {previewError ? <Text style={styles.errorText}>Unable to generate preview. Try again later.</Text> : null}
+          {previewCards.length ? (
+            previewCards.map((card) => (
+              <View key={card.id} style={styles.previewCard}>
+                <View style={styles.intelText}>
+                  <Text style={styles.intelDish}>{card.title}</Text>
+                  <Text style={styles.intelMeta}>
+                    {card.course} • Serves {card.people}
                   </Text>
-                ))}
+                </View>
+                {card.listLines
+                  .map((line) => line?.trim())
+                  .filter(Boolean)
+                  .map((line, index) => (
+                    <Text key={`${card.id}-preview-${index}`} style={styles.previewListLine}>
+                      • {line}
+                    </Text>
+                  ))}
               </View>
-            ) : null}
-          </View>
-          </View>
+            ))
+          ) : (
+            <Text style={styles.intelMeta}>Add dishes or save a menu, then tap Generate preview.</Text>
+          )}
+          {previewList.length ? (
+            <View style={styles.previewSummary}>
+              <Text style={styles.intelTitle}>Consolidated list</Text>
+              {previewList.map((line, index) => (
+                <Text key={`${line.name}-${index}`} style={styles.previewListLine}>
+                  • {formatListLineSummary(line)}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      </View>
 
           {cardViewerOpen ? (
             <View style={styles.viewerOverlay}>
@@ -2181,8 +2103,8 @@ export default function MenuInboxScreen() {
                   showsHorizontalScrollIndicator={false}
                   renderItem={({ item: card }) => {
                     const people = cardPeople[card.id] ?? card.basePeople ?? 1;
-                    const cardLocked = !isPremium && card.requiresPremium;
-                        const shouldBlur = blurRecipes && !isPremium;
+                    const cardLocked = false;
+                    const shouldBlur = false;
                         const reviewStatus = reviewStatusMap[card.id];
                         const reviewQueued = reviewStatus === 'pending' || reviewStatus === 'queued';
                         const reviewTimestamps = reviewMeta[card.id];
@@ -2415,26 +2337,24 @@ export default function MenuInboxScreen() {
             </View>
           ) : null}
 
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Suggested pairings</Text>
-            {pairingsLoading ? <ActivityIndicator size="small" color="#0C1D37" /> : null}
-            {pairingsError ? <Text style={styles.errorText}>Unable to load pairings right now.</Text> : null}
-            {pairingEntries.map((menu) => (
-              <Pressable
-                key={menu.id}
-                style={styles.menuPairing}
-                onPress={() => Toast.show(`Suggested menu added: ${menu.title}`, 1300)}
-              >
-                <View style={styles.menuPairingText}>
-                  <Text style={styles.menuPairingTitle}>{menu.title}</Text>
-                  <Text style={styles.menuPairingMeta}>{menu.dishes.join(' • ')}</Text>
-                </View>
-                <Ionicons name="arrow-forward" size={16} color="#0C1D37" />
-              </Pressable>
-            ))}
-          </View>
-        </>
-      ) : null}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Suggested pairings</Text>
+        {pairingsLoading ? <ActivityIndicator size="small" color="#0C1D37" /> : null}
+        {pairingsError ? <Text style={styles.errorText}>Unable to load pairings right now.</Text> : null}
+        {pairingEntries.map((menu) => (
+          <Pressable
+            key={menu.id}
+            style={styles.menuPairing}
+            onPress={() => Toast.show(`Suggested menu added: ${menu.title}`, 1300)}
+          >
+            <View style={styles.menuPairingText}>
+              <Text style={styles.menuPairingTitle}>{menu.title}</Text>
+              <Text style={styles.menuPairingMeta}>{menu.dishes.join(' • ')}</Text>
+            </View>
+            <Ionicons name="arrow-forward" size={16} color="#0C1D37" />
+          </Pressable>
+        ))}
+      </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -2484,7 +2404,7 @@ function mapRecipeToCard(recipe: MenuRecipe, overridePeople?: number): DisplayCa
     listLines: ingredientLines.length ? ingredientLines : ['Ingredients coming soon'],
     packagingNote: recipe.packaging_notes ?? null,
     packagingGuidance,
-    requiresPremium: Boolean(recipe.premium_required),
+    requiresPremium: false,
     recipe
   };
 }

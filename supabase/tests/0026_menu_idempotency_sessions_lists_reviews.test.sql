@@ -155,12 +155,7 @@ select is(
   'menu_usage_counters.uploads increments once for session'
 );
 
--- premium claims for list creation
-select set_config(
-  'request.jwt.claims',
-  json_build_object('app_metadata', json_build_object('is_menu_premium', true))::text,
-  true
-);
+-- list creation should be allowed for free users (within limits)
 
 select 'menu-list-' || gen_random_uuid()::text as list_key \gset
 

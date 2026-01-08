@@ -3,7 +3,6 @@ import { ensureSupabaseClient } from '@/src/lib/supabase';
 
 export type SaveDishRequest = {
   title: string;
-  premium: boolean;
   idempotencyKey?: string;
 };
 
@@ -330,15 +329,14 @@ export async function saveDish(request: SaveDishRequest): Promise<SaveDishRespon
   const payload = await callMenuFunction<{ recipe?: MenuRecipe | null }>('menu-recipes', {
     method: 'POST',
     body: JSON.stringify({
-      title: request.title,
-      premiumRequired: request.premium
+      title: request.title
     }),
     idempotencyKey: request.idempotencyKey
   });
   const recipe = payload?.recipe ?? null;
   return {
     status: 'ok',
-    savedAsTitleOnly: !request.premium || !recipe,
+    savedAsTitleOnly: !recipe,
     recipe
   };
 }

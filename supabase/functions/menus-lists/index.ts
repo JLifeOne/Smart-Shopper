@@ -1,5 +1,11 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
+import {
+  errorResponse,
+  getCorrelationId,
+  jsonResponse,
+  logEvent
+} from "../_shared/observability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,20 +31,11 @@ type Ingredient = {
   notes?: string | null;
 };
 
-function jsonResponse(body: unknown, init: ResponseInit = {}) {
-  return new Response(JSON.stringify(body), {
-    headers: { "content-type": "application/json", ...corsHeaders },
-    ...init
-  });
-}
+const respond = (body: unknown, init: ResponseInit = {}, correlationId?: string) =>
+  jsonResponse(body, init, corsHeaders, correlationId);
 
-function getCorrelationId(req: Request) {
-  return (
-    req.headers.get("x-correlation-id") ??
-    req.headers.get("Idempotency-Key") ??
-    crypto.randomUUID()
-  );
-}
+const respondError = (options: { code: string; correlationId: string; status?: number; details?: unknown }) =>
+  errorResponse({ ...options, corsHeaders });
 
 function getIdempotencyKey(req: Request) {
   return req.headers.get("Idempotency-Key") ?? req.headers.get("idempotency-key");
@@ -107,26 +104,18 @@ serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "auth_error";
     const status = message === "auth_required" ? 401 : 500;
-    return jsonResponse({ error: message, correlationId }, { status });
+    return respondError({ code: message, correlationId, status });
   }
 
   if (req.method !== "POST") {
-    return jsonResponse({ error: "method_not_allowed", correlationId }, { status: 405 });
+    return respondError({ code: "method_not_allowed", correlationId, status: 405 });
   }
 
   try {
-    const { data: premiumData, error: premiumError } = await supabase.rpc("menu_is_premium_user");
-    if (premiumError) {
-      console.error("menu_is_premium_user rpc failed", { correlationId, premiumError });
-    }
-    if (!premiumData) {
-      return jsonResponse({ error: "premium_required", correlationId }, { status: 403 });
-    }
-
     const payload = (await req.json().catch(() => ({}))) as ConvertPayload;
     const dishIds = Array.isArray(payload.dishIds) ? payload.dishIds.filter(Boolean) : [];
     if (!dishIds.length) {
-      return jsonResponse({ error: "dish_ids_required", correlationId }, { status: 400 });
+      return respondError({ code: "dish_ids_required", correlationId, status: 400 });
     }
 
     const { data: recipes, error } = await supabase
@@ -136,10 +125,10 @@ serve(async (req) => {
       .eq("owner_id", userId);
     if (error) {
       console.error("menu_recipes fetch failed", error);
-      return jsonResponse({ error: "recipes_fetch_failed", correlationId }, { status: 400 });
+      return respondError({ code: "recipes_fetch_failed", correlationId, status: 400 });
     }
     if ((recipes ?? []).length !== dishIds.length) {
-      return jsonResponse({ error: "missing_recipes", correlationId }, { status: 404 });
+      return respondError({ code: "missing_recipes", correlationId, status: 404 });
     }
 
     const { data: preferences } = await supabase
@@ -182,14 +171,12 @@ serve(async (req) => {
     }
 
     if (violations.length) {
-      return jsonResponse(
-        {
-          error: "preference_violation",
-          violations,
-          correlationId
-        },
-        { status: 400 }
-      );
+      return respondError({
+        code: "preference_violation",
+        correlationId,
+        status: 400,
+        details: { violations }
+      });
     }
 
     const consolidatedList = aggregateIngredients(recipes ?? [], payload.peopleCountOverride);
@@ -199,7 +186,7 @@ serve(async (req) => {
     if (payload.persistList) {
       const idempotencyKey = getIdempotencyKey(req);
       if (!idempotencyKey) {
-        return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
+        return respondError({ code: "idempotency_key_required", correlationId, status: 400 });
       }
       const listName = payload.listName?.trim() || `Menu plan ${new Date().toISOString().slice(0, 10)}`;
       const itemsPayload = consolidatedList.map((line) => ({
@@ -215,48 +202,61 @@ serve(async (req) => {
       if (createError) {
         const message = createError.message ?? "list_create_failed";
         if (message.includes("limit_exceeded")) {
-          return jsonResponse({ error: "limit_exceeded", scope: "list_creates", correlationId }, { status: 429 });
-        }
-        if (message.includes("premium_required")) {
-          return jsonResponse({ error: "premium_required", correlationId }, { status: 403 });
+          logEvent({
+            event: "menu_list_limit_exceeded",
+            correlationId,
+            ownerId: userId,
+            errorCode: "limit_exceeded",
+            metadata: { scope: "list_creates" }
+          });
+          return respondError({
+            code: "limit_exceeded",
+            correlationId,
+            status: 429,
+            details: { scope: "list_creates" }
+          });
         }
         if (message.includes("idempotency_key_required")) {
-          return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
+          return respondError({ code: "idempotency_key_required", correlationId, status: 400 });
         }
         console.error("menus-lists create failed", { correlationId, createError });
-        return jsonResponse({ error: "list_create_failed", correlationId }, { status: 400 });
+        return respondError({ code: "list_create_failed", correlationId, status: 400 });
       }
       const createdRow = Array.isArray(created) ? created[0] : created;
       listId = (createdRow?.list_id as string | undefined) ?? null;
       replay = Boolean(createdRow?.replay ?? false);
       if (!listId) {
-        return jsonResponse({ error: "list_create_failed", correlationId }, { status: 400 });
+        return respondError({ code: "list_create_failed", correlationId, status: 400 });
       }
     }
 
     const durationMs = Math.round(performance.now() - startedAt);
-    console.log(
-      JSON.stringify({
-        event: "menu_list_converted",
-        correlationId,
-        ownerId: userId,
+    logEvent({
+      event: "menu_list_converted",
+      correlationId,
+      ownerId: userId,
+      entityId: listId,
+      durationMs,
+      metadata: {
         dishCount: dishIds.length,
         persisted: Boolean(payload.persistList),
-        listId,
-        replay: payload.persistList ? replay : undefined,
-        durationMs
-      })
-    );
-
-    return jsonResponse({
-      consolidatedList,
-      listId,
-      servings: payload.peopleCountOverride ?? null,
-      replay: payload.persistList ? replay : undefined,
-      correlationId
+        replay: payload.persistList ? replay : undefined
+      }
     });
+
+    return respond(
+      {
+        consolidatedList,
+        listId,
+        servings: payload.peopleCountOverride ?? null,
+        replay: payload.persistList ? replay : undefined,
+        correlationId
+      },
+      {},
+      correlationId
+    );
   } catch (error) {
     console.error("menus-lists failure", { correlationId, error });
-    return jsonResponse({ error: "internal_error", correlationId }, { status: 500 });
+    return respondError({ code: "internal_error", correlationId, status: 500 });
   }
 });

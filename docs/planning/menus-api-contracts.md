@@ -53,7 +53,7 @@ Used to acknowledge clarification responses, attach manual edits, or mark deleti
 }
 ```
 
-Premium gating: non-premium users can create sessions, but the server must block downstream recipe generation and only surface title-only responses.
+Limits: sessions are allowed for all users, but the server enforces daily caps (freemium 3/day, premium 10/day).
 
 ---
 
@@ -107,7 +107,7 @@ Payload:
 ### List – `GET /menu-recipes?cursor=`
 Returns paginated recipes owned by the caller with filters (`course`, `cuisineStyle`, `search`). Default sort: `updated_at desc`.
 
-Premium gating: `menu-recipes` is premium-only (server-enforced via RLS + edge function checks). Non-premium users should use the Title-only endpoint (`/menus-titles`) to save and sync dish titles.
+Access: `menu-recipes` is owner-only (server-enforced via RLS + edge function checks). Daily caps are enforced on session/list usage, not recipe reads.
 
 ### Create – `POST /menu-recipes`
 Payload mirrors `menu_recipes` columns. Validates JSON schema for ingredients/method entries.
@@ -137,7 +137,7 @@ Soft-delete optional by setting `deleted_at`; default is hard delete for owner.
 
 ## 4. Title-only dishes (`/menus-titles`)
 
-Title-only saves are the free-tier storage path: they persist dish titles server-side and enforce daily caps without relying on local storage.
+Title-only saves are an optional storage path: they persist dish titles server-side and enforce daily caps without relying on local storage.
 
 ### List – `GET /menus-titles?sessionId=`
 Returns title-only dishes owned by the caller. Optional `sessionId` filter.
@@ -221,7 +221,7 @@ Back-end responsibilities:
 }
 ```
 
-Premium gating: list conversion is premium-only (both preview and list persistence). Non-premium users should only save titles via `/menus-titles`.
+Limits: list conversion is allowed for all users but daily list-create caps apply (freemium 3/day, premium 10/day).
 
 ---
 
@@ -250,7 +250,7 @@ Callers can “save combo” by POSTing to `/menus-pairings` (payload `{ title, 
 
 ## 7. Menus policy (`GET /menus-policy`)
 
-Returns entitlement data (premium vs. title-only) and user preferences that drive blur states, limits, and dietary defaults.
+Returns entitlement data (freemium vs premium limits) and user preferences that drive limits and dietary defaults.
 
 `GET /menus-policy`
 

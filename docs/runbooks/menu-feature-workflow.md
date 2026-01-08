@@ -35,15 +35,15 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
   - Conversion/pairings/reviews: `supabase/functions/menus-lists/index.ts`, `supabase/functions/menus-pairings/index.ts`, `supabase/functions/menus-reviews/index.ts`
 
 ## Scope (what it is)
-- Capture menus/dishes (camera, gallery, or title-only), generate recipe cards and consolidated shopping lists, enforce entitlements (premium vs title-only), and let users save, view, convert to lists, and flag cards for review.
+- Capture menus/dishes (camera, gallery, or title-only), generate recipe cards and consolidated shopping lists, enforce entitlements (freemium daily limits vs premium limits), and let users save, view, convert to lists, and flag cards for review.
 - AI/ML wiring lives inside the Recipes card: auto-generate a recipe (via prompt) on first save of a dish, persist the generated recipe locally and in the DB for reuse (no re-prompt on every view), allow edits, and sync edits to storage + ML training data. Freemium can view the card only after upgrade; dev bypass stays on in dev while entitlements/idempotency harden, but must be removable for production rollout.
 
 ## Current Capabilities (Done)
 - Capture & sessions: Upload via camera/gallery; sessions persisted; UI shows status, warnings, clarifications; can clear/refresh.
-- Policy & gating: Menu policy fetched; premium/title-only limits and daily caps enforced client-side; dev bypass exists for dev builds (must remain removable/disabled outside dev).
-- Recipes & cards: Saved dishes render as recipe cards; swipe viewer; add-to-list/create-list actions (premium); save combo; portions/people adjustment per card.
-- Title-only flow: Non-premium can save titles; titles persist server-side (`/menus-titles`) and daily cap is enforced via `menu_usage_counters` (local cache + best-effort offline sync).
-- List conversion: Menu → list conversion with consolidated lines; summary card shown; list creation gated by limits/premium.
+- Policy & gating: Menu policy fetched; freemium limits and daily caps enforced client-side; dev bypass exists for dev builds (must remain removable/disabled outside dev).
+- Recipes & cards: Saved dishes render as recipe cards; swipe viewer; add-to-list/create-list actions gated by daily limits; save combo; portions/people adjustment per card.
+- Title-only flow: Title-only saves persist server-side (`/menus-titles`); daily cap enforcement uses `menu_usage_counters` (local cache + best-effort offline sync).
+- List conversion: Menu → list conversion with consolidated lines; summary card shown; list creation gated by daily limits.
 - Reviews: “Flag for review” posts to menus-reviews function; status/queue shown when available.
 - Pairings: Suggested pairings rendered from API with fallback; save combo supported.
 - Preferences: Dietary/allergen drafts stored and sent to policy update; applied to preview request payload.
@@ -89,6 +89,17 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
   on conflict (key) do update set value = excluded.value, updated_at = now();
   ```
   Set `app_environment.name='production'` and `menu_dev_bypass.enabled=false` for prod before public release. Ensure `brand_insights` row exists.
+- Developer test account flag (run with service role in dev/staging only):
+  ```sql
+  update auth.users
+  set raw_app_meta_data = jsonb_set(
+    coalesce(raw_app_meta_data, '{}'::jsonb),
+    '{is_developer}',
+    'true'::jsonb,
+    true
+  )
+  where id = '<USER_UUID>';
+  ```
 - Client refresh: `AuthProvider` calls `refreshRuntimeConfig()` after session load; add a manual refresh hook before menu actions if runtime-config age is stale.
 
 ## Environment config — edge-function env (Menus AI + packaging)
@@ -191,7 +202,7 @@ Important PowerShell note: don’t type or paste the prompts `PS C:\ss>` or `>>`
    ```
 
 Expected errors:
-- `policy_blocked`: user is not premium and `menu_dev_bypass.enabled` is not true.
+- `limit_exceeded`: daily menu limit reached (`scope`: `uploads`, `list_creates`, `concurrent_sessions`).
 - `recipe_not_found`: `recipeId` does not exist or is not owned by the JWT user.
 - `idempotency_key_required`: missing `Idempotency-Key` header.
 
@@ -202,8 +213,8 @@ Expected errors:
    - Exit: Restarting the app resumes polling and reflects server status without user action (session + UI state scoped per user on-device).
 2) **Entitlements & limits enforcement**
    - Status: ✅ Done
-   - Deliver: Enforce `menus-policy` (accessLevel, blurRecipes, limits) on uploads, prompts, conversions, recipe fetch/edit; block non-premium/over-limit locally and ensure server rejects. Dev bypass is developer-only and removable/disabled in prod builds.
-   - Exit: Free users cannot call premium endpoints or view Recipes card until upgrade; limits respected even after storage clears; prod builds ship with dev bypass off (and server bypass never elevates non-dev users).
+   - Deliver: Enforce `menus-policy` (limits) on uploads, prompts, conversions, and list creation; allow all users full feature access while applying daily caps (freemium 3 runs/day, premium 10 runs/day). Dev bypass is developer-only and removable/disabled in prod builds.
+   - Exit: Limits are enforced server-side; users can still view previously saved recipes after hitting daily caps; prod builds ship with dev bypass off (and server bypass never elevates non-dev users).
 3) **Idempotency & double-submit guards**
    - Status: ✅ Done
    - Deliver: Make every mutating operation replay-safe end-to-end:
@@ -222,7 +233,7 @@ Expected errors:
      - 🚧 Replace remaining critical toasts with in-UI banners/sheets where appropriate.
    - Exit: Users can start scans directly; list actions are obvious and spec-aligned.
 5) **Observability & alerts**
-   - Status: 🚧 In progress
+   - Status: 🚧 In progress (structured logs shipped; dashboards/alerts pending)
    - Deliver: Structured logs + trace IDs for upload → session polling, prompt, conversion, clarify, review, preference violations; alerts on failures/latency spikes; surface correlation IDs in UI errors. Runbook: `docs/runbooks/menus-observability-and-alerts.md`.
    - Exit: Dashboards and alerts cover golden paths; failures are diagnosable (configure in Supabase/external log sink per runbook).
 6) **Review & clarification robustness**
@@ -235,8 +246,21 @@ Expected errors:
    - Exit: Title-only behavior matches server policy across devices.
 8) **Testing & QA**
    - Status: 🚧 In progress
-   - Deliver: Unit tests for hooks (resume, gating, idempotency), UI render keys, conversion/clarify flows; e2e for upload→prompt→convert (happy/blocked); regression coverage for duplicate-key bug.
+   - Deliver: Unit tests for hooks (resume, gating, idempotency), UI render keys, conversion/clarify flows; e2e for upload→prompt→convert (happy/blocked); k6 load scripts for menus-llm + menus-lists; regression coverage for duplicate-key bug.
    - Exit: CI gates menu changes; key flows covered.
+
+### Stage 4 test commands (copy/paste)
+- Deno unit + integration (requires env + net): `deno test --config supabase/functions/deno.json --allow-env --allow-net supabase/functions/menus-llm/mod_test.ts`
+- Maestro e2e: `maestro test apps/mobile/e2e/maestro/menu-happy-path.yaml`
+- k6 load: `k6 run scripts/load/menus-llm.k6.js` and `k6 run scripts/load/menus-lists.k6.js`
+
+## Testing commands (menus)
+- Deno typecheck (single function): `deno check --config supabase/functions/deno.json supabase/functions/menus-llm/index.ts`
+- Deno unit tests (menus-llm helpers): `deno test --config supabase/functions/deno.json supabase/functions/menus-llm/mod_test.ts`
+- Maestro E2E: `maestro test apps/mobile/e2e/maestro/menu-happy-path.yaml`
+- k6 load tests:
+  - `k6 run scripts/load/menus-llm.k6.js`
+  - `k6 run scripts/load/menus-lists.k6.js`
 
 ## Work Sequence (repeat per stage)
 1. Context & dependencies: read the relevant docs/code in the System map; confirm what already exists; list dependencies and sequencing.

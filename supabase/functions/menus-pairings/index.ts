@@ -1,9 +1,15 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
+import {
+  errorResponse,
+  getCorrelationId,
+  jsonResponse,
+  logEvent
+} from "../_shared/observability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-correlation-id",
 };
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -16,12 +22,11 @@ type PairingPayload = {
   locale?: string | null;
 };
 
-function jsonResponse(body: unknown, init: ResponseInit = {}) {
-  return new Response(JSON.stringify(body), {
-    headers: { "content-type": "application/json", ...corsHeaders },
-    ...init,
-  });
-}
+const respond = (body: unknown, init: ResponseInit = {}, correlationId?: string) =>
+  jsonResponse(body, init, corsHeaders, correlationId);
+
+const respondError = (options: { code: string; correlationId: string; status?: number; details?: unknown }) =>
+  errorResponse({ ...options, corsHeaders });
 
 async function getAuthedClient(req: Request) {
   if (!supabaseUrl || !anonKey) throw new Error("supabase_not_configured");
@@ -48,6 +53,8 @@ serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  const correlationId = getCorrelationId(req);
+
   let supabase;
   let userId;
   try {
@@ -57,7 +64,7 @@ serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "auth_error";
     const status = message === "auth_required" ? 401 : 500;
-    return jsonResponse({ error: message }, { status });
+    return respondError({ code: message, correlationId, status });
   }
 
   const url = new URL(req.url);
@@ -78,16 +85,16 @@ serve(async (req) => {
         }
         const { data, error } = await query;
         if (error) {
-          return jsonResponse({ error: "pairings_fetch_failed" }, { status: 400 });
+          return respondError({ code: "pairings_fetch_failed", correlationId, status: 400 });
         }
-        return jsonResponse({ items: data });
+        return respond({ items: data, correlationId }, {}, correlationId);
       }
       case "POST": {
         const payload = (await req.json().catch(() => ({}))) as PairingPayload;
         const title = payload.title?.trim();
         const dishIds = Array.isArray(payload.dishIds) ? payload.dishIds.filter(Boolean) : [];
         if (!title || !dishIds.length) {
-          return jsonResponse({ error: "title_and_dishes_required" }, { status: 400 });
+          return respondError({ code: "title_and_dishes_required", correlationId, status: 400 });
         }
         const { data, error } = await supabase
           .from("menu_combos")
@@ -102,13 +109,20 @@ serve(async (req) => {
           .select("*")
           .single();
         if (error) {
-          return jsonResponse({ error: "pairing_create_failed" }, { status: 400 });
+          return respondError({ code: "pairing_create_failed", correlationId, status: 400 });
         }
-        return jsonResponse({ pairing: data }, { status: 201 });
+        logEvent({
+          event: "menu_pairing_created",
+          correlationId,
+          ownerId: userId,
+          entityId: data.id,
+          status: "created"
+        });
+        return respond({ pairing: data, correlationId }, { status: 201 }, correlationId);
       }
       case "DELETE": {
         if (!pairingId) {
-          return jsonResponse({ error: "pairing_id_required" }, { status: 400 });
+          return respondError({ code: "pairing_id_required", correlationId, status: 400 });
         }
         const { error } = await supabase
           .from("menu_combos")
@@ -116,15 +130,22 @@ serve(async (req) => {
           .eq("id", pairingId)
           .eq("owner_id", userId);
         if (error) {
-          return jsonResponse({ error: "pairing_delete_failed" }, { status: 400 });
+          return respondError({ code: "pairing_delete_failed", correlationId, status: 400 });
         }
-        return jsonResponse({ success: true });
+        logEvent({
+          event: "menu_pairing_deleted",
+          correlationId,
+          ownerId: userId,
+          entityId: pairingId,
+          status: "deleted"
+        });
+        return respond({ success: true, correlationId }, {}, correlationId);
       }
       default:
-        return jsonResponse({ error: "method_not_allowed" }, { status: 405 });
+        return respondError({ code: "method_not_allowed", correlationId, status: 405 });
     }
   } catch (error) {
     console.error("menus-pairings failure", error);
-    return jsonResponse({ error: "internal_error" }, { status: 500 });
+    return respondError({ code: "internal_error", correlationId, status: 500 });
   }
 });

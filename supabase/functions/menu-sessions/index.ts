@@ -2,6 +2,12 @@ import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
 import { classifyProductName, confidenceBand, normalizeProductName } from "../_shared/hybrid-classifier.ts";
+import {
+  errorResponse,
+  getCorrelationId,
+  jsonResponse,
+  logEvent
+} from "../_shared/observability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -48,21 +54,6 @@ type SessionItemRow = {
   confidence: number | null;
   bounding_box: Record<string, unknown>;
 };
-
-function jsonResponse(body: unknown, init: ResponseInit = {}) {
-  return new Response(JSON.stringify(body), {
-    headers: { "content-type": "application/json", ...corsHeaders },
-    ...init,
-  });
-}
-
-function getCorrelationId(req: Request) {
-  return (
-    req.headers.get("x-correlation-id") ??
-    req.headers.get("Idempotency-Key") ??
-    crypto.randomUUID()
-  );
-}
 
 function getIdempotencyKey(req: Request) {
   return req.headers.get("Idempotency-Key") ?? req.headers.get("idempotency-key");
@@ -163,7 +154,7 @@ serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "auth_error";
     const status = message === "auth_required" ? 401 : 500;
-    return jsonResponse({ error: message, correlationId }, { status });
+    return errorResponse({ code: message, correlationId, status, corsHeaders });
   }
   const url = new URL(req.url);
   const sessionId = parseSessionIdFromUrl(url);
@@ -176,7 +167,7 @@ serve(async (req) => {
 
         const idempotencyKey = getIdempotencyKey(req);
         if (!idempotencyKey) {
-          return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
+          return errorResponse({ code: "idempotency_key_required", correlationId, status: 400, corsHeaders });
         }
 
         const { data: created, error: createError } = await client.rpc("menu_create_session", {
@@ -189,25 +180,48 @@ serve(async (req) => {
         if (createError) {
           const message = createError.message ?? "session_create_failed";
           if (message.includes("concurrent_session_limit")) {
-            return jsonResponse(
-              { error: "limit_exceeded", scope: "concurrent_sessions", correlationId },
-              { status: 429 },
-            );
+            logEvent({
+              event: "menu_session_limit_exceeded",
+              correlationId,
+              ownerId: userId,
+              errorCode: "concurrent_session_limit",
+              metadata: { scope: "concurrent_sessions" }
+            });
+            return errorResponse({
+              code: "limit_exceeded",
+              correlationId,
+              status: 429,
+              details: { scope: "concurrent_sessions" },
+              corsHeaders
+            });
           }
           if (message.includes("limit_exceeded")) {
-            return jsonResponse({ error: "limit_exceeded", scope: "uploads", correlationId }, { status: 429 });
+            logEvent({
+              event: "menu_session_limit_exceeded",
+              correlationId,
+              ownerId: userId,
+              errorCode: "limit_exceeded",
+              metadata: { scope: "uploads" }
+            });
+            return errorResponse({
+              code: "limit_exceeded",
+              correlationId,
+              status: 429,
+              details: { scope: "uploads" },
+              corsHeaders
+            });
           }
           if (message.includes("idempotency_key_required")) {
-            return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
+            return errorResponse({ code: "idempotency_key_required", correlationId, status: 400, corsHeaders });
           }
           console.error("menu_sessions create failed", { correlationId, createError });
-          return jsonResponse({ error: "session_create_failed", correlationId }, { status: 400 });
+          return errorResponse({ code: "session_create_failed", correlationId, status: 400, corsHeaders });
         }
         const createdRow = Array.isArray(created) ? created[0] : created;
         const createdSessionId = createdRow?.session_id ?? null;
         const replay = Boolean(createdRow?.replay ?? false);
         if (!createdSessionId) {
-          return jsonResponse({ error: "session_create_failed", correlationId }, { status: 400 });
+          return errorResponse({ code: "session_create_failed", correlationId, status: 400, corsHeaders });
         }
 
         const { data, error } = await client
@@ -218,7 +232,7 @@ serve(async (req) => {
           .single();
         if (error || !data) {
           console.error("menu_sessions fetch failed", { correlationId, error });
-          return jsonResponse({ error: "session_create_failed", correlationId }, { status: 400 });
+          return errorResponse({ code: "session_create_failed", correlationId, status: 400, corsHeaders });
         }
 
         let detections: SessionItemRow[] = [];
@@ -242,23 +256,24 @@ serve(async (req) => {
             .eq("id", data.id);
         }
         const durationMs = Math.round(performance.now() - startedAt);
-        console.log(
-          JSON.stringify({
-            event: "menu_session_created",
-            correlationId,
-            sessionId: data.id,
-            ownerId: userId,
+        logEvent({
+          event: "menu_session_created",
+          correlationId,
+          sessionId: data.id,
+          ownerId: userId,
+          status: replay ? "replay" : "created",
+          durationMs,
+          metadata: {
             intentRoute: intentDecisions[0]?.intent ?? null,
             detections: payload.detections?.length ?? 0,
-            replay,
-            durationMs
-          })
-        );
-        return jsonResponse({ session: data, replay, correlationId }, { status: 201 });
+            replay
+          }
+        });
+        return jsonResponse({ session: data, replay, correlationId }, { status: 201 }, corsHeaders, correlationId);
       }
       case "GET": {
         if (!sessionId) {
-          return jsonResponse({ error: "session_id_required" }, { status: 400 });
+          return errorResponse({ code: "session_id_required", correlationId, status: 400, corsHeaders });
         }
         const { data, error } = await client
           .from("menu_sessions")
@@ -266,13 +281,13 @@ serve(async (req) => {
           .eq("id", sessionId)
           .single();
         if (error) {
-          return jsonResponse({ error: "session_not_found" }, { status: 404 });
+          return errorResponse({ code: "session_not_found", correlationId, status: 404, corsHeaders });
         }
-        return jsonResponse({ session: data });
+        return jsonResponse({ session: data }, {}, corsHeaders, correlationId);
       }
       case "PATCH": {
         if (!sessionId) {
-          return jsonResponse({ error: "session_id_required" }, { status: 400 });
+          return errorResponse({ code: "session_id_required", correlationId, status: 400, corsHeaders });
         }
         // Fetch existing payload to merge updates
         const { data: existing } = await client
@@ -299,6 +314,7 @@ serve(async (req) => {
           ...(existing?.payload ?? {}),
           ...(body.payload ?? {})
         };
+        const clarificationCount = body.clarification_answers?.length ?? 0;
         if (body.clarification_answers) {
           mergedPayload.clarification_answers = body.clarification_answers;
           const styleRows = body.clarification_answers
@@ -344,27 +360,28 @@ serve(async (req) => {
           .select("*")
           .single();
         if (error) {
-          return jsonResponse({ error: "session_update_failed" }, { status: 400 });
+          return errorResponse({ code: "session_update_failed", correlationId, status: 400, corsHeaders });
         }
         const durationMs = Math.round(performance.now() - startedAt);
-        console.log(
-          JSON.stringify({
-            event: "menu_session_updated",
-            correlationId,
-            sessionId,
-            ownerId: userId,
-            durationMs,
+        logEvent({
+          event: "menu_session_updated",
+          correlationId,
+          sessionId,
+          ownerId: userId,
+          status: body.status ?? null,
+          durationMs,
+          metadata: {
             detectionsAdded: body.detections?.length ?? 0,
-            status: body.status ?? null
-          })
-        );
-        return jsonResponse({ session: data });
+            clarificationsApplied: clarificationCount
+          }
+        });
+        return jsonResponse({ session: data }, {}, corsHeaders, correlationId);
       }
       default:
-        return jsonResponse({ error: "method_not_allowed" }, { status: 405 });
+        return errorResponse({ code: "method_not_allowed", correlationId, status: 405, corsHeaders });
     }
   } catch (error) {
     console.error("menu-sessions failure", { correlationId, error });
-    return jsonResponse({ error: "internal_error", correlationId }, { status: 500 });
+    return errorResponse({ code: "internal_error", correlationId, status: 500, corsHeaders });
   }
 });

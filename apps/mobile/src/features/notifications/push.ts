@@ -47,11 +47,22 @@ async function getOrCreateDeviceId() {
 }
 
 async function registerExpoNotifications() {
+  const resolvePermissionStatus = (value: unknown) => {
+    const candidate = value as { status?: unknown; granted?: unknown } | null;
+    if (candidate && typeof candidate.status === 'string') {
+      return candidate.status;
+    }
+    if (candidate && typeof candidate.granted === 'boolean') {
+      return candidate.granted ? 'granted' : 'denied';
+    }
+    return 'undetermined';
+  };
+
   const settings = await Notifications.getPermissionsAsync();
-  let status = settings.status;
+  let status = resolvePermissionStatus(settings);
   if (status !== 'granted') {
     const request = await Notifications.requestPermissionsAsync();
-    status = request.status;
+    status = resolvePermissionStatus(request);
   }
 
   if (status !== 'granted') {

@@ -56,11 +56,8 @@ select ok(
   'menu_recipes_version_bump trigger present'
 );
 
--- setup: create a premium auth user so recipe inserts/updates are permitted when menu_recipes is premium-gated
-select tests.create_supabase_user(
-  'menu-idempotency'::text,
-  jsonb_build_object('is_menu_premium', true)
-) as owner_id \gset
+-- setup: create an auth user for recipe insert/update checks
+select tests.create_supabase_user('menu-idempotency'::text) as owner_id \gset
 
 insert into public.menu_recipes (owner_id, title, idempotency_key)
 values (:'owner_id'::uuid, 'Idempotency smoke test', 'menu-idempotency-' || gen_random_uuid())

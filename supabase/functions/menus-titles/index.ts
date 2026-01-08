@@ -1,6 +1,12 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
+import {
+  errorResponse,
+  getCorrelationId,
+  jsonResponse,
+  logEvent
+} from "../_shared/observability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,20 +31,11 @@ type TitleDish = {
   updated_at: string;
 };
 
-function jsonResponse(body: unknown, init: ResponseInit = {}) {
-  return new Response(JSON.stringify(body), {
-    headers: { "content-type": "application/json", ...corsHeaders },
-    ...init,
-  });
-}
+const respond = (body: unknown, init: ResponseInit = {}, correlationId?: string) =>
+  jsonResponse(body, init, corsHeaders, correlationId);
 
-function getCorrelationId(req: Request) {
-  return (
-    req.headers.get("x-correlation-id") ??
-    req.headers.get("Idempotency-Key") ??
-    crypto.randomUUID()
-  );
-}
+const respondError = (options: { code: string; correlationId: string; status?: number; details?: unknown }) =>
+  errorResponse({ ...options, corsHeaders });
 
 function requireIdempotencyKey(req: Request) {
   const key = req.headers.get("Idempotency-Key") ?? req.headers.get("idempotency-key");
@@ -77,7 +74,7 @@ serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "auth_error";
     const status = message === "auth_required" ? 401 : 500;
-    return jsonResponse({ error: message, correlationId }, { status });
+    return respondError({ code: message, correlationId, status });
   }
 
   try {
@@ -95,27 +92,29 @@ serve(async (req) => {
       const { data, error } = await query;
       if (error) {
         console.error("menu_title_dishes fetch failed", { correlationId, error });
-        return jsonResponse({ items: [], correlationId });
+        return respond({ items: [], correlationId }, {}, correlationId);
       }
-      return jsonResponse({ items: (data as TitleDish[]) ?? [], correlationId });
+      return respond({ items: (data as TitleDish[]) ?? [], correlationId }, {}, correlationId);
     }
 
     if (req.method !== "POST") {
-      return jsonResponse({ error: "method_not_allowed", correlationId }, { status: 405 });
+      return respondError({ code: "method_not_allowed", correlationId, status: 405 });
     }
 
     const { key: idempotencyKey } = requireIdempotencyKey(req);
     if (!idempotencyKey) {
-      return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
+      return respondError({ code: "idempotency_key_required", correlationId, status: 400 });
     }
 
     const raw = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const parsed = createTitleSchema.safeParse(raw);
     if (!parsed.success) {
-      return jsonResponse(
-        { error: "invalid_payload", details: parsed.error.flatten(), correlationId },
-        { status: 400 },
-      );
+      return respondError({
+        code: "invalid_payload",
+        correlationId,
+        status: 400,
+        details: parsed.error.flatten()
+      });
     }
 
     const { data: created, error: createError } = await supabase.rpc(
@@ -129,23 +128,35 @@ serve(async (req) => {
     if (createError) {
       const message = createError.message ?? "title_create_failed";
       if (message.includes("limit_exceeded")) {
-        return jsonResponse({ error: "limit_exceeded", scope: "uploads", correlationId }, { status: 429 });
+        logEvent({
+          event: "menu_title_dish_limit_exceeded",
+          correlationId,
+          ownerId: userId,
+          errorCode: "limit_exceeded",
+          metadata: { scope: "uploads" }
+        });
+        return respondError({
+          code: "limit_exceeded",
+          correlationId,
+          status: 429,
+          details: { scope: "uploads" }
+        });
       }
       if (message.includes("idempotency_key_required")) {
-        return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
+        return respondError({ code: "idempotency_key_required", correlationId, status: 400 });
       }
       if (message.includes("title_required")) {
-        return jsonResponse({ error: "title_required", correlationId }, { status: 400 });
+        return respondError({ code: "title_required", correlationId, status: 400 });
       }
       console.error("menu_title_dishes create failed", { correlationId, createError });
-      return jsonResponse({ error: "title_create_failed", correlationId }, { status: 400 });
+      return respondError({ code: "title_create_failed", correlationId, status: 400 });
     }
 
     const createdRow = Array.isArray(created) ? created[0] : created;
     const dishId = (createdRow?.dish_id as string | undefined) ?? null;
     const replay = Boolean(createdRow?.replay ?? false);
     if (!dishId) {
-      return jsonResponse({ error: "title_create_failed", correlationId }, { status: 400 });
+      return respondError({ code: "title_create_failed", correlationId, status: 400 });
     }
 
     const { data: item, error: fetchError } = await supabase
@@ -156,25 +167,22 @@ serve(async (req) => {
       .single();
     if (fetchError || !item) {
       console.error("menu_title_dishes fetch after insert failed", { correlationId, fetchError });
-      return jsonResponse({ error: "title_create_failed", correlationId }, { status: 400 });
+      return respondError({ code: "title_create_failed", correlationId, status: 400 });
     }
 
     const durationMs = Math.round(performance.now() - startedAt);
-    console.log(
-      JSON.stringify({
-        event: "menu_title_dish_created",
-        correlationId,
-        ownerId: userId,
-        dishId,
-        replay,
-        durationMs,
-      }),
-    );
+    logEvent({
+      event: "menu_title_dish_created",
+      correlationId,
+      ownerId: userId,
+      entityId: dishId,
+      durationMs,
+      status: replay ? "replay" : "created"
+    });
 
-    return jsonResponse({ item, replay, correlationId });
+    return respond({ item, replay, correlationId }, {}, correlationId);
   } catch (error) {
     console.error("menus-titles failure", { correlationId, error: String(error) });
-    return jsonResponse({ error: "internal_error", correlationId }, { status: 500 });
+    return respondError({ code: "internal_error", correlationId, status: 500 });
   }
 });
-

@@ -1,6 +1,12 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
+import {
+  errorResponse as baseErrorResponse,
+  getCorrelationId,
+  jsonResponse as baseJsonResponse,
+  logEvent
+} from "../_shared/observability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,6 +16,18 @@ const corsHeaders = {
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+
+const jsonResponse = (body: unknown, init: ResponseInit = {}, correlationId?: string) => {
+  const resolvedCorrelationId =
+    correlationId ??
+    (body && typeof body === "object" && "correlationId" in body
+      ? String((body as { correlationId?: unknown }).correlationId)
+      : undefined);
+  return baseJsonResponse(body, init, corsHeaders, resolvedCorrelationId);
+};
+
+const errorResponse = (options: { code: string; correlationId: string; status?: number; details?: unknown }) =>
+  baseErrorResponse({ ...options, corsHeaders });
 
 const idempotencyKeySchema = z.string().trim().min(1).max(255);
 const isoDateString = z
@@ -85,13 +103,6 @@ const updateRecipeSchema = baseRecipeSchema.extend({
 // This is still *untrusted* input; Zod schemas are the validation boundary.
 type NormalizedRecipePayload = Record<string, unknown>;
 
-function jsonResponse(body: unknown, init: ResponseInit = {}) {
-  return new Response(JSON.stringify(body), {
-    headers: { "content-type": "application/json", ...corsHeaders },
-    ...init,
-  });
-}
-
 async function getAuthedClient(req: Request) {
   if (!supabaseUrl || !anonKey) {
     throw new Error("supabase_not_configured");
@@ -155,14 +166,6 @@ function normalizeRecipePayload(raw: Record<string, unknown>): NormalizedRecipeP
   };
 }
 
-function getCorrelationId(req: Request) {
-  return (
-    req.headers.get("x-correlation-id") ??
-    req.headers.get("Idempotency-Key") ??
-    crypto.randomUUID()
-  );
-}
-
 function requireIdempotencyKey(req: Request) {
   const key = req.headers.get("Idempotency-Key") ?? req.headers.get("idempotency-key");
   const parsed = idempotencyKeySchema.safeParse(key);
@@ -214,7 +217,7 @@ serve(async (req) => {
     const message = error instanceof Error ? error.message : "auth_error";
     const status = message === "auth_required" ? 401 : 500;
     console.error("menu-recipes auth error", { correlationId, message, status });
-    return jsonResponse({ error: message, correlationId }, { status });
+    return errorResponse({ code: message, correlationId, status });
   }
 
   const url = new URL(req.url);
@@ -222,14 +225,6 @@ serve(async (req) => {
   const requestId = correlationId;
 
   try {
-    const { data: premiumData, error: premiumError } = await supabase.rpc("menu_is_premium_user");
-    if (premiumError) {
-      console.error("menu_is_premium_user rpc failed", { correlationId, premiumError });
-    }
-    if (!premiumData) {
-      return jsonResponse({ error: "policy_blocked", correlationId }, { status: 403 });
-    }
-
     switch (req.method) {
       case "GET": {
         if (recipeId) {
@@ -241,10 +236,10 @@ serve(async (req) => {
           .maybeSingle();
           if (error) {
             console.error("menu_recipes fetch failed", { error, requestId });
-            return jsonResponse({ error: "recipe_not_found", correlationId }, { status: 404 });
+            return errorResponse({ code: "recipe_not_found", correlationId, status: 404 });
           }
           if (!data) {
-            return jsonResponse({ error: "recipe_not_found", correlationId }, { status: 404 });
+            return errorResponse({ code: "recipe_not_found", correlationId, status: 404 });
           }
           return jsonResponse({ recipe: data, correlationId });
         }
@@ -255,7 +250,7 @@ serve(async (req) => {
         const cuisineStyle = url.searchParams.get("cuisineStyle") ?? url.searchParams.get("cuisine_style");
         const search = url.searchParams.get("search");
         if (cursor && Number.isNaN(Date.parse(cursor))) {
-          return jsonResponse({ error: "invalid_cursor", correlationId }, { status: 400 });
+          return errorResponse({ code: "invalid_cursor", correlationId, status: 400 });
         }
         let query = supabase
           .from("menu_recipes")
@@ -279,7 +274,7 @@ serve(async (req) => {
         const { data, error } = await query;
         if (error) {
           console.error("menu_recipes list failed", { error, requestId });
-          return jsonResponse({ error: "recipe_list_failed", correlationId }, { status: 400 });
+          return errorResponse({ code: "recipe_list_failed", correlationId, status: 400 });
         }
         const nextCursor = data.length === limit ? data[data.length - 1]?.updated_at ?? null : null;
         return jsonResponse({ recipes: data, nextCursor, correlationId });
@@ -287,7 +282,7 @@ serve(async (req) => {
       case "POST": {
         const { key: idempotencyKey } = requireIdempotencyKey(req);
         if (!idempotencyKey) {
-          return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
+          return errorResponse({ code: "idempotency_key_required", correlationId, status: 400 });
         }
 
         const existing = await supabase
@@ -298,7 +293,7 @@ serve(async (req) => {
           .maybeSingle();
         if (existing.error && existing.error.code !== "PGRST116") {
           console.error("menu_recipes idempotency lookup failed", { error: existing.error, requestId });
-          return jsonResponse({ error: "recipe_create_failed", correlationId }, { status: 400 });
+          return errorResponse({ code: "recipe_create_failed", correlationId, status: 400 });
         }
         if (existing.data) {
           return jsonResponse({ recipe: existing.data, replay: true, correlationId });
@@ -308,16 +303,14 @@ serve(async (req) => {
         const normalized = normalizeRecipePayload(rawBody);
         const parsed = createRecipeSchema.safeParse(normalized);
         if (!parsed.success) {
-          return jsonResponse(
-            { error: "invalid_payload", details: parsed.error.flatten(), correlationId },
-            { status: 400 }
-          );
+          return errorResponse({
+            code: "invalid_payload",
+            correlationId,
+            status: 400,
+            details: parsed.error.flatten()
+          });
         }
         const now = new Date().toISOString();
-        const isPremiumUser =
-          Boolean(user?.app_metadata?.is_menu_premium) ||
-          Boolean(user?.app_metadata?.is_developer) ||
-          Boolean(user?.app_metadata?.dev);
         const servings = buildServings(parsed.data.servings, parsed.data.scaleFactor);
         const scaleFactor = servings.scale_factor ?? parsed.data.scaleFactor ?? 1;
         const insertRecord = {
@@ -335,10 +328,7 @@ serve(async (req) => {
           packaging_guidance: Array.isArray(parsed.data.packagingGuidance)
             ? parsed.data.packagingGuidance
             : [],
-          premium_required:
-            parsed.data.premiumRequired !== undefined
-              ? parsed.data.premiumRequired
-              : isPremiumUser,
+          premium_required: false,
           dietary_tags: parsed.data.dietaryTags ?? [],
           allergen_tags: parsed.data.allergenTags ?? [],
           source: parsed.data.source ?? "user",
@@ -365,7 +355,7 @@ serve(async (req) => {
               return jsonResponse({ recipe: replay.data, replay: true, correlationId });
             }
           }
-          return jsonResponse({ error: "recipe_create_failed", correlationId }, { status: 400 });
+          return errorResponse({ code: "recipe_create_failed", correlationId, status: 400 });
         }
         if (data.needs_training) {
           await supabase
@@ -381,34 +371,38 @@ serve(async (req) => {
             .select("recipe_id")
             .maybeSingle();
         }
-        console.log(
-          JSON.stringify({
-            event: "menu_recipe_created",
-            ownerId: userId,
+        logEvent({
+          event: "menu_recipe_created",
+          correlationId,
+          ownerId: userId,
+          entityId: data.id,
+          metadata: {
             title: insertRecord.title,
             premiumRequired: insertRecord.premium_required,
-            requestId,
-          })
-        );
+            requestId
+          }
+        });
         return jsonResponse({ recipe: data, correlationId }, { status: 201 });
       }
       case "PUT": {
         if (!recipeId) {
-          return jsonResponse({ error: "recipe_id_required" }, { status: 400 });
+          return errorResponse({ code: "recipe_id_required", correlationId, status: 400 });
         }
         const { key: updateIdemKey } = requireIdempotencyKey(req);
         if (!updateIdemKey) {
-          return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
+          return errorResponse({ code: "idempotency_key_required", correlationId, status: 400 });
         }
 
         const rawBody = (await req.json().catch(() => ({}))) as Record<string, unknown>;
         const normalized = normalizeRecipePayload(rawBody);
         const parsed = updateRecipeSchema.safeParse(normalized);
         if (!parsed.success) {
-          return jsonResponse(
-            { error: "invalid_payload", details: parsed.error.flatten(), correlationId },
-            { status: 400 }
-          );
+          return errorResponse({
+            code: "invalid_payload",
+            correlationId,
+            status: 400,
+            details: parsed.error.flatten()
+          });
         }
 
         const existing = await supabase
@@ -419,20 +413,20 @@ serve(async (req) => {
           .maybeSingle();
         if (existing.error) {
           console.error("menu_recipes fetch for update failed", { error: existing.error, requestId });
-          return jsonResponse({ error: "recipe_not_found", correlationId }, { status: 404 });
+          return errorResponse({ code: "recipe_not_found", correlationId, status: 404 });
         }
         if (!existing.data) {
-          return jsonResponse({ error: "recipe_not_found", correlationId }, { status: 404 });
+          return errorResponse({ code: "recipe_not_found", correlationId, status: 404 });
         }
         if (
           parsed.data.version &&
           typeof existing.data.version === "number" &&
           parsed.data.version !== existing.data.version
         ) {
-          return jsonResponse({ error: "version_mismatch", correlationId }, { status: 409 });
+          return errorResponse({ code: "version_mismatch", correlationId, status: 409 });
         }
         if (parsed.data.expectedUpdatedAt && parsed.data.expectedUpdatedAt !== existing.data.updated_at) {
-          return jsonResponse({ error: "stale_update", correlationId }, { status: 409 });
+          return errorResponse({ code: "stale_update", correlationId, status: 409 });
         }
 
         const baseVersion = typeof existing.data.version === "number" ? existing.data.version : 1;
@@ -478,9 +472,6 @@ serve(async (req) => {
             ? parsed.data.packagingGuidance
             : [];
         }
-        if (parsed.data.premiumRequired !== undefined) {
-          updates.premium_required = parsed.data.premiumRequired;
-        }
         if (parsed.data.dietaryTags !== undefined) {
           updates.dietary_tags = parsed.data.dietaryTags ?? [];
         }
@@ -510,10 +501,10 @@ serve(async (req) => {
         if (error) {
           if (error.code === "PGRST116") {
             const conflictError = parsed.data.expectedUpdatedAt ? "stale_update" : "version_conflict";
-            return jsonResponse({ error: conflictError, correlationId }, { status: 409 });
+            return errorResponse({ code: conflictError, correlationId, status: 409 });
           }
           console.error("menu_recipes update failed", { error, requestId });
-          return jsonResponse({ error: "recipe_update_failed", correlationId }, { status: 400 });
+          return errorResponse({ code: "recipe_update_failed", correlationId, status: 400 });
         }
         if (data.needs_training) {
           await supabase
@@ -529,15 +520,23 @@ serve(async (req) => {
             .select("recipe_id")
             .maybeSingle();
         }
+        logEvent({
+          event: "menu_recipe_updated",
+          correlationId,
+          ownerId: userId,
+          entityId: data.id,
+          status: "updated",
+          metadata: { requestId }
+        });
         return jsonResponse({ recipe: data, correlationId });
       }
       case "DELETE": {
         if (!recipeId) {
-          return jsonResponse({ error: "recipe_id_required" }, { status: 400 });
+          return errorResponse({ code: "recipe_id_required", correlationId, status: 400 });
         }
         const { key: deleteIdemKey } = requireIdempotencyKey(req);
         if (!deleteIdemKey) {
-          return jsonResponse({ error: "idempotency_key_required", correlationId }, { status: 400 });
+          return errorResponse({ code: "idempotency_key_required", correlationId, status: 400 });
         }
 
         const existing = await supabase
@@ -548,10 +547,10 @@ serve(async (req) => {
           .maybeSingle();
         if (existing.error) {
           console.error("menu_recipes lookup for delete failed", { error: existing.error, requestId });
-          return jsonResponse({ error: "recipe_not_found", correlationId }, { status: 404 });
+          return errorResponse({ code: "recipe_not_found", correlationId, status: 404 });
         }
         if (!existing.data) {
-          return jsonResponse({ error: "recipe_not_found", correlationId }, { status: 404 });
+          return errorResponse({ code: "recipe_not_found", correlationId, status: 404 });
         }
 
         const { error } = await supabase
@@ -561,15 +560,23 @@ serve(async (req) => {
           .eq("owner_id", userId);
         if (error) {
           console.error("menu_recipes delete failed", { error, requestId });
-          return jsonResponse({ error: "recipe_delete_failed", correlationId }, { status: 400 });
+          return errorResponse({ code: "recipe_delete_failed", correlationId, status: 400 });
         }
+        logEvent({
+          event: "menu_recipe_deleted",
+          correlationId,
+          ownerId: userId,
+          entityId: recipeId,
+          status: "deleted",
+          metadata: { requestId }
+        });
         return jsonResponse({ success: true, correlationId });
       }
       default:
-        return jsonResponse({ error: "method_not_allowed", correlationId }, { status: 405 });
+        return errorResponse({ code: "method_not_allowed", correlationId, status: 405 });
     }
   } catch (error) {
     console.error("menu-recipes failure", { error, requestId, correlationId });
-    return jsonResponse({ error: "internal_error", correlationId }, { status: 500 });
+    return errorResponse({ code: "internal_error", correlationId, status: 500 });
   }
 });

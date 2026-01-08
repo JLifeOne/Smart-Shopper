@@ -29,6 +29,7 @@ Start here when working in a subsystem:
 - `docs/runbooks/list-items-category-backfill.md` — Backfill classifier metadata on list items.
 - `docs/runbooks/menu-feature-workflow.md` — Menu/Recipes production-tier workflow.
 - `docs/runbooks/menus-observability-and-alerts.md` — Dashboards, alerts, and incident response for Menus.
+- `docs/runbooks/notifications-promo-alerts.md` — Promo alerts pipeline (in-app + push) runbook.
 - `docs/runbooks/supabase-test-db-troubleshooting.md` — Fixing `supabase test db` (pgTAP) failures across environments.
 - `docs/runbooks/brand-insights-migration.md` — Brand insights migration + rollback.
 - `docs/runbooks/brand-insights-job.md` — Nightly brand job operations.

@@ -3,6 +3,19 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
 import { MENU_ASSISTANT_PROMPT } from "../_shared/menu-assistant-prompt.ts";
 import { menuPromptInputSchema, menuPromptResponseSchema, type MenuPromptInput, type MenuPromptResponse } from "../_shared/menu-prompt-types.ts";
+import {
+  formatPackagingLabel,
+  normalizeKey,
+  sanitizeResponseShape,
+  type IngredientMeta,
+  type PackagingUnitInput
+} from "../_shared/menu-llm-utils.ts";
+import {
+  errorResponse,
+  getCorrelationId,
+  jsonResponse,
+  logEvent
+} from "../_shared/observability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,20 +32,11 @@ const resolvedLlmProvider = llmProvider === "openai" ? "openai" : "custom";
 const llmModel = Deno.env.get("MENU_LLM_MODEL");
 const llmBaseUrl = Deno.env.get("MENU_LLM_BASE_URL") ?? "https://api.openai.com/v1";
 
-function jsonResponse(body: unknown, init: ResponseInit = {}) {
-  return new Response(JSON.stringify(body), {
-    headers: { "content-type": "application/json", ...corsHeaders },
-    ...init
-  });
-}
+const respond = (body: unknown, init: ResponseInit = {}, correlationId?: string) =>
+  jsonResponse(body, init, corsHeaders, correlationId);
 
-function getCorrelationId(req: Request) {
-  return (
-    req.headers.get("x-correlation-id") ??
-    req.headers.get("Idempotency-Key") ??
-    crypto.randomUUID()
-  );
-}
+const respondError = (options: { code: string; correlationId: string; status?: number; details?: unknown }) =>
+  errorResponse({ ...options, corsHeaders });
 
 async function getAuthedClient(req: Request) {
   if (!supabaseUrl || !anonKey) throw new Error("supabase_not_configured");
@@ -47,27 +51,8 @@ async function getAuthedClient(req: Request) {
   return { client, userId: data.user.id };
 }
 
-function normalizeKey(value: string) {
-  return value
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/\p{Diacritic}/gu, '')
-    .replace(/[^a-z0-9\s]/g, '')
-    .trim();
-}
-
-type PackagingUnit = {
+type PackagingUnit = PackagingUnitInput & {
   ingredient_key: string;
-  pack_size: number | string | null;
-  pack_unit: string | null;
-  display_label: string | null;
-};
-
-type IngredientMeta = {
-  key: string;
-  name: string;
-  quantity?: number | string | null;
-  unit?: string | null;
 };
 
 type StyleChoiceRow = {
@@ -103,85 +88,6 @@ function coercePackagingUnit(value: unknown): PackagingUnit | null {
   };
 }
 
-function parseNumeric(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const fraction = trimmed.match(/^(\d+)\s*\/\s*(\d+)$/);
-  if (fraction) {
-    const numerator = Number.parseInt(fraction[1], 10);
-    const denominator = Number.parseInt(fraction[2], 10);
-    if (Number.isFinite(numerator) && Number.isFinite(denominator) && denominator !== 0) {
-      return numerator / denominator;
-    }
-  }
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function normalizeUnit(unit?: string | null) {
-  if (!unit) return null;
-  const normalized = unit.toString().trim().toLowerCase();
-  if (!normalized) return null;
-  if (['g', 'gram', 'grams'].includes(normalized)) return 'g';
-  if (['kg', 'kilogram', 'kilograms'].includes(normalized)) return 'kg';
-  if (['ml', 'milliliter', 'milliliters'].includes(normalized)) return 'ml';
-  if (['l', 'liter', 'litre', 'liters', 'litres'].includes(normalized)) return 'l';
-  if (['tsp', 'teaspoon', 'teaspoons'].includes(normalized)) return 'tsp';
-  if (['tbsp', 'tablespoon', 'tablespoons'].includes(normalized)) return 'tbsp';
-  if (['cup', 'cups'].includes(normalized)) return 'cup';
-  if (['unit', 'units'].includes(normalized)) return 'unit';
-  return normalized;
-}
-
-function convertQuantity(quantity: number, fromUnit: string, toUnit: string): number | null {
-  if (!Number.isFinite(quantity)) return null;
-  if (fromUnit === toUnit) return quantity;
-  if (fromUnit === 'kg' && toUnit === 'g') return quantity * 1000;
-  if (fromUnit === 'g' && toUnit === 'kg') return quantity / 1000;
-  if (fromUnit === 'l' && toUnit === 'ml') return quantity * 1000;
-  if (fromUnit === 'ml' && toUnit === 'l') return quantity / 1000;
-  return null;
-}
-
-function formatPackagingLabel(
-  meta: IngredientMeta,
-  unit?: Pick<PackagingUnit, 'pack_size' | 'pack_unit' | 'display_label'>
-) {
-  const packSize = parseNumeric(unit?.pack_size);
-  const packUnit = normalizeUnit(unit?.pack_unit ?? null);
-  const displayLabel =
-    unit?.display_label && unit.display_label.toString().trim().length
-      ? unit.display_label.toString().trim()
-      : packSize && packUnit
-        ? `${packSize} ${packUnit}`
-        : null;
-
-  const qty = parseNumeric(meta.quantity);
-  const qtyUnit = normalizeUnit(meta.unit ?? null);
-
-  if (packSize && packUnit && qty && qtyUnit) {
-    const converted = convertQuantity(qty, qtyUnit, packUnit);
-    if (converted && Number.isFinite(converted) && converted > 0) {
-      const packCount = Math.max(1, Math.ceil(converted / packSize));
-      if (displayLabel) {
-        return packCount === 1 ? `Buy 1 × ${displayLabel} of ${meta.name}` : `Buy ${packCount} × ${displayLabel} of ${meta.name}`;
-      }
-    }
-  }
-
-  if (displayLabel) {
-    return `Buy ${displayLabel} of ${meta.name}`;
-  }
-
-  if (qty && Number.isFinite(qty) && qty > 0) {
-    const unitLabel = qtyUnit ? ` ${qtyUnit}` : '';
-    return `Approx. ${qty}${unitLabel} of ${meta.name}`;
-  }
-
-  return `Buy ${meta.name}`;
-}
 
 async function loadStyleChoices(
   client: SupabaseClient,
@@ -330,7 +236,6 @@ async function applyPackagingGuidance(
     return acc;
   }, {});
 
-  const packagingMap = new Map<string, string>();
   const packagingUnitsByKey = new Map<string, PackagingUnit>();
 
   if (uniqueKeys.length) {
@@ -377,7 +282,6 @@ async function applyPackagingGuidance(
       );
       guidance.push(label);
       consolidatedGuidance[key] = label;
-      packagingMap.set(key, label);
     }
     card.packaging_guidance = guidance;
   }
@@ -393,7 +297,12 @@ async function applyPackagingGuidance(
   }
 }
 
-async function callCustomLLM(payload: MenuPromptInput, requestId: string, correlationId: string) {
+async function callCustomLLM(
+  payload: MenuPromptInput,
+  requestId: string,
+  correlationId: string,
+  ownerId?: string
+) {
   if (!llmUrl) throw new Error("llm_url_missing");
   const startedAt = performance.now();
   const timeoutMs = Number(Deno.env.get("MENU_LLM_TIMEOUT_MS") ?? 15000);
@@ -433,11 +342,23 @@ async function callCustomLLM(payload: MenuPromptInput, requestId: string, correl
     throw new Error("llm_failed");
   }
   const durationMs = Math.round(performance.now() - startedAt);
-  console.log(JSON.stringify({ event: "menu_llm_call", requestId, correlationId, provider: "custom", durationMs }));
+  logEvent({
+    event: "menu_llm_call",
+    correlationId,
+    ownerId,
+    provider: "custom",
+    durationMs,
+    metadata: { requestId }
+  });
   return json as unknown;
 }
 
-async function callOpenAI(payload: MenuPromptInput, requestId: string, correlationId: string) {
+async function callOpenAI(
+  payload: MenuPromptInput,
+  requestId: string,
+  correlationId: string,
+  ownerId?: string
+) {
   if (!llmApiKey) throw new Error("llm_api_key_missing");
   const model = llmModel ?? "gpt-4o-mini";
   const baseUrl = (llmBaseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
@@ -502,44 +423,22 @@ async function callOpenAI(payload: MenuPromptInput, requestId: string, correlati
   }
 
   const durationMs = Math.round(performance.now() - startedAt);
-  console.log(JSON.stringify({ event: "menu_llm_call", requestId, correlationId, provider: "openai", model, durationMs }));
+  logEvent({
+    event: "menu_llm_call",
+    correlationId,
+    ownerId,
+    provider: "openai",
+    durationMs,
+    metadata: { requestId, model }
+  });
   return parsed;
 }
 
-async function callLLM(payload: MenuPromptInput, requestId: string, correlationId: string) {
+async function callLLM(payload: MenuPromptInput, requestId: string, correlationId: string, ownerId?: string) {
   if (resolvedLlmProvider === "openai") {
-    return callOpenAI(payload, requestId, correlationId);
+    return callOpenAI(payload, requestId, correlationId, ownerId);
   }
-  return callCustomLLM(payload, requestId, correlationId);
-}
-
-function sanitizeResponseShape(raw: MenuPromptResponse): MenuPromptResponse {
-  const maxCards = 25;
-  const cards = Array.isArray(raw.cards) ? raw.cards.slice(0, maxCards) : [];
-  const sanitizedCards = cards.map((card, index) => {
-    const ingredients = Array.isArray(card.ingredients) ? card.ingredients : [];
-    const method = Array.isArray(card.method) ? card.method : [];
-    const listLines = Array.isArray(card.list_lines) ? card.list_lines : [];
-    const normalizedMethod = method
-      .filter((step) => step && typeof step.text === "string" && step.text.trim().length)
-      .map((step, idx) => ({ ...step, step: idx + 1 }));
-    return {
-      ...card,
-      id: card.id && card.id.toString().trim().length ? card.id : `card-${index + 1}`,
-      title: card.title?.toString().trim() ?? `Dish ${index + 1}`,
-      ingredients,
-      method: normalizedMethod,
-      list_lines: listLines
-    };
-  });
-
-  return {
-    ...raw,
-    cards: sanitizedCards,
-    consolidated_list: Array.isArray(raw.consolidated_list) ? raw.consolidated_list : [],
-    menus: Array.isArray(raw.menus) ? raw.menus : undefined,
-    clarification_needed: Array.isArray(raw.clarification_needed) ? raw.clarification_needed : undefined
-  };
+  return callCustomLLM(payload, requestId, correlationId, ownerId);
 }
 
 serve(async (req) => {
@@ -558,11 +457,11 @@ serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'auth_error';
     const status = message === 'auth_required' ? 401 : 500;
-    return jsonResponse({ error: message, correlationId }, { status });
+    return respondError({ code: message, correlationId, status });
   }
 
   if (req.method !== 'POST') {
-    return jsonResponse({ error: 'method_not_allowed', correlationId }, { status: 405 });
+    return respondError({ code: 'method_not_allowed', correlationId, status: 405 });
   }
 
   try {
@@ -570,12 +469,55 @@ serve(async (req) => {
     if (premiumError) {
       console.error("menu_is_premium_user rpc failed", { correlationId, premiumError });
     }
-    if (!premiumData) {
-      return jsonResponse({ error: "policy_blocked", correlationId }, { status: 403 });
-    }
+    const isPremiumUser = Boolean(premiumData);
 
-    const raw = await req.json();
-    const parsed = menuPromptInputSchema.parse(raw);
+    const raw = await req.json().catch(() => ({}));
+    const parsedResult = menuPromptInputSchema.safeParse(raw);
+    if (!parsedResult.success) {
+      return respondError({
+        code: "invalid_payload",
+        correlationId,
+        status: 400,
+        details: parsedResult.error.flatten()
+      });
+    }
+    const parsed = parsedResult.data;
+    if (!parsed.sessionId) {
+      const today = new Date().toISOString().slice(0, 10);
+      const limit = isPremiumUser ? 10 : 3;
+      const { data: usageData, error: usageError } = await supabase.rpc("increment_menu_usage", {
+        _owner_id: userId,
+        _usage_date: today,
+        _uploads_inc: 1,
+        _list_inc: 0,
+        _upload_limit: limit,
+        _list_limit: limit
+      });
+      if (usageError) {
+        const message = usageError.message ?? "usage_increment_failed";
+        if (message.includes("not_owner")) {
+          return respondError({ code: "not_owner", correlationId, status: 403 });
+        }
+        console.error("increment_menu_usage failed", { correlationId, usageError });
+        return respondError({ code: "usage_increment_failed", correlationId, status: 500 });
+      }
+      const usageRow = Array.isArray(usageData) ? usageData[0] : usageData;
+      if (!usageRow) {
+        logEvent({
+          event: "menu_llm_limit_exceeded",
+          correlationId,
+          ownerId: userId,
+          errorCode: "limit_exceeded",
+          metadata: { scope: "uploads" }
+        });
+        return respondError({
+          code: "limit_exceeded",
+          correlationId,
+          status: 429,
+          details: { scope: "uploads" }
+        });
+      }
+    }
     const styleChoices = await loadStyleChoices(supabase, userId, parsed.dishes);
     const hydrated = {
       ...parsed,
@@ -592,16 +534,42 @@ serve(async (req) => {
       const llmPayload = {
         ...hydrated,
         preferences: hydrated.preferences ?? {},
-        policy: hydrated.policy ?? { isPremium: false, blurRecipes: true }
+        policy: hydrated.policy ?? { isPremium: isPremiumUser, blurRecipes: false }
       };
-      const llmRaw = await callLLM(llmPayload, requestId, correlationId);
+      const llmRaw = await callLLM(llmPayload, requestId, correlationId, userId);
       generated = sanitizeResponseShape(menuPromptResponseSchema.parse(llmRaw));
+      const hasEmptyCards =
+        generated.cards.length === 0 ||
+        generated.cards.some((card) => card.ingredients.length === 0 || card.method.length === 0);
+      if (hasEmptyCards) {
+        throw new Error("llm_empty_cards");
+      }
     } catch (error) {
+      const errorCode = error instanceof Error ? error.message : "llm_failed";
       console.error("llm_parse_failed", { requestId, correlationId, error: String(error) });
+      logEvent({
+        event: "menu_llm_fallback",
+        correlationId,
+        ownerId: userId,
+        provider: resolvedLlmProvider,
+        errorCode,
+        metadata: { requestId }
+      });
       generated = buildResponse(hydrated);
       usedFallback = true;
     }
+    const packagingStartedAt = performance.now();
     await applyPackagingGuidance(supabase, generated, parsed.locale);
+    logEvent({
+      event: "menu_packaging_applied",
+      correlationId,
+      ownerId: userId,
+      durationMs: Math.round(performance.now() - packagingStartedAt),
+      metadata: {
+        cards: generated.cards.length,
+        listLines: generated.consolidated_list?.length ?? 0
+      }
+    });
     const validated = menuPromptResponseSchema.parse(generated);
     if (parsed.sessionId) {
       const updatePayload: Record<string, unknown> = {
@@ -623,23 +591,28 @@ serve(async (req) => {
         .eq('id', parsed.sessionId)
         .eq('owner_id', userId);
     }
-    console.log(
-      JSON.stringify({
-        event: 'menu_llm_response',
-        correlationId,
+    logEvent({
+      event: "menu_llm_response",
+      correlationId,
+      ownerId: userId,
+      sessionId: parsed.sessionId ?? null,
+      provider: resolvedLlmProvider,
+      metadata: {
         dishCount: parsed.dishes.length,
         people: parsed.peopleCount,
         clarifications: validated.clarification_needed?.length ?? 0,
-        provider: resolvedLlmProvider,
         usedFallback
-      })
-    );
-    return jsonResponse(validated);
+      }
+    });
+    return respond({ ...validated, correlationId }, {}, correlationId);
   } catch (error) {
-    if ('issues' in (error as any)) {
-      return jsonResponse({ error: 'invalid_payload', details: (error as any).issues, correlationId }, { status: 400 });
-    }
     console.error('menus-llm failure', { correlationId, error });
-    return jsonResponse({ error: 'internal_error', correlationId }, { status: 500 });
+    logEvent({
+      event: "menu_llm_error",
+      correlationId,
+      ownerId: userId,
+      errorCode: "internal_error"
+    });
+    return respondError({ code: "internal_error", correlationId, status: 500 });
   }
 });

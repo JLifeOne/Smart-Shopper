@@ -21,7 +21,7 @@ export const menuPromptInputSchema = z.object({
   policy: z
     .object({
       isPremium: z.boolean().default(false),
-      blurRecipes: z.boolean().default(true)
+      blurRecipes: z.boolean().default(false)
     })
     .optional()
 });

@@ -1,6 +1,12 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
+import {
+  errorResponse,
+  getCorrelationId,
+  jsonResponse,
+  logEvent
+} from "../_shared/observability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -30,16 +36,11 @@ const packagingPayloadSchema = z.object({
     .max(250)
 });
 
-function jsonResponse(body: unknown, init: ResponseInit = {}) {
-  return new Response(JSON.stringify(body), {
-    headers: { "content-type": "application/json", ...corsHeaders },
-    ...init
-  });
-}
+const respond = (body: unknown, init: ResponseInit = {}, correlationId?: string) =>
+  jsonResponse(body, init, corsHeaders, correlationId);
 
-function getCorrelationId(req: Request) {
-  return req.headers.get("x-correlation-id") ?? crypto.randomUUID();
-}
+const respondError = (options: { code: string; correlationId: string; status?: number; details?: unknown }) =>
+  errorResponse({ ...options, corsHeaders });
 
 function authorizeInternalCall(req: Request) {
   if (!internalKey || !internalKey.trim().length) {
@@ -61,15 +62,19 @@ serve(async (req) => {
 
   const auth = authorizeInternalCall(req);
   if (!auth.ok) {
-    return jsonResponse({ error: auth.error, correlationId }, { status: auth.error === "forbidden" ? 403 : 503 });
+    return respondError({
+      code: auth.error,
+      correlationId,
+      status: auth.error === "forbidden" ? 403 : 503
+    });
   }
 
   if (!supabaseUrl || !serviceRoleKey) {
-    return jsonResponse({ error: "supabase_not_configured", correlationId }, { status: 500 });
+    return respondError({ code: "supabase_not_configured", correlationId, status: 500 });
   }
 
   if (req.method !== "POST") {
-    return jsonResponse({ error: "method_not_allowed", correlationId }, { status: 405 });
+    return respondError({ code: "method_not_allowed", correlationId, status: 405 });
   }
 
   try {
@@ -77,7 +82,12 @@ serve(async (req) => {
     const raw = await req.json().catch(() => ({}));
     const parsed = packagingPayloadSchema.safeParse(raw);
     if (!parsed.success) {
-      return jsonResponse({ error: "invalid_payload", details: parsed.error.flatten(), correlationId }, { status: 400 });
+      return respondError({
+        code: "invalid_payload",
+        correlationId,
+        status: 400,
+        details: parsed.error.flatten()
+      });
     }
     const payload = parsed.data;
 
@@ -118,7 +128,7 @@ serve(async (req) => {
           .single();
         if (profileError || !profile) {
           console.error("packaging profile insert failed", { correlationId, profileError });
-          return jsonResponse({ error: "profile_create_failed", correlationId }, { status: 400 });
+          return respondError({ code: "profile_create_failed", correlationId, status: 400 });
         }
         profileId = profile.id;
       }
@@ -139,23 +149,24 @@ serve(async (req) => {
       .select("id, ingredient_key, pack_size, pack_unit, display_label");
     if (error) {
       console.error("packaging units upsert failed", { correlationId, error });
-      return jsonResponse({ error: "packaging_update_failed", correlationId }, { status: 400 });
+      return respondError({ code: "packaging_update_failed", correlationId, status: 400 });
     }
     const durationMs = Math.round(performance.now() - startedAt);
-    console.log(
-      JSON.stringify({
-        event: "menu_packaging_upsert",
-        correlationId,
+    logEvent({
+      event: "menu_packaging_upsert",
+      correlationId,
+      status: "ok",
+      durationMs,
+      metadata: {
         profileId,
         locale: payload.locale ?? "en_US",
         storeId: payload.storeId ?? null,
-        updatedCount: data?.length ?? 0,
-        durationMs
-      })
-    );
-    return jsonResponse({ profileId, units: data });
+        updatedCount: data?.length ?? 0
+      }
+    });
+    return respond({ profileId, units: data, correlationId }, {}, correlationId);
   } catch (error) {
     console.error("menus-packaging failure", { correlationId, error });
-    return jsonResponse({ error: "internal_error", correlationId }, { status: 500 });
+    return respondError({ code: "internal_error", correlationId, status: 500 });
   }
 });

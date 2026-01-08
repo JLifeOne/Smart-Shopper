@@ -29,6 +29,7 @@
                     "expo-haptics": "~14.0.1",
                     "expo-image-picker": "~15.0.6",
                     "expo-linking": "~8.0.8",
+                    "expo-modules-core": "~3.0.21",
                     "expo-notifications": "~0.32.1",
                     "onesignal-expo-plugin": "^1.0.0",
                     "react-native-onesignal": "^5.1.0",
@@ -54,7 +55,6 @@
           "devDependencies": {
                     "@babel/types": "^7.28.4",
                     "@react-native-community/eslint-config": "^3.2.0",
-                    "@testing-library/jest-native": "^5.4.3",
                     "@testing-library/react-native": "^12.5.3",
                     "@tsconfig/react-native": "^3.0.7",
                     "@types/jest": "^29.5.11",

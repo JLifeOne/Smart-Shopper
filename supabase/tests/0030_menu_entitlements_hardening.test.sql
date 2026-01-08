@@ -1,6 +1,6 @@
 begin;
 
-select plan(4);
+select plan(5);
 
 -- Enable dev-only behavior for this test run (non-production environment).
 insert into public.app_runtime_config (key, value)
@@ -33,9 +33,19 @@ select ok(
     select 1 from pg_policies
     where schemaname = 'public'
       and tablename = 'menu_recipes'
-      and policyname = 'menu_recipes_premium_select'
+      and policyname = 'menu_recipes_owner_select'
   ),
-  'menu_recipes_premium_select policy present'
+  'menu_recipes_owner_select policy present'
+);
+
+select ok(
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'menu_recipes'
+      and policyname = 'menu_recipes_owner_modify'
+  ),
+  'menu_recipes_owner_modify policy present'
 );
 
 -- Free-tier concurrent session cap is 1.

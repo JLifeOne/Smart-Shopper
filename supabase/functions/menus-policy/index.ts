@@ -1,5 +1,11 @@
 import { serve } from "https://deno.land/std@0.207.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.4";
+import {
+  errorResponse,
+  getCorrelationId,
+  jsonResponse,
+  logEvent
+} from "../_shared/observability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -35,20 +41,11 @@ type PolicyResponse = {
   };
 };
 
-function jsonResponse(body: unknown, init: ResponseInit = {}) {
-  return new Response(JSON.stringify(body), {
-    headers: { "content-type": "application/json", ...corsHeaders },
-    ...init,
-  });
-}
+const respond = (body: unknown, init: ResponseInit = {}, correlationId?: string) =>
+  jsonResponse(body, init, corsHeaders, correlationId);
 
-function getCorrelationId(req: Request) {
-  return (
-    req.headers.get("x-correlation-id") ??
-    req.headers.get("Idempotency-Key") ??
-    crypto.randomUUID()
-  );
-}
+const respondError = (options: { code: string; correlationId: string; status?: number; details?: unknown }) =>
+  errorResponse({ ...options, corsHeaders });
 
 async function getUsage(client: any, userId: string) {
   const today = new Date().toISOString().slice(0, 10);
@@ -100,7 +97,7 @@ serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "auth_error";
     const status = message === "auth_required" ? 401 : 500;
-    return jsonResponse({ error: message, correlationId }, { status });
+    return respondError({ code: message, correlationId, status });
   }
 
   try {
@@ -138,11 +135,17 @@ serve(async (req) => {
         .single();
       if (error) {
         console.error("menu_user_preferences upsert failed", error);
-        return jsonResponse({ error: "preferences_update_failed" }, { status: 400 });
+        return respondError({ code: "preferences_update_failed", correlationId, status: 400 });
       }
       preferencesRecord = data ?? upsertPayload;
+      logEvent({
+        event: "menu_policy_updated",
+        correlationId,
+        ownerId: user.id,
+        status: "preferences_saved"
+      });
     } else if (req.method !== "GET") {
-      return jsonResponse({ error: "method_not_allowed" }, { status: 405 });
+      return respondError({ code: "method_not_allowed", correlationId, status: 405 });
     }
 
     const preferences = preferencesRecord ?? null;
@@ -153,21 +156,21 @@ serve(async (req) => {
     }
     const isPremium = Boolean(premiumData) || Boolean(user.app_metadata?.is_menu_premium ?? false);
     const limitsBase = isPremium
-      ? { maxUploadsPerDay: 25, concurrentSessions: 5, maxListCreates: 25 }
-      : { maxUploadsPerDay: 3, concurrentSessions: 1, maxListCreates: 1 };
+      ? { maxUploadsPerDay: 10, concurrentSessions: 5, maxListCreates: 10 }
+      : { maxUploadsPerDay: 3, concurrentSessions: 1, maxListCreates: 3 };
     const usage = await getUsage(client, user.id);
     const remainingUploads = Math.max(0, limitsBase.maxUploadsPerDay - usage.uploads);
     const remainingListCreates = Math.max(0, limitsBase.maxListCreates - usage.listCreates);
     const policy: PolicyResponse["policy"] = {
       isPremium,
-      accessLevel: isPremium ? "full" : "title_only",
-      blurRecipes: !isPremium,
+      accessLevel: "full",
+      blurRecipes: false,
       limits: {
         ...limitsBase,
         remainingUploads,
         remainingListCreates,
       },
-      allowListCreation: isPremium,
+      allowListCreation: remainingListCreates > 0,
       allowTemplateCards: true,
     };
 
@@ -180,9 +183,23 @@ serve(async (req) => {
       allergenFlags: preferences?.allergen_flags ?? [],
     };
 
-    return jsonResponse({ policy, preferences: prefs, correlationId } satisfies PolicyResponse & { correlationId: string });
+    logEvent({
+      event: "menu_policy_loaded",
+      correlationId,
+      ownerId: user.id,
+      metadata: {
+        isPremium,
+        remainingUploads,
+        remainingListCreates
+      }
+    });
+    return respond(
+      { policy, preferences: prefs, correlationId } satisfies PolicyResponse & { correlationId: string },
+      {},
+      correlationId
+    );
   } catch (error) {
     console.error("menus-policy failure", error);
-    return jsonResponse({ error: "policy_load_failed", correlationId }, { status: 500 });
+    return respondError({ code: "policy_load_failed", correlationId, status: 500 });
   }
 });
