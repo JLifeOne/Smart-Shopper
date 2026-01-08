@@ -322,7 +322,13 @@ serve(async (req) => {
     );
 
     const now = new Date();
-    const expoMessages: Array<Record<string, unknown>> = [];
+    const expoMessages: Array<{
+      to: string;
+      title: string;
+      body: string;
+      sound: string;
+      data: Record<string, unknown>;
+    }> = [];
     const expoByToken = new Map<string, { deliveryId: string; userId: string }>();
     const oneSignalPlans: Array<{ delivery: DeliveryRow; inboxItem: InboxRow; tokens: string[] }> = [];
     const providerByDelivery = new Map<string, PushProvider>();
@@ -531,7 +537,7 @@ serve(async (req) => {
           const chunkResults = await sendExpoPush(chunk);
           chunkResults.forEach((result: any, idx: number) => {
             const token = chunk[idx]?.to;
-            if (token) {
+            if (typeof token === "string" && token.length > 0) {
               expoResultsByToken.set(token, result);
             }
           });
