@@ -4,15 +4,17 @@ This runbook covers common Windows issues starting the Expo dev server in a pnpm
 
 ## Symptoms
 - `Error: Cannot find module 'metro-runtime/package.json'` when running `pnpm --filter @smart-shopper/mobile start ...`.
+- `Error: Cannot find module 'metro-resolver'` when running `expo run:android` or Metro.
 - `EPERM: operation not permitted, unlink ...` during `pnpm add` / `pnpm install`.
 - Port conflicts on 8081 (Metro’s default) causing startup failure or hanging.
 - Android dev client shows a red screen with `java.net.SocketTimeoutException: Failed to connect to /192.168.x.x` (Metro bundle URL unreachable).
 
 ## Root Causes
 1. `metro-runtime` missing from the mobile package due to pnpm hoisting/isolation.
-2. Files locked by Node/VS Code/antivirus preventing pnpm from unlinking `.pnpm` store entries.
-3. A stray Metro/React Native process still holding port `8081`.
-4. Metro is advertising an IP/host the Android emulator cannot reach (firewall, wrong host mode, or mixed WSL/Windows installs).
+2. `metro-resolver` missing from the mobile package due to pnpm hoisting/isolation.
+3. Files locked by Node/VS Code/antivirus preventing pnpm from unlinking `.pnpm` store entries.
+4. A stray Metro/React Native process still holding port `8081`.
+5. Metro is advertising an IP/host the Android emulator cannot reach (firewall, wrong host mode, or mixed WSL/Windows installs).
 
 ## Quick Fix (Most Cases)
 Run in an elevated PowerShell at repo root (`C:\ss`):
@@ -28,8 +30,8 @@ Remove-Item -Recurse -Force apps/mobile/.expo, apps/mobile/.expo-shared, apps/mo
 # 3) Reinstall deps cleanly (Admin helps avoid EPERM)
 pnpm install
 
-# 4) Ensure metro-runtime is present in the mobile package
-pnpm add --filter @smart-shopper/mobile -D metro-runtime
+# 4) Ensure metro runtime + resolver are present in the mobile package
+pnpm add --filter @smart-shopper/mobile -D metro-runtime metro-resolver
 
 # 5) Start on 8081 with a clean cache
 pnpm --filter @smart-shopper/mobile start:clear -- --port 8081
