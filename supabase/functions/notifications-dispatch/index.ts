@@ -326,7 +326,35 @@ serve(async (req) => {
     const expoByToken = new Map<string, { deliveryId: string; userId: string }>();
     const oneSignalPlans: Array<{ delivery: DeliveryRow; inboxItem: InboxRow; tokens: string[] }> = [];
     const providerByDelivery = new Map<string, PushProvider>();
-    const deliveryUpdates: Array<Promise<unknown>> = [];
+    const deliveryUpdates: Array<Promise<void>> = [];
+    const queueDeliveryUpdate = (
+      deliveryId: string,
+      patch: Record<string, unknown>,
+      context?: { status?: string; errorCode?: string | null; provider?: string | null }
+    ) => {
+      deliveryUpdates.push(
+        (async () => {
+          const { error } = await supabase
+            .from("notification_deliveries")
+            .update(patch)
+            .eq("id", deliveryId);
+          if (error) {
+            logEvent({
+              event: "notification_delivery_update_failed",
+              correlationId,
+              entityId: deliveryId,
+              status: context?.status,
+              errorCode: context?.errorCode ?? "update_failed",
+              metadata: {
+                provider: context?.provider ?? undefined,
+                fields: Object.keys(patch)
+              }
+            });
+            throw error;
+          }
+        })()
+      );
+    };
     const handledDeliveryIds = new Set<string>();
     const invalidExpoTokens: string[] = [];
     const invalidOneSignalTokens: string[] = [];
@@ -337,11 +365,10 @@ serve(async (req) => {
     for (const delivery of deliveries) {
       const inboxItem = inboxById.get(delivery.inbox_id);
       if (!inboxItem) {
-        deliveryUpdates.push(
-          supabase
-            .from("notification_deliveries")
-            .update({ status: "failed", error_code: "inbox_missing" })
-            .eq("id", delivery.id)
+        queueDeliveryUpdate(
+          delivery.id,
+          { status: "failed", error_code: "inbox_missing" },
+          { status: "failed", errorCode: "inbox_missing" }
         );
         handledDeliveryIds.add(delivery.id);
         failedCount += 1;
@@ -355,11 +382,10 @@ serve(async (req) => {
       const dailySent = countByUser.get(delivery.user_id) ?? 0;
 
       if (inboxItem.type === "promo" && !promosEnabled) {
-        deliveryUpdates.push(
-          supabase
-            .from("notification_deliveries")
-            .update({ status: "skipped", error_code: "promos_disabled" })
-            .eq("id", delivery.id)
+        queueDeliveryUpdate(
+          delivery.id,
+          { status: "skipped", error_code: "promos_disabled" },
+          { status: "skipped", errorCode: "promos_disabled" }
         );
         handledDeliveryIds.add(delivery.id);
         skippedCount += 1;
@@ -367,11 +393,10 @@ serve(async (req) => {
       }
 
       if (!pushEnabled) {
-        deliveryUpdates.push(
-          supabase
-            .from("notification_deliveries")
-            .update({ status: "skipped", error_code: "push_disabled" })
-            .eq("id", delivery.id)
+        queueDeliveryUpdate(
+          delivery.id,
+          { status: "skipped", error_code: "push_disabled" },
+          { status: "skipped", errorCode: "push_disabled" }
         );
         handledDeliveryIds.add(delivery.id);
         skippedCount += 1;
@@ -379,11 +404,10 @@ serve(async (req) => {
       }
 
       if (inboxItem.type === "promo" && dailySent >= maxPromosPerDay) {
-        deliveryUpdates.push(
-          supabase
-            .from("notification_deliveries")
-            .update({ status: "skipped", error_code: "daily_cap" })
-            .eq("id", delivery.id)
+        queueDeliveryUpdate(
+          delivery.id,
+          { status: "skipped", error_code: "daily_cap" },
+          { status: "skipped", errorCode: "daily_cap" }
         );
         handledDeliveryIds.add(delivery.id);
         skippedCount += 1;
@@ -391,11 +415,10 @@ serve(async (req) => {
       }
 
       if (isWithinQuietHours(now, prefs?.quiet_hours_start ?? null, prefs?.quiet_hours_end ?? null, prefs?.quiet_hours_timezone ?? "UTC")) {
-        deliveryUpdates.push(
-          supabase
-            .from("notification_deliveries")
-            .update({ status: "skipped", error_code: "quiet_hours" })
-            .eq("id", delivery.id)
+        queueDeliveryUpdate(
+          delivery.id,
+          { status: "skipped", error_code: "quiet_hours" },
+          { status: "skipped", errorCode: "quiet_hours" }
         );
         handledDeliveryIds.add(delivery.id);
         skippedCount += 1;
@@ -441,15 +464,14 @@ serve(async (req) => {
 
       if (!selectedProvider) {
         const errorCode = providerDisabled ? "provider_disabled" : "no_devices";
-        deliveryUpdates.push(
-          supabase
-            .from("notification_deliveries")
-            .update({
-              status: "skipped",
-              error_code: errorCode,
-              provider: requestedProvider
-            })
-            .eq("id", delivery.id)
+        queueDeliveryUpdate(
+          delivery.id,
+          {
+            status: "skipped",
+            error_code: errorCode,
+            provider: requestedProvider
+          },
+          { status: "skipped", errorCode, provider: requestedProvider }
         );
         handledDeliveryIds.add(delivery.id);
         skippedCount += 1;
@@ -457,15 +479,14 @@ serve(async (req) => {
       }
 
       if (!selectedTokens.length) {
-        deliveryUpdates.push(
-          supabase
-            .from("notification_deliveries")
-            .update({
-              status: "skipped",
-              error_code: "no_devices",
-              provider: selectedProvider
-            })
-            .eq("id", delivery.id)
+        queueDeliveryUpdate(
+          delivery.id,
+          {
+            status: "skipped",
+            error_code: "no_devices",
+            provider: selectedProvider
+          },
+          { status: "skipped", errorCode: "no_devices", provider: selectedProvider }
         );
         handledDeliveryIds.add(delivery.id);
         skippedCount += 1;
@@ -527,16 +548,15 @@ serve(async (req) => {
           handledDeliveryIds.add(delivery.id);
           failedCount += 1;
           const retryAt = computeNextRetry(delivery.attempt_count);
-          deliveryUpdates.push(
-            supabase
-              .from("notification_deliveries")
-              .update({
-                status: "failed",
-                error_code: "provider_unavailable",
-                next_retry_at: retryAt,
-                provider: "expo"
-              })
-              .eq("id", delivery.id)
+          queueDeliveryUpdate(
+            delivery.id,
+            {
+              status: "failed",
+              error_code: "provider_unavailable",
+              next_retry_at: retryAt,
+              provider: "expo"
+            },
+            { status: "failed", errorCode: "provider_unavailable", provider: "expo" }
           );
         });
         logEvent({
@@ -578,29 +598,27 @@ serve(async (req) => {
       if (!summary) {
         handledDeliveryIds.add(delivery.id);
         failedCount += 1;
-        deliveryUpdates.push(
-          supabase
-            .from("notification_deliveries")
-            .update({
-              status: "failed",
-              error_code: "provider_unavailable",
-              next_retry_at: computeNextRetry(delivery.attempt_count),
-              provider: "expo"
-            })
-            .eq("id", delivery.id)
+        queueDeliveryUpdate(
+          delivery.id,
+          {
+            status: "failed",
+            error_code: "provider_unavailable",
+            next_retry_at: computeNextRetry(delivery.attempt_count),
+            provider: "expo"
+          },
+          { status: "failed", errorCode: "provider_unavailable", provider: "expo" }
         );
         continue;
       }
       if (summary.ok > 0) {
-        deliveryUpdates.push(
-          supabase
-            .from("notification_deliveries")
-            .update({
-              status: "sent",
-              provider_response: { ok: summary.ok, errors: summary.errors },
-              provider: "expo"
-            })
-            .eq("id", delivery.id)
+        queueDeliveryUpdate(
+          delivery.id,
+          {
+            status: "sent",
+            provider_response: { ok: summary.ok, errors: summary.errors },
+            provider: "expo"
+          },
+          { status: "sent", provider: "expo" }
         );
         handledDeliveryIds.add(delivery.id);
         sentCount += 1;
@@ -615,16 +633,16 @@ serve(async (req) => {
       } else {
         const errorCode = summary.errors[0] ?? "delivery_failed";
         const nextRetryAt = errorCode === "DeviceNotRegistered" ? null : computeNextRetry(delivery.attempt_count);
-        deliveryUpdates.push(
-          supabase
-            .from("notification_deliveries")
-            .update({
-              status: errorCode === "DeviceNotRegistered" ? "skipped" : "failed",
-              error_code: errorCode,
-              next_retry_at: nextRetryAt,
-              provider: "expo"
-            })
-            .eq("id", delivery.id)
+        const status = errorCode === "DeviceNotRegistered" ? "skipped" : "failed";
+        queueDeliveryUpdate(
+          delivery.id,
+          {
+            status,
+            error_code: errorCode,
+            next_retry_at: nextRetryAt,
+            provider: "expo"
+          },
+          { status, errorCode, provider: "expo" }
         );
         handledDeliveryIds.add(delivery.id);
         if (errorCode === "DeviceNotRegistered") {
@@ -676,19 +694,18 @@ serve(async (req) => {
 
           const deliveredTokens = plan.tokens.filter((token) => !invalidForDelivery.has(token));
           if (deliveredTokens.length) {
-            deliveryUpdates.push(
-              supabase
-                .from("notification_deliveries")
-                .update({
-                  status: "sent",
-                  provider_response: {
-                    recipients,
-                    errors,
-                    invalidTokens: Array.from(invalidForDelivery)
-                  },
-                  provider: "onesignal"
-                })
-                .eq("id", plan.delivery.id)
+            queueDeliveryUpdate(
+              plan.delivery.id,
+              {
+                status: "sent",
+                provider_response: {
+                  recipients,
+                  errors,
+                  invalidTokens: Array.from(invalidForDelivery)
+                },
+                provider: "onesignal"
+              },
+              { status: "sent", provider: "onesignal" }
             );
             handledDeliveryIds.add(plan.delivery.id);
             sentCount += 1;
@@ -701,20 +718,19 @@ serve(async (req) => {
               metadata: { provider: "onesignal" }
             });
           } else {
-            deliveryUpdates.push(
-              supabase
-                .from("notification_deliveries")
-                .update({
-                  status: "skipped",
-                  error_code: "DeviceNotRegistered",
-                  provider_response: {
-                    recipients,
-                    errors,
-                    invalidTokens: Array.from(invalidForDelivery)
-                  },
-                  provider: "onesignal"
-                })
-                .eq("id", plan.delivery.id)
+            queueDeliveryUpdate(
+              plan.delivery.id,
+              {
+                status: "skipped",
+                error_code: "DeviceNotRegistered",
+                provider_response: {
+                  recipients,
+                  errors,
+                  invalidTokens: Array.from(invalidForDelivery)
+                },
+                provider: "onesignal"
+              },
+              { status: "skipped", errorCode: "DeviceNotRegistered", provider: "onesignal" }
             );
             handledDeliveryIds.add(plan.delivery.id);
             skippedCount += 1;
@@ -733,16 +749,17 @@ serve(async (req) => {
           const isDisabled = errorCode === "onesignal_disabled";
           const nextRetryAt = isDisabled ? null : computeNextRetry(plan.delivery.attempt_count);
           providerFailure = providerFailure || !isDisabled;
-          deliveryUpdates.push(
-            supabase
-              .from("notification_deliveries")
-              .update({
-                status: isDisabled ? "skipped" : "failed",
-                error_code: isDisabled ? "provider_disabled" : errorCode,
-                next_retry_at: nextRetryAt,
-                provider: "onesignal"
-              })
-              .eq("id", plan.delivery.id)
+          const status = isDisabled ? "skipped" : "failed";
+          const resolvedErrorCode = isDisabled ? "provider_disabled" : errorCode;
+          queueDeliveryUpdate(
+            plan.delivery.id,
+            {
+              status,
+              error_code: resolvedErrorCode,
+              next_retry_at: nextRetryAt,
+              provider: "onesignal"
+            },
+            { status, errorCode: resolvedErrorCode, provider: "onesignal" }
           );
           handledDeliveryIds.add(plan.delivery.id);
           if (isDisabled) {
@@ -755,8 +772,8 @@ serve(async (req) => {
             correlationId,
             ownerId: plan.delivery.user_id,
             entityId: plan.delivery.id,
-            status: isDisabled ? "skipped" : "failed",
-            errorCode: isDisabled ? "provider_disabled" : errorCode,
+            status,
+            errorCode: resolvedErrorCode,
             metadata: { provider: "onesignal" }
           });
         }
