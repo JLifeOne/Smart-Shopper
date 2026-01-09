@@ -60,6 +60,14 @@ This repo prioritizes correctness, resiliency, and production-readiness over spe
 - Add observability from day 1: structured logs, correlation IDs, actionable error surfaces.
 - Update docs/runbooks/contracts alongside code changes; documentation is part of Done.
 
+## Operational Guardrails (non‑negotiable)
+- Only ship root-cause fixes; avoid band-aids or repeat workarounds when an issue recurs.
+- Provide Windows instructions in PowerShell unless explicitly asked for another shell.
+- Run a repo-wide search first before new implementations or overrides; document the evidence, adjacent dependencies/configs/tests, and expected failure modes.
+- Do not add fallback logic or overrides unless a concrete in-repo need is proven; validate the change end-to-end and note any risk mitigations.
+- Document past issues and fixes in the append-only issue log with timestamps to preserve history.
+- End-to-end validation must include reading `docs/issue-log.md` and confirming relevant past issues are accounted for.
+
 ## Definition of Done (enforced, not vibes)
 - CI passes (`ci.yml` + `verify-supabase.yml`) and you ran the relevant local gates above.
 - AuthZ is enforced server-side (RLS/policies/function checks) for any sensitive operation.

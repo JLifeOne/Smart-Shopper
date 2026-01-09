@@ -15,6 +15,8 @@ This runbook covers common Windows issues starting the Expo dev server in a pnpm
 3. Files locked by Node/VS Code/antivirus preventing pnpm from unlinking `.pnpm` store entries.
 4. A stray Metro/React Native process still holding port `8081`.
 5. Metro is advertising an IP/host the Android emulator cannot reach (firewall, wrong host mode, or mixed WSL/Windows installs).
+6. Metro is watching workspace package `node_modules`, triggering `EACCES` on pnpm/tsup `.ignored_*` sentinel files (Windows file watcher limitation).
+7. Metro config is resolved from the workspace root, and a `metro.config.js` (ESM) is ignored in a `type: module` repo.
 
 ## Quick Fix (Most Cases)
 Run in an elevated PowerShell at repo root (`C:\ss`):
@@ -71,6 +73,29 @@ If step (3) fails with EPERM unlink errors, close VS Code/Terminals, then:
 attrib -R -S -H .pnpm -Recurse -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force .pnpm, node_modules -ErrorAction SilentlyContinue
 pnpm install
+```
+
+## Fix: Metro `EACCES` on `.ignored_*` under `packages/*/node_modules`
+
+Symptoms:
+- `EACCES: permission denied, lstat 'C:\ss\packages\theme\node_modules\.ignored_tsup'`
+- Similar errors for `.ignored_dotenv` or other `.ignored_*` entries.
+
+Root cause:
+- Metro is watching workspace package `node_modules`. On Windows, the file watcher fails on pnpm/tsup sentinel files under those folders.
+
+Permanent fix:
+- Use `metro.config.cjs` (CJS) so Metro can load config reliably in a `type: module` repo.
+- Keep a `apps/mobile/metro.config.js` shim that re-exports `metro.config.cjs`, since Metro searches for `metro.config.js` by default.
+- `apps/mobile/metro.config.cjs` sets `EXPO_NO_METRO_WORKSPACE_ROOT=1` to avoid Metro auto-watching workspace `node_modules`.
+- Update `apps/mobile/metro.config.cjs` to **watch only workspace package roots (`packages/*`)** and **blocklist `node_modules` inside each workspace package**.
+- This prevents Metro from ever traversing those `node_modules` folders and removes the `EACCES` failure mode.
+  - The blocklist must match the `node_modules` directory itself (not just files inside it) so the watcher skips traversal on Windows.
+
+PowerShell verification:
+```powershell
+cd C:\ss\apps\mobile
+pnpm android
 ```
 
 ## Guardrails (Prevent Recurrence)
