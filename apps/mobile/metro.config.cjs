@@ -45,9 +45,21 @@ const listWorkspacePackageRoots = () => {
 const config = getDefaultConfig(projectRoot);
 
 const workspacePackageRoots = listWorkspacePackageRoots();
+const supabaseSharedRoot = path.resolve(
+  workspaceRoot,
+  'supabase',
+  'functions',
+  '_shared'
+);
 
 // Watch workspace package roots and the pnpm virtual store; blocklist package node_modules on Windows.
-config.watchFolders = Array.from(new Set([...workspacePackageRoots, virtualStoreDir]));
+config.watchFolders = Array.from(
+  new Set([
+    ...workspacePackageRoots,
+    virtualStoreDir,
+    ...(fs.existsSync(supabaseSharedRoot) ? [supabaseSharedRoot] : [])
+  ])
+);
 
 config.resolver.nodeModulesPaths = Array.from(
   new Set([

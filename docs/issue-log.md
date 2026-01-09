@@ -30,3 +30,11 @@ Root Cause: The change addressed one failure mode but did not validate the full 
 Fix: Require end-to-end validation for debugging and fixes, including Metro bundle success and dev client load.
 Validation: Added guardrails in `AGENTS.md`; confirm full `pnpm start:clear` + `pnpm android` cycle passes.
 Prevention: Enforce mandatory end-to-end validation for every debugging/fix pass and record outcomes in this log.
+
+### 2026-01-09 17:41 UTC — Metro cannot resolve Supabase shared classifier
+Summary: Metro bundling failed with `Unable to resolve "../../../../supabase/functions/_shared/hybrid-classifier"`.
+Impact: Mobile dev client bundling blocked; Android run could not load.
+Root Cause: Workspace root was removed from Metro `watchFolders` to avoid Windows `EACCES`, but the Supabase shared folder was not explicitly added. Metro does not resolve files outside the project root unless they are in `watchFolders`.
+Fix: Add `supabase/functions/_shared` as an explicit Metro watch folder in `apps/mobile/metro.config.cjs`, without re-adding the full workspace root.
+Validation: Run `pnpm start:clear -- --host lan --port 8081` and confirm the bundle resolves `hybrid-classifier`, then `pnpm android` to load the dev client.
+Prevention: When mobile imports code outside `apps/mobile`, add the exact external path to Metro `watchFolders` and validate a full dev-client load.

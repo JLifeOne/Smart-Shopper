@@ -17,6 +17,7 @@ This runbook covers common Windows issues starting the Expo dev server in a pnpm
 5. Metro is advertising an IP/host the Android emulator cannot reach (firewall, wrong host mode, or mixed WSL/Windows installs).
 6. Metro is watching workspace package `node_modules`, triggering `EACCES` on pnpm/tsup `.ignored_*` sentinel files (Windows file watcher limitation).
 7. Metro config is resolved from the workspace root, and a `metro.config.js` (ESM) is ignored in a `type: module` repo.
+8. Mobile imports from `supabase/functions/_shared` are outside the app root, and Metro cannot resolve them unless the path is in `watchFolders`.
 
 ## Quick Fix (Most Cases)
 Run in an elevated PowerShell at repo root (`C:\ss`):
@@ -95,6 +96,43 @@ Permanent fix:
 PowerShell verification:
 ```powershell
 cd C:\ss\apps\mobile
+pnpm android
+```
+
+## Fix: Metro cannot resolve `supabase/functions/_shared` imports
+
+Symptoms:
+- `Unable to resolve "../../../../supabase/functions/_shared/hybrid-classifier"` from `apps\mobile\src\...`.
+
+Root cause:
+- We removed the workspace root from `watchFolders` to avoid Windows `EACCES`. That means Metro no longer watches `supabase/functions/_shared`, so it cannot resolve shared code imported from there.
+
+Permanent fix:
+- Add the specific Supabase shared folder to Metro `watchFolders` without re-adding the full workspace root.
+- Keep the workspace package roots + pnpm virtual store in `watchFolders` and blocklist `packages/*/node_modules`.
+
+Example (already reflected in `apps/mobile/metro.config.cjs`):
+```js
+const supabaseSharedRoot = path.resolve(
+  workspaceRoot,
+  'supabase',
+  'functions',
+  '_shared'
+);
+
+config.watchFolders = Array.from(
+  new Set([
+    ...workspacePackageRoots,
+    virtualStoreDir,
+    ...(fs.existsSync(supabaseSharedRoot) ? [supabaseSharedRoot] : [])
+  ])
+);
+```
+
+PowerShell verification:
+```powershell
+cd C:\ss\apps\mobile
+pnpm start:clear -- --host lan --port 8081
 pnpm android
 ```
 
