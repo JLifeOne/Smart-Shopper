@@ -46,8 +46,8 @@ const config = getDefaultConfig(projectRoot);
 
 const workspacePackageRoots = listWorkspacePackageRoots();
 
-// Watch workspace package roots; blocklist their node_modules on Windows.
-config.watchFolders = workspacePackageRoots;
+// Watch workspace package roots and the pnpm virtual store; blocklist package node_modules on Windows.
+config.watchFolders = Array.from(new Set([...workspacePackageRoots, virtualStoreDir]));
 
 config.resolver.nodeModulesPaths = Array.from(
   new Set([

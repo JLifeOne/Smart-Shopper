@@ -67,6 +67,7 @@ This repo prioritizes correctness, resiliency, and production-readiness over spe
 - Do not add fallback logic or overrides unless a concrete in-repo need is proven; validate the change end-to-end and note any risk mitigations.
 - Document past issues and fixes in the append-only issue log with timestamps to preserve history.
 - End-to-end validation must include reading `docs/issue-log.md` and confirming relevant past issues are accounted for.
+- End-to-end validation is required for debugging and fixes; do not stop at partial remediation.
 
 ## Definition of Done (enforced, not vibes)
 - CI passes (`ci.yml` + `verify-supabase.yml`) and you ran the relevant local gates above.
