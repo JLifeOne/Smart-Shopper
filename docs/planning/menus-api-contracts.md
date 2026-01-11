@@ -10,7 +10,7 @@ This document formalizes the Supabase edge-function contracts needed to move Men
 Creates a draft ingestion session before OCR/LLM processing.
 
 Headers
-- `Idempotency-Key` (required): ensures session creation and daily usage accounting are replay-safe under retries/double-taps.
+- `Idempotency-Key` (required): ensures session creation and usage accounting (daily for premium, lifetime for freemium) are replay-safe under retries/double-taps.
 - `x-correlation-id` (optional): propagated through function logs for tracing.
 
 ```json
@@ -53,7 +53,7 @@ Used to acknowledge clarification responses, attach manual edits, or mark deleti
 }
 ```
 
-Limits: sessions are allowed for all users, but the server enforces daily caps (freemium 3/day, premium 10/day).
+Limits: sessions are allowed for all users, but the server enforces caps (freemium 3 total, premium 10/day).
 
 ---
 
@@ -137,14 +137,14 @@ Soft-delete optional by setting `deleted_at`; default is hard delete for owner.
 
 ## 4. Title-only dishes (`/menus-titles`)
 
-Title-only saves are an optional storage path: they persist dish titles server-side and enforce daily caps without relying on local storage.
+Title-only saves are an optional storage path: they persist dish titles server-side and enforce caps (freemium lifetime, premium daily) without relying on local storage.
 
 ### List – `GET /menus-titles?sessionId=`
 Returns title-only dishes owned by the caller. Optional `sessionId` filter.
 
 ### Create – `POST /menus-titles`
 Headers
-- `Idempotency-Key` (required): prevents duplicates under retries/double-taps and ensures daily usage is only counted once.
+- `Idempotency-Key` (required): prevents duplicates under retries/double-taps and ensures usage is only counted once (daily for premium, lifetime for freemium).
 - `x-correlation-id` (optional): traced through edge-function logs.
 
 ```json
@@ -172,10 +172,10 @@ Response `200`
 
 Back-end responsibilities:
 - Persist to `menu_title_dishes` with owner-scoped RLS.
-- Increment `menu_usage_counters.uploads` so `menus-policy.limits.remainingUploads` matches the free-tier cap across devices.
+- Increment `menu_usage_totals.uploads_total` for freemium and `menu_usage_counters.uploads` for premium so `menus-policy.limits.remainingUploads` matches the plan window across devices.
 
 Expected errors:
-- `limit_exceeded` (429): user exceeded daily uploads/title-only cap (`scope: "uploads"`).
+- `limit_exceeded` (429): user exceeded uploads/title-only cap (`scope: "uploads"`) based on plan limits.
 - `title_required` (400): missing/empty title.
 - `idempotency_key_required` (400).
 
@@ -210,7 +210,7 @@ Response `200`
 
 Back-end responsibilities:
 - Merge ingredients, normalize units, map to packaging units per locale.
-- Require and respect `Idempotency-Key` when `persistList: true` so retries/double-taps cannot create duplicate lists or double-charge daily counters.
+- Require and respect `Idempotency-Key` when `persistList: true` so retries/double-taps cannot create duplicate lists or double-charge counters.
 - Enforce allergen/dietary preferences recorded in `menu_user_preferences`; if conflicts exist return
 ```json
 {
@@ -221,7 +221,7 @@ Back-end responsibilities:
 }
 ```
 
-Limits: list conversion is allowed for all users but daily list-create caps apply (freemium 3/day, premium 10/day).
+Limits: list conversion is allowed for all users but caps apply (freemium 3 total, premium 10/day).
 
 ---
 

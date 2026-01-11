@@ -42,13 +42,12 @@ select ok(:'first_dish_id'::uuid = :'second_dish_id'::uuid, 'menu_create_title_d
 
 select is(
   (
-    select uploads
-    from public.menu_usage_counters
+    select uploads_total
+    from public.menu_usage_totals
     where owner_id = :'owner_id'::uuid
-      and usage_date = (timezone('utc', now()))::date
   ),
   1,
-  'menu_usage_counters.uploads increments once for title-only save'
+  'menu_usage_totals.uploads_total increments once for title-only save'
 );
 
 select throws_ok(
@@ -57,20 +56,20 @@ select throws_ok(
   'menu_create_title_dish rejects empty titles'
 );
 
--- Free-tier daily upload cap is 3; the 4th increment should fail.
+-- Free-tier total upload cap is 3; the 4th increment should fail.
 select * from public.menu_create_title_dish('menu-title-2-' || gen_random_uuid()::text, 'Callaloo', null::uuid);
 select * from public.menu_create_title_dish('menu-title-3-' || gen_random_uuid()::text, 'Festival', null::uuid);
 
 select throws_ok(
   $$select * from public.menu_create_title_dish('menu-title-4-' || gen_random_uuid()::text, 'Jerk chicken', null::uuid);$$,
   'limit_exceeded',
-  'menu_create_title_dish enforces daily upload cap'
+  'menu_create_title_dish enforces lifetime upload cap'
 );
 
 select is(
-  (select uploads from public.menu_usage_counters where owner_id = :'owner_id'::uuid and usage_date = (timezone('utc', now()))::date),
+  (select uploads_total from public.menu_usage_totals where owner_id = :'owner_id'::uuid),
   3,
-  'uploads remains at limit after over-limit attempt'
+  'uploads_total remains at limit after over-limit attempt'
 );
 
 select finish();

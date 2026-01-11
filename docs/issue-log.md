@@ -38,3 +38,27 @@ Root Cause: Workspace root was removed from Metro `watchFolders` to avoid Window
 Fix: Add `supabase/functions/_shared` as an explicit Metro watch folder in `apps/mobile/metro.config.cjs`, without re-adding the full workspace root.
 Validation: Run `pnpm start:clear -- --host lan --port 8081` and confirm the bundle resolves `hybrid-classifier`, then `pnpm android` to load the dev client.
 Prevention: When mobile imports code outside `apps/mobile`, add the exact external path to Metro `watchFolders` and validate a full dev-client load.
+
+### 2026-01-10 16:04 UTC — Saved dishes not visible after menu save
+Summary: Saved dishes could disappear after saving from the Menus screen.
+Impact: Users saw no saved dishes after saving, blocking menu review and list creation flows.
+Root Cause: `handleSaveDish` in `apps/mobile/app/(app)/menus/index.tsx` only fell back to title-only on transient errors. Non-transient `menu-recipes` failures (ex: RLS gating from `0030_menu_entitlements_hardening.sql`, or `recipe_create_failed`) threw and cleared optimistic entries without creating a title-only record. Adjacent dependencies: `supabase/functions/menu-recipes/index.ts`, `supabase/functions/menus-titles/index.ts`, and RLS policies in `0030` and `0036`. Expected failure mode: `menu-recipes` returns 4xx and the saved list stays empty.
+Fix: Always attempt title-only fallback when recipe creation fails (except over-limit), logging correlation IDs; keep a local title-only entry if the server fallback fails.
+Validation: Pending — run `pnpm start:clear -- --host lan --port 8081`, save dishes as a free and premium user, and confirm saved dishes render. Verify target DB policies match `0036_menu_freemium_limits.sql`.
+Prevention: Require policy alignment checks for menu save changes and include the save flow in end-to-end validation.
+
+### 2026-01-11 04:43 UTC — `supabase db push` failed on notifications migration
+Summary: Remote `supabase db push` failed on `0035_notifications_promo_alerts.sql` with `function uuid_generate_v4() does not exist`.
+Impact: Remote migrations stopped before `0036_menu_freemium_limits.sql`, leaving premium-only RLS on `menu_recipes` and causing saved recipes to disappear for non-premium users.
+Root Cause: `0035_notifications_promo_alerts.sql` used `uuid_generate_v4()` without guaranteeing `uuid-ossp` availability on the remote target; the remote environment did not expose that function.
+Fix: Replace `uuid_generate_v4()` defaults with `gen_random_uuid()` in `0035_notifications_promo_alerts.sql`, aligning with existing pgcrypto usage across migrations.
+Validation: Re-run `supabase db push` and confirm `0035` + `0036` apply; then verify free users can list `menu_recipes` and saved dishes render in the Menus screen.
+Prevention: Prefer `gen_random_uuid()` in new migrations and verify extension availability before pushing remote schema changes.
+
+### 2026-01-11 17:02 UTC — Freemium limits displayed as daily
+Summary: Free-tier menu limits appeared to be daily, and list-create fallback caps showed as 1.
+Impact: UI messaging and gating did not match the intended 3 total lifetime menu runs for freemium users.
+Root Cause: Cached menu policy payloads without `limits.limitWindow` defaulted to `'day'`, and fallback limits in `menu-storage`/Menus UI did not align with server policy.
+Fix: Infer `limitWindow` from `isPremium` when missing, normalize cached limits, and align fallback caps to freemium lifetime 3 / premium daily 10; update tests and docs.
+Validation: Run `pnpm verify`, `supabase test db`, and confirm the Menus screen shows lifetime messaging for free users and blocks after 3 total runs.
+Prevention: Normalize policy limits on read, keep fallbacks aligned to server policy, and validate UI messaging alongside server enforcement.

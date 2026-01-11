@@ -27,6 +27,7 @@ type PolicyResponse = {
       maxListCreates: number;
       remainingUploads: number;
       remainingListCreates: number;
+      limitWindow: "day" | "lifetime";
     };
     allowListCreation: boolean;
     allowTemplateCards: boolean;
@@ -47,7 +48,7 @@ const respond = (body: unknown, init: ResponseInit = {}, correlationId?: string)
 const respondError = (options: { code: string; correlationId: string; status?: number; details?: unknown }) =>
   errorResponse({ ...options, corsHeaders });
 
-async function getUsage(client: any, userId: string) {
+async function getDailyUsage(client: any, userId: string) {
   const today = new Date().toISOString().slice(0, 10);
   const { data, error } = await client
     .from("menu_usage_counters")
@@ -59,6 +60,18 @@ async function getUsage(client: any, userId: string) {
     console.error("menu_usage_counters fetch failed", error);
   }
   return { uploads: data?.uploads ?? 0, listCreates: data?.list_creates ?? 0 };
+}
+
+async function getTotalUsage(client: any, userId: string) {
+  const { data, error } = await client
+    .from("menu_usage_totals")
+    .select("uploads_total, list_creates_total")
+    .eq("owner_id", userId)
+    .single();
+  if (error && error.code !== "PGRST116") {
+    console.error("menu_usage_totals fetch failed", error);
+  }
+  return { uploads: data?.uploads_total ?? 0, listCreates: data?.list_creates_total ?? 0 };
 }
 
 async function getAuthedClient(req: Request) {
@@ -156,9 +169,9 @@ serve(async (req) => {
     }
     const isPremium = Boolean(premiumData) || Boolean(user.app_metadata?.is_menu_premium ?? false);
     const limitsBase = isPremium
-      ? { maxUploadsPerDay: 10, concurrentSessions: 5, maxListCreates: 10 }
-      : { maxUploadsPerDay: 3, concurrentSessions: 1, maxListCreates: 3 };
-    const usage = await getUsage(client, user.id);
+      ? { maxUploadsPerDay: 10, concurrentSessions: 5, maxListCreates: 10, limitWindow: "day" }
+      : { maxUploadsPerDay: 3, concurrentSessions: 1, maxListCreates: 3, limitWindow: "lifetime" };
+    const usage = isPremium ? await getDailyUsage(client, user.id) : await getTotalUsage(client, user.id);
     const remainingUploads = Math.max(0, limitsBase.maxUploadsPerDay - usage.uploads);
     const remainingListCreates = Math.max(0, limitsBase.maxListCreates - usage.listCreates);
     const policy: PolicyResponse["policy"] = {
@@ -190,7 +203,8 @@ serve(async (req) => {
       metadata: {
         isPremium,
         remainingUploads,
-        remainingListCreates
+        remainingListCreates,
+        limitWindow: limitsBase.limitWindow
       }
     });
     return respond(

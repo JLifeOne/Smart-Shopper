@@ -146,13 +146,12 @@ select ok(:'first_session_id'::uuid = :'second_session_id'::uuid, 'menu_create_s
 
 select is(
   (
-    select uploads
-    from public.menu_usage_counters
+    select uploads_total
+    from public.menu_usage_totals
     where owner_id = :'owner_id'::uuid
-      and usage_date = (timezone('utc', now()))::date
   ),
   1,
-  'menu_usage_counters.uploads increments once for session'
+  'menu_usage_totals.uploads_total increments once for session'
 );
 
 -- list creation should be allowed for free users (within limits)
@@ -182,13 +181,12 @@ select ok(:'first_list_id'::uuid = :'second_list_id'::uuid, 'menu_create_list re
 
 select is(
   (
-    select list_creates
-    from public.menu_usage_counters
+    select list_creates_total
+    from public.menu_usage_totals
     where owner_id = :'owner_id'::uuid
-      and usage_date = (timezone('utc', now()))::date
   ),
   1,
-  'menu_usage_counters.list_creates increments once for list'
+  'menu_usage_totals.list_creates_total increments once for list'
 );
 
 select is(

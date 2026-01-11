@@ -24,8 +24,8 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
 - Mobile hooks/api: `apps/mobile/src/features/menus/hooks.ts`, `apps/mobile/src/features/menus/api.ts`
 - Mobile offline cache (WatermelonDB): `apps/mobile/src/database/menu-storage.ts`
 - Runtime config (remote flags): `apps/mobile/src/lib/runtime-config.ts` (refreshed in `apps/mobile/src/context/auth-context.tsx`)
-- DB schema/migrations: `supabase/migrations/0012_menu_core.sql`, `supabase/migrations/0019_menu_intel_foundation.sql`, `supabase/migrations/0020_menu_recipe_dietary.sql`, `supabase/migrations/0021_menu_recipes_idempotency.sql`, `supabase/migrations/0022_menu_usage_limits.sql`, `supabase/migrations/0026_menu_idempotency_sessions_lists_reviews.sql`, `supabase/migrations/0029_menu_title_only_sync.sql`, `supabase/migrations/0030_menu_entitlements_hardening.sql`, `supabase/migrations/0031_menu_reviews_dedupe.sql`
-- DB tests: `supabase/tests/0012_menu_core.test.sql`, `supabase/tests/0021_menu_recipes_idempotency.test.sql`, `supabase/tests/0022_menu_usage_limits.test.sql`, `supabase/tests/0029_menu_title_only_sync.test.sql`, `supabase/tests/0030_menu_entitlements_hardening.test.sql`, `supabase/tests/0031_menu_reviews_dedupe.test.sql`
+- DB schema/migrations: `supabase/migrations/0012_menu_core.sql`, `supabase/migrations/0019_menu_intel_foundation.sql`, `supabase/migrations/0020_menu_recipe_dietary.sql`, `supabase/migrations/0021_menu_recipes_idempotency.sql`, `supabase/migrations/0022_menu_usage_limits.sql`, `supabase/migrations/0026_menu_idempotency_sessions_lists_reviews.sql`, `supabase/migrations/0029_menu_title_only_sync.sql`, `supabase/migrations/0030_menu_entitlements_hardening.sql`, `supabase/migrations/0031_menu_reviews_dedupe.sql`, `supabase/migrations/0036_menu_freemium_limits.sql`, `supabase/migrations/0037_menu_freemium_total_limits.sql`
+- DB tests: `supabase/tests/0012_menu_core.test.sql`, `supabase/tests/0021_menu_recipes_idempotency.test.sql`, `supabase/tests/0022_menu_usage_limits.test.sql`, `supabase/tests/0026_menu_idempotency_sessions_lists_reviews.test.sql`, `supabase/tests/0029_menu_title_only_sync.test.sql`, `supabase/tests/0030_menu_entitlements_hardening.test.sql`, `supabase/tests/0031_menu_reviews_dedupe.test.sql`, `supabase/tests/0037_menu_usage_totals.test.sql`
 - Edge functions (Supabase):
   - Sessions: `supabase/functions/menu-sessions/index.ts`, `supabase/functions/menu-session-items/index.ts`
   - Policy/limits: `supabase/functions/menus-policy/index.ts`
@@ -35,15 +35,15 @@ Context: Menu ingestion/recipes feature as of the latest review. Aligns with `do
   - Conversion/pairings/reviews: `supabase/functions/menus-lists/index.ts`, `supabase/functions/menus-pairings/index.ts`, `supabase/functions/menus-reviews/index.ts`
 
 ## Scope (what it is)
-- Capture menus/dishes (camera, gallery, or title-only), generate recipe cards and consolidated shopping lists, enforce entitlements (freemium daily limits vs premium limits), and let users save, view, convert to lists, and flag cards for review.
+- Capture menus/dishes (camera, gallery, or title-only), generate recipe cards and consolidated shopping lists, enforce entitlements (freemium total limits vs premium daily limits), and let users save, view, convert to lists, and flag cards for review.
 - AI/ML wiring lives inside the Recipes card: auto-generate a recipe (via prompt) on first save of a dish, persist the generated recipe locally and in the DB for reuse (no re-prompt on every view), allow edits, and sync edits to storage + ML training data. Freemium can view the card only after upgrade; dev bypass stays on in dev while entitlements/idempotency harden, but must be removable for production rollout.
 
 ## Current Capabilities (Done)
 - Capture & sessions: Upload via camera/gallery; sessions persisted; UI shows status, warnings, clarifications; can clear/refresh.
-- Policy & gating: Menu policy fetched; freemium limits and daily caps enforced client-side; dev bypass exists for dev builds (must remain removable/disabled outside dev).
-- Recipes & cards: Saved dishes render as recipe cards; swipe viewer; add-to-list/create-list actions gated by daily limits; save combo; portions/people adjustment per card.
-- Title-only flow: Title-only saves persist server-side (`/menus-titles`); daily cap enforcement uses `menu_usage_counters` (local cache + best-effort offline sync).
-- List conversion: Menu → list conversion with consolidated lines; summary card shown; list creation gated by daily limits.
+- Policy & gating: Menu policy fetched; freemium total caps and premium daily caps enforced client-side; dev bypass exists for dev builds (must remain removable/disabled outside dev).
+- Recipes & cards: Saved dishes render as recipe cards; swipe viewer; add-to-list/create-list actions gated by plan limits; save combo; portions/people adjustment per card.
+- Title-only flow: Title-only saves persist server-side (`/menus-titles`); freemium totals use `menu_usage_totals`, premium daily caps use `menu_usage_counters` (local cache + best-effort offline sync).
+- List conversion: Menu → list conversion with consolidated lines; summary card shown; list creation gated by plan limits.
 - Reviews: “Flag for review” posts to menus-reviews function; status/queue shown when available.
 - Pairings: Suggested pairings rendered from API with fallback; save combo supported.
 - Preferences: Dietary/allergen drafts stored and sent to policy update; applied to preview request payload.
@@ -202,7 +202,7 @@ Important PowerShell note: don’t type or paste the prompts `PS C:\ss>` or `>>`
    ```
 
 Expected errors:
-- `limit_exceeded`: daily menu limit reached (`scope`: `uploads`, `list_creates`, `concurrent_sessions`).
+- `limit_exceeded`: menu limit reached (`scope`: `uploads`, `list_creates`, `concurrent_sessions`), based on plan window (freemium lifetime vs premium daily).
 - `recipe_not_found`: `recipeId` does not exist or is not owned by the JWT user.
 - `idempotency_key_required`: missing `Idempotency-Key` header.
 
@@ -213,8 +213,8 @@ Expected errors:
    - Exit: Restarting the app resumes polling and reflects server status without user action (session + UI state scoped per user on-device).
 2) **Entitlements & limits enforcement**
    - Status: ✅ Done
-   - Deliver: Enforce `menus-policy` (limits) on uploads, prompts, conversions, and list creation; allow all users full feature access while applying daily caps (freemium 3 runs/day, premium 10 runs/day). Dev bypass is developer-only and removable/disabled in prod builds.
-   - Exit: Limits are enforced server-side; users can still view previously saved recipes after hitting daily caps; prod builds ship with dev bypass off (and server bypass never elevates non-dev users).
+   - Deliver: Enforce `menus-policy` (limits) on uploads, prompts, conversions, and list creation; allow all users full feature access while applying caps (freemium 3 total runs, premium 10 runs/day). Dev bypass is developer-only and removable/disabled in prod builds.
+   - Exit: Limits are enforced server-side; users can still view previously saved recipes after hitting caps; prod builds ship with dev bypass off (and server bypass never elevates non-dev users).
 3) **Idempotency & double-submit guards**
    - Status: ✅ Done
    - Deliver: Make every mutating operation replay-safe end-to-end:
@@ -242,7 +242,7 @@ Expected errors:
    - Exit: Users see reliable review/clarify states; no silent drops.
 7) **Title-only sync & policy alignment**
    - Status: ✅ Done
-   - Deliver: Account-scoped persistence (Supabase) for title-only saves and daily limits; reconcile with library; disable local-only bypass if policy forbids.
+   - Deliver: Account-scoped persistence (Supabase) for title-only saves and limits (freemium lifetime + premium daily); reconcile with library; disable local-only bypass if policy forbids.
    - Exit: Title-only behavior matches server policy across devices.
 8) **Testing & QA**
    - Status: 🚧 In progress
@@ -271,7 +271,7 @@ Expected errors:
 6. Update docs: keep this runbook + `docs/planning/menus-api-contracts.md` accurate; note remaining gaps explicitly if any work is intentionally deferred behind flags.
 
 ## Open Risks (track)
-- Offline title-only saves may queue locally and later fail to sync if the daily cap is exceeded; ensure UX surfaces sync failures and upgrade prompts.
+- Offline title-only saves may queue locally and later fail to sync if the cap is exceeded; ensure UX surfaces sync failures and upgrade prompts.
 - Duplicate lists/pairings/sessions from double-submit.
 - Lost session state after app restart causing orphaned uploads.
 - Lack of observability hides ingestion/LLM/regeneration failures.

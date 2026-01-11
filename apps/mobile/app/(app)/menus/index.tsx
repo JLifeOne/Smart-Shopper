@@ -321,9 +321,10 @@ export default function MenuInboxScreen() {
     const fallbackLimits = {
       maxUploadsPerDay: TITLE_LIMIT_FALLBACK,
       concurrentSessions: 1,
-      maxListCreates: 1,
+      maxListCreates: 3,
       remainingUploads: null,
-      remainingListCreates: null
+      remainingListCreates: null,
+      limitWindow: 'lifetime' as const
     };
     const policy = menuPolicy?.policy;
     const limits = policy?.limits ?? fallbackLimits;
@@ -348,7 +349,8 @@ export default function MenuInboxScreen() {
         limits: {
           ...limits,
           maxUploadsPerDay: Math.max(limits.maxUploadsPerDay ?? TITLE_LIMIT_FALLBACK, 10),
-          maxListCreates: Math.max(limits.maxListCreates ?? 1, 10)
+          maxListCreates: Math.max(limits.maxListCreates ?? 3, 10),
+          limitWindow: 'day'
         }
       };
     }
@@ -356,7 +358,13 @@ export default function MenuInboxScreen() {
   }, [menuPolicy, devMenuOverride]);
   const isPremium = entitlements.isPremium;
   const blurRecipes = entitlements.blurRecipes;
-  const limitPerDay = entitlements.limits.maxUploadsPerDay ?? TITLE_LIMIT_FALLBACK;
+  const limitMax = entitlements.limits.maxUploadsPerDay ?? TITLE_LIMIT_FALLBACK;
+  const limitWindow = entitlements.limits.limitWindow ?? (entitlements.isPremium ? 'day' : 'lifetime');
+  const limitWindowLabel = limitWindow === 'lifetime' ? 'total' : 'today';
+  const limitWindowAdjective = limitWindow === 'lifetime' ? 'total' : 'daily';
+  const uploadLimitMessage = limitWindow === 'lifetime' ? 'Menu limit reached.' : 'Daily upload limit reached.';
+  const listLimitMessage =
+    limitWindow === 'lifetime' ? 'List creation limit reached.' : 'List creation limit reached for today.';
   const remainingUploads = entitlements.limits.remainingUploads ?? null;
   const remainingListCreates = entitlements.limits.remainingListCreates ?? null;
   const allowListCreation = entitlements.allowListCreation;
@@ -372,8 +380,8 @@ export default function MenuInboxScreen() {
     regenerateRecipe
   } = useMenuRecipes({ enabled: allowRecipeViews });
   useEffect(() => {
-    setLimitPromptCount(limitPerDay);
-  }, [limitPerDay]);
+    setLimitPromptCount(limitMax);
+  }, [limitMax]);
   useEffect(() => {
     if (!sessionError) {
       setSessionErrorDismissed(false);
@@ -848,7 +856,10 @@ export default function MenuInboxScreen() {
   };
 
   const handleUpgradePress = () => {
-    Alert.alert('Upgrade required', 'Upgrade to unlock 10 menu runs per day and higher limits.');
+    Alert.alert(
+      'Upgrade required',
+      'Free plan includes 3 total menu runs. Upgrade to unlock 10 runs per day and higher limits.'
+    );
   };
 
   const formatPeopleLabel = (value: number) => (value === 1 ? '1 person' : `${value} people`);
@@ -858,7 +869,7 @@ export default function MenuInboxScreen() {
       return;
     }
     if (!allowListCreation) {
-      Toast.show('List creation limit reached for today.', 1700);
+      Toast.show(listLimitMessage, 1700);
       return;
     }
     try {
@@ -872,7 +883,7 @@ export default function MenuInboxScreen() {
       });
     } catch (error) {
       if (isOverLimitError(error)) {
-        Toast.show('List creation limit reached for today.', 1700);
+        Toast.show(listLimitMessage, 1700);
         return;
       }
       if (!handlePreferenceViolation(error)) {
@@ -912,11 +923,11 @@ export default function MenuInboxScreen() {
       return;
     }
     if (!allowListCreation) {
-      Toast.show('List creation limit reached for today.', 1700);
+      Toast.show(listLimitMessage, 1700);
       return;
     }
     if (typeof remainingListCreates === 'number' && remainingListCreates <= 0) {
-      Toast.show('List creation limit reached for today.', 1700);
+      Toast.show(listLimitMessage, 1700);
       return;
     }
     try {
@@ -953,7 +964,7 @@ export default function MenuInboxScreen() {
       });
     } catch (error) {
       if (isOverLimitError(error)) {
-        Toast.show('List creation limit reached for today.', 1700);
+        Toast.show(listLimitMessage, 1700);
         return;
       }
       if (!handlePreferenceViolation(error)) {
@@ -1258,7 +1269,7 @@ export default function MenuInboxScreen() {
         Toast.show(
           scope === 'concurrent_sessions'
             ? 'You already have an active menu scan. Finish or clear it first.'
-            : 'Daily upload limit reached.',
+            : uploadLimitMessage,
           1900
         );
         return;
@@ -1294,7 +1305,7 @@ export default function MenuInboxScreen() {
         Toast.show(
           scope === 'concurrent_sessions'
             ? 'You already have an active menu scan. Finish or clear it first.'
-            : 'Daily upload limit reached.',
+            : uploadLimitMessage,
           1900
         );
         return;
@@ -1342,9 +1353,7 @@ export default function MenuInboxScreen() {
             setLimitPromptCount(remainingUploads ?? 0);
             break;
           }
-          if (!isTransientMenuError(error)) {
-            throw error;
-          }
+          logMenuError(error, 'save-dish-recipe');
           try {
             const result = await createMenuTitleDish({
               title,
@@ -1362,6 +1371,7 @@ export default function MenuInboxScreen() {
               setLimitPromptCount(remainingUploads ?? 0);
               break;
             }
+            logMenuError(fallbackError, 'save-dish-title-only');
             newTitleOnly.push({
               id: `local-title-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
               title,
@@ -1459,11 +1469,11 @@ export default function MenuInboxScreen() {
         return;
       }
       if (!allowListCreation) {
-        Toast.show('List creation limit reached for today.', 1700);
+        Toast.show(listLimitMessage, 1700);
         return;
       }
       if (typeof remainingListCreates === 'number' && remainingListCreates <= 0) {
-        Toast.show('List creation limit reached for today.', 1700);
+        Toast.show(listLimitMessage, 1700);
         return;
       }
       try {
@@ -1481,7 +1491,7 @@ export default function MenuInboxScreen() {
         });
       } catch (error) {
         if (isOverLimitError(error)) {
-          Toast.show('List creation limit reached for today.', 1700);
+          Toast.show(listLimitMessage, 1700);
           return;
         }
         if (!handlePreferenceViolation(error)) {
@@ -1500,7 +1510,7 @@ export default function MenuInboxScreen() {
     if (!session?.id && typeof remainingUploads === 'number' && remainingUploads <= 0 && !devMenuOverride) {
       setLimitPromptVisible(true);
       setLimitPromptCount(remainingUploads ?? 0);
-      Toast.show('Daily menu limit reached.', 1700);
+      Toast.show(uploadLimitMessage, 1700);
       return;
     }
     const sourceTitles = sessionDishTitles.length ? sessionDishTitles : sortedCards.map((card) => card.title);
@@ -1639,14 +1649,19 @@ export default function MenuInboxScreen() {
             <View style={styles.limitIcon}>
               <Ionicons name="alert-circle" size={20} color="#0F172A" />
             </View>
-            <Text style={styles.limitTitle}>Daily menu limit reached</Text>
+            <Text style={styles.limitTitle}>
+              {limitWindowAdjective === 'daily' ? 'Daily menu limit reached' : 'Menu limit reached'}
+            </Text>
             <Text style={styles.limitSubtitle}>
               {isPremium
-                ? `You have used your ${limitPerDay} menu runs for today. Remaining today: ${Math.max(
-                    0,
-                    limitPromptCount
-                  )}. Try again tomorrow.`
-                : `Free plan includes ${limitPerDay} menu runs per day. Remaining today: ${Math.max(
+                ? `You have used your ${limitMax} menu runs ${
+                    limitWindow === 'lifetime' ? 'total' : 'for today'
+                  }. Remaining ${limitWindowLabel}: ${Math.max(0, limitPromptCount)}. ${
+                    limitWindow === 'lifetime' ? '' : 'Try again tomorrow.'
+                  }`.trim()
+                : `Free plan includes ${limitMax} menu runs ${
+                    limitWindow === 'lifetime' ? 'total' : 'per day'
+                  }. Remaining ${limitWindowLabel}: ${Math.max(
                     0,
                     limitPromptCount
                   )}. Upgrade to unlock 10 per day.`}

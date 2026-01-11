@@ -532,6 +532,7 @@ export type MenuPolicy = {
       maxListCreates: number;
       remainingUploads?: number;
       remainingListCreates?: number;
+      limitWindow?: 'day' | 'lifetime';
     };
     allowListCreation: boolean;
     allowTemplateCards: boolean;

@@ -69,18 +69,20 @@ export async function getCachedMenuPolicy(): Promise<MenuPolicy | null> {
     const cachedDate = new Date(pref.updatedAt).toISOString().slice(0, 10);
     const today = new Date().toISOString().slice(0, 10);
     const limits = stored.policy.limits ?? null;
-    const scrubRemaining = cachedDate !== today && limits;
+    const limitWindow = limits?.limitWindow ?? (stored.policy.isPremium ? 'day' : 'lifetime');
+    const normalizedLimits = limits ? { ...limits, limitWindow } : limits;
+    const scrubRemaining = cachedDate !== today && normalizedLimits && limitWindow === 'day';
     return {
       ...stored,
       policy: {
         ...stored.policy,
         limits: scrubRemaining
           ? {
-              ...limits,
+              ...normalizedLimits,
               remainingUploads: undefined,
               remainingListCreates: undefined
             }
-          : limits
+          : normalizedLimits
       }
     } as MenuPolicy;
   }
@@ -92,8 +94,8 @@ export async function getCachedMenuPolicy(): Promise<MenuPolicy | null> {
       blurRecipes: pref.blurRecipes,
       limits:
         pref.accessLevel === 'full'
-          ? { maxUploadsPerDay: 25, concurrentSessions: 5, maxListCreates: 25 }
-          : { maxUploadsPerDay: 3, concurrentSessions: 1, maxListCreates: 1 },
+          ? { maxUploadsPerDay: 10, concurrentSessions: 5, maxListCreates: 10, limitWindow: 'day' }
+          : { maxUploadsPerDay: 3, concurrentSessions: 1, maxListCreates: 3, limitWindow: 'lifetime' },
       allowListCreation: pref.accessLevel === 'full',
       allowTemplateCards: true
     },

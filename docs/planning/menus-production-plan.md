@@ -15,7 +15,7 @@
 2. **Supabase functions/contracts**
    - `/menu-sessions` POST/GET/PATCH (creates session, polls OCR/ML status, updates cards) with limit enforcement.
    - `/menu-recipes` CRUD endpoints for persisted cards + smart edits.
-   - `/menus-titles` GET/POST – title-only library sync + daily cap enforcement (idempotent).
+  - `/menus-titles` GET/POST – title-only library sync + cap enforcement (freemium lifetime, premium daily; idempotent).
    - `/menus/lists` POST – consolidation service returning normalized list lines + writes to `lists/list_items` when requested (idempotent).
    - `/menus/pairings` GET/POST/DELETE – curated combos + user-saved combos.
    - `/menu-session-items` POST/GET/PATCH – OCR detections (text, bounding boxes, classifier tags).

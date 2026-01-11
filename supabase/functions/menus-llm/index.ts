@@ -483,16 +483,24 @@ serve(async (req) => {
     }
     const parsed = parsedResult.data;
     if (!parsed.sessionId) {
-      const today = new Date().toISOString().slice(0, 10);
       const limit = isPremiumUser ? 10 : 3;
-      const { data: usageData, error: usageError } = await supabase.rpc("increment_menu_usage", {
-        _owner_id: userId,
-        _usage_date: today,
-        _uploads_inc: 1,
-        _list_inc: 0,
-        _upload_limit: limit,
-        _list_limit: limit
-      });
+      const usageResult = isPremiumUser
+        ? await supabase.rpc("increment_menu_usage", {
+            _owner_id: userId,
+            _usage_date: new Date().toISOString().slice(0, 10),
+            _uploads_inc: 1,
+            _list_inc: 0,
+            _upload_limit: limit,
+            _list_limit: limit
+          })
+        : await supabase.rpc("increment_menu_usage_total", {
+            _owner_id: userId,
+            _uploads_inc: 1,
+            _list_inc: 0,
+            _upload_limit: limit,
+            _list_limit: limit
+          });
+      const { data: usageData, error: usageError } = usageResult;
       if (usageError) {
         const message = usageError.message ?? "usage_increment_failed";
         if (message.includes("not_owner")) {

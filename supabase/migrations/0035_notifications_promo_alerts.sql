@@ -7,7 +7,7 @@
 set check_function_bodies = off;
 
 create table if not exists public.notification_campaigns (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   type text not null default 'promo',
   title text not null,
   body text not null,
@@ -28,7 +28,7 @@ create unique index if not exists notification_campaigns_idempotency_idx
   where idempotency_key is not null;
 
 create table if not exists public.notification_inbox (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   campaign_id uuid references public.notification_campaigns(id) on delete set null,
   type text not null default 'promo',
@@ -62,7 +62,7 @@ create table if not exists public.notification_preferences (
 );
 
 create table if not exists public.notification_devices (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   provider text not null,
   provider_subscription_id text not null,
@@ -86,7 +86,7 @@ create unique index if not exists notification_devices_provider_subscription_idx
   on public.notification_devices (provider, provider_subscription_id);
 
 create table if not exists public.notification_deliveries (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   inbox_id uuid not null references public.notification_inbox(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
   channel text not null,
