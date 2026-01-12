@@ -62,3 +62,11 @@ Root Cause: Cached menu policy payloads without `limits.limitWindow` defaulted t
 Fix: Infer `limitWindow` from `isPremium` when missing, normalize cached limits, and align fallback caps to freemium lifetime 3 / premium daily 10; update tests and docs.
 Validation: Run `pnpm verify`, `supabase test db`, and confirm the Menus screen shows lifetime messaging for free users and blocks after 3 total runs.
 Prevention: Normalize policy limits on read, keep fallbacks aligned to server policy, and validate UI messaging alongside server enforcement.
+
+### 2026-01-12 00:14 UTC — menus-policy TypeScript limitWindow mismatch
+Summary: Edge function typecheck failed because `limits.limitWindow` was inferred as `string` instead of the `"day" | "lifetime"` union.
+Impact: CI `deno check` failed for `supabase/functions/menus-policy/index.ts`.
+Root Cause: `limitsBase` used an untyped object literal, widening `limitWindow` to `string` when the policy type expects a strict union.
+Fix: Introduce a typed `limitWindow` variable and use `satisfies` to enforce the limits shape without widening.
+Validation: Run `deno check --config supabase/functions/deno.json supabase/functions/menus-policy/index.ts`.
+Prevention: Keep limits objects typed with `satisfies` (or explicit union annotations) to avoid widening and catch mismatches at compile time.
