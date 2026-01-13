@@ -16,6 +16,7 @@ import {
   jsonResponse,
   logEvent
 } from "../_shared/observability.ts";
+import { buildMenuLimits } from "../_shared/menu-limits.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -470,6 +471,7 @@ serve(async (req) => {
       console.error("menu_is_premium_user rpc failed", { correlationId, premiumError });
     }
     const isPremiumUser = Boolean(premiumData);
+    const limitsBase = buildMenuLimits({ isPremium: isPremiumUser });
 
     const raw = await req.json().catch(() => ({}));
     const parsedResult = menuPromptInputSchema.safeParse(raw);
@@ -483,23 +485,23 @@ serve(async (req) => {
     }
     const parsed = parsedResult.data;
     if (!parsed.sessionId) {
-      const limit = isPremiumUser ? 10 : 3;
-      const usageResult = isPremiumUser
-        ? await supabase.rpc("increment_menu_usage", {
-            _owner_id: userId,
-            _usage_date: new Date().toISOString().slice(0, 10),
-            _uploads_inc: 1,
-            _list_inc: 0,
-            _upload_limit: limit,
-            _list_limit: limit
-          })
-        : await supabase.rpc("increment_menu_usage_total", {
-            _owner_id: userId,
-            _uploads_inc: 1,
-            _list_inc: 0,
-            _upload_limit: limit,
-            _list_limit: limit
-          });
+      const usageResult =
+        limitsBase.limitWindow === "day"
+          ? await supabase.rpc("increment_menu_usage", {
+              _owner_id: userId,
+              _usage_date: new Date().toISOString().slice(0, 10),
+              _uploads_inc: 1,
+              _list_inc: 0,
+              _upload_limit: limitsBase.maxUploadsPerDay,
+              _list_limit: limitsBase.maxListCreates
+            })
+          : await supabase.rpc("increment_menu_usage_total", {
+              _owner_id: userId,
+              _uploads_inc: 1,
+              _list_inc: 0,
+              _upload_limit: limitsBase.maxUploadsPerDay,
+              _list_limit: limitsBase.maxListCreates
+            });
       const { data: usageData, error: usageError } = usageResult;
       if (usageError) {
         const message = usageError.message ?? "usage_increment_failed";

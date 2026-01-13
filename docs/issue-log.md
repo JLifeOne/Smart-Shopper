@@ -70,3 +70,11 @@ Root Cause: `limitsBase` used an untyped object literal, widening `limitWindow` 
 Fix: Introduce a typed `limitWindow` variable and use `satisfies` to enforce the limits shape without widening.
 Validation: Run `deno check --config supabase/functions/deno.json supabase/functions/menus-policy/index.ts`.
 Prevention: Keep limits objects typed with `satisfies` (or explicit union annotations) to avoid widening and catch mismatches at compile time.
+
+### 2026-01-13 10:08 UTC — Centralize menu limit defaults in shared helper
+Summary: Menu limit defaults were duplicated across edge functions, risking drift and TypeScript mismatches.
+Impact: Future changes to freemium/premium limits could desync policy vs enforcement, causing incorrect gating or type failures.
+Root Cause: Limits were defined inline in multiple functions instead of a single typed source of truth.
+Fix: Add `supabase/functions/_shared/menu-limits.ts` and use it in `menus-policy` and `menus-llm` for consistent limits and limit windows.
+Validation: Pending — run `deno check --config supabase/functions/deno.json supabase/functions/menus-policy/index.ts` and `deno check --config supabase/functions/deno.json supabase/functions/menus-llm/index.ts`.
+Prevention: Use the shared helper for all menu-limit enforcement/policy updates and avoid inline limit constants.

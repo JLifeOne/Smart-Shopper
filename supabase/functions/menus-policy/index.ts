@@ -6,6 +6,7 @@ import {
   jsonResponse,
   logEvent
 } from "../_shared/observability.ts";
+import { buildMenuLimits, type MenuLimitsBase } from "../_shared/menu-limits.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,13 +22,9 @@ type PolicyResponse = {
     isPremium: boolean;
     accessLevel: "full" | "title_only";
     blurRecipes: boolean;
-    limits: {
-      maxUploadsPerDay: number;
-      concurrentSessions: number;
-      maxListCreates: number;
+    limits: MenuLimitsBase & {
       remainingUploads: number;
       remainingListCreates: number;
-      limitWindow: "day" | "lifetime";
     };
     allowListCreation: boolean;
     allowTemplateCards: boolean;
@@ -168,14 +165,11 @@ serve(async (req) => {
       console.error("menu_is_premium_user rpc failed", { correlationId, premiumError });
     }
     const isPremium = Boolean(premiumData) || Boolean(user.app_metadata?.is_menu_premium ?? false);
-    const limitWindow: PolicyResponse["policy"]["limits"]["limitWindow"] = isPremium ? "day" : "lifetime";
-    const limitsBase = {
-      maxUploadsPerDay: isPremium ? 10 : 3,
-      concurrentSessions: isPremium ? 5 : 1,
-      maxListCreates: isPremium ? 10 : 3,
-      limitWindow,
-    } satisfies Omit<PolicyResponse["policy"]["limits"], "remainingUploads" | "remainingListCreates">;
-    const usage = isPremium ? await getDailyUsage(client, user.id) : await getTotalUsage(client, user.id);
+    const limitsBase = buildMenuLimits({ isPremium });
+    const usage =
+      limitsBase.limitWindow === "day"
+        ? await getDailyUsage(client, user.id)
+        : await getTotalUsage(client, user.id);
     const remainingUploads = Math.max(0, limitsBase.maxUploadsPerDay - usage.uploads);
     const remainingListCreates = Math.max(0, limitsBase.maxListCreates - usage.listCreates);
     const policy: PolicyResponse["policy"] = {
