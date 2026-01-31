@@ -58,6 +58,8 @@ This repo prioritizes correctness, resiliency, and production-readiness over spe
 - Enforce correctness server-side (RLS/edge functions/DB constraints); never rely on client-only gating for security or limits.
 - Design for concurrency and retries: idempotency keys, optimistic locking/versioning where needed, safe replay behavior.
 - Add observability from day 1: structured logs, correlation IDs, actionable error surfaces.
+- Developer-only paths must be unreachable in production builds/runtimes (env/flag gated, default off) and clearly commented; remove when no longer needed.
+- Add concise code comments for non-obvious logic so future engineers understand intent, invariants, and failure modes.
 - Update docs/runbooks/contracts alongside code changes; documentation is part of Done.
 
 ## Operational Guardrails (non‑negotiable)
@@ -66,8 +68,8 @@ This repo prioritizes correctness, resiliency, and production-readiness over spe
 - Run a repo-wide search first before new implementations or overrides; document the evidence, adjacent dependencies/configs/tests, and expected failure modes.
 - Do not add fallback logic or overrides unless a concrete in-repo need is proven; validate the change end-to-end and note any risk mitigations.
 - Document past issues and fixes in the append-only issue log with timestamps to preserve history.
-- End-to-end validation must include reading `docs/issue-log.md` and confirming relevant past issues are accounted for.
-- End-to-end validation is required for debugging and fixes; do not stop at partial remediation.
+- End-to-end validation must include reading `docs/issue-log.md`, confirming relevant past issues are accounted for, and tracing git history to the last known good state when debugging.
+- End-to-end validation is required for debugging and fixes; do not stop at partial remediation—validate the full user journey and dependent services.
 
 ## Definition of Done (enforced, not vibes)
 - CI passes (`ci.yml` + `verify-supabase.yml`) and you ran the relevant local gates above.
