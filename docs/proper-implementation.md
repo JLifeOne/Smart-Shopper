@@ -16,6 +16,7 @@ Goal: deliver production-ready code that remains stable under heavy, concurrent 
 - Non-functional targets (define per feature; don’t guess): reliability under retries, safe concurrency, predictable offline/online sync, observability-first.
 - Constraints: Windows + Android Studio emulator dev workflow (see `docs/setup.md` and `docs/runbooks/expo-metro-windows.md`).
 - Users & loads: assume multi-user concurrency; design for retries/timeouts and safe replay.
+- Historical context (required for fixes): read `docs/issue-log.md` and identify the last known good commit before patching.
 
 ## Repo Gates (copy/paste)
 
@@ -48,6 +49,9 @@ CI enforcement:
 5. Idempotence, retries with jitter, timeouts, and circuit breakers.
 6. “Dark-launch” changes; use feature flags and canary deploys.
 7. Written tests and runbooks before merge. Documentation is part of Done.
+8. Run a repo-wide search before new implementations to avoid duplication/regressions.
+9. Developer-only code must be unreachable in production (flag/env gated, default off, documented removal).
+10. Add concise comments for non-obvious logic (intent, invariants, failure modes).
 
 ## Deliverables
 
@@ -125,14 +129,16 @@ CI enforcement:
 
 ## Debugging Playbook (Holistic Method)
 
-1. Reproduce quickly: smallest, deterministic repro (fixture or script).
-2. Classify: regression vs. latent; env-specific vs. universal.
-3. Inspect telemetry: compare p50/p95/p99, error codes, recent deploys, logs by correlation ID.
-4. Binary search changes: toggle feature flags, bisect commits if needed.
-5. Add focused probes: temporary logs/metrics with guardrails.
-6. Validate hypotheses: prove with data; avoid guess-and-check coding.
-7. Patch safely: add tests that would have caught the issue.
-8. Post-mortem: blameless, list guardrails added (tests, alerts, docs).
+1. Read `docs/issue-log.md` for similar incidents and note prevention gaps.
+2. Identify the last known good commit for the subsystem (git log/bisect).
+3. Reproduce quickly: smallest, deterministic repro (fixture or script).
+4. Classify: regression vs. latent; env-specific vs. universal.
+5. Inspect telemetry: compare p50/p95/p99, error codes, recent deploys, logs by correlation ID.
+6. Binary search changes: toggle feature flags, bisect commits if needed.
+7. Add focused probes: temporary logs/metrics with guardrails.
+8. Validate hypotheses: prove with data; avoid guess-and-check coding.
+9. Patch safely: add tests that would have caught the issue.
+10. Post-mortem: blameless, list guardrails added (tests, alerts, docs).
 
 ## Checklists (Copy for PRs)
 

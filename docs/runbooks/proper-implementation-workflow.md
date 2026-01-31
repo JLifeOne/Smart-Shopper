@@ -12,6 +12,9 @@ If a feature has its own workflow runbook (example: `docs/runbooks/menu-feature-
 - Enforce security and limits **server-side** (RLS + Edge Functions); client gating is UX only.
 - Design for retries/concurrency: idempotency keys, safe replay, versioning where needed.
 - Observability from day 1: correlation IDs + typed errors + logs that never leak secrets.
+- Developer-only code must be unreachable in production (flag/env gated, default off, documented removal).
+- Add concise comments for non-obvious logic (intent, invariants, failure modes).
+- Run a repo-wide search before new implementations to avoid duplication/regressions.
 - Docs/runbooks are part of Done.
 
 ## Session Start Checklist (every work session)
@@ -27,8 +30,13 @@ If a feature has its own workflow runbook (example: `docs/runbooks/menu-feature-
 - `docs/proper-implementation.md`
 - `docs/setup.md` (env + emulator expectations)
 - `scripts/README.md` (scripts index)
+- Scan and read **all** files under `docs/` in full (systematic order).
+- Read `docs/issue-log.md` and note relevant prior failures.
 
-3) **Pick the subsystem and read its runbook(s)**
+3) **Inspect scripts + runbooks**
+- Read the `scripts/` directory (not just `scripts/README.md`) to avoid duplicate tooling.
+
+4) **Pick the subsystem and read its runbook(s)**
 - Mobile/Expo dev: `docs/runbooks/expo-metro-windows.md`
 - Typecheck/runtime pitfalls: `docs/runbooks/typecheck-and-safe-fetch.md`
 - Supabase overview: `supabase/README.md`
@@ -36,13 +44,16 @@ If a feature has its own workflow runbook (example: `docs/runbooks/menu-feature-
 - Menus/Recipes/AI: `docs/runbooks/menu-feature-workflow.md`
 - Brand insights: `docs/runbooks/brand-insights-migration.md`
 
-4) **Read *recent history* for what you will touch**
+5) **Read *recent history* for what you will touch**
 - Example:
   - `git --no-pager log --oneline -n 40 -- apps/mobile/src`
   - `git --no-pager log --oneline -n 40 -- supabase/functions supabase/migrations supabase/tests`
 
-5) **Search before you build**
+6) **Repo-wide search before you build**
 - `rg -n "<key terms>"` and read surrounding context to avoid duplicate implementations.
+
+7) **Last known good (required for debugging/fixes)**
+- Identify the last known good commit for the subsystem and trace regressions before patching.
 
 ## Implementation Workflow (Production Tier)
 
@@ -54,6 +65,7 @@ Before writing code, write down (in the PR description or a short note in the re
 - What are the typed error codes and the user-facing copy?
 - What’s the idempotency key strategy for every mutating request?
 - What data must be persisted locally (WatermelonDB) vs remotely (Supabase), and when?
+- If feature A depends on feature B for correctness, implement/verify B first or gate A behind a flag.
 
 ### Phase 1 — Backend first (when security/correctness depends on it)
 If the feature affects auth, limits, billing, data integrity, or multi-user concurrency:
@@ -91,6 +103,19 @@ If the feature affects auth, limits, billing, data integrity, or multi-user conc
    - common failure modes + fixes
 2) Add a rollout plan (flags, canary, rollback/kill-switch).
 3) Ensure CI gates cover the change (don’t rely on “remembering”).
+
+### Phase 5 — End-to-end validation (mandatory)
+1) Validate the **full user journey** and dependent services (not just the narrow fix).
+2) For debugging/fixes, explicitly confirm:
+   - `docs/issue-log.md` was reviewed for similar incidents.
+   - The last known good commit was identified.
+3) Record validation outcomes (success/fail) in the relevant runbook or issue log entry.
+
+### Phase 6 — Documentation + issue log workflow
+1) Append a new entry to `docs/issue-log.md` for every production incident or regression:
+   - Summary, Impact, Root Cause, Fix, Validation, Prevention.
+   - Append-only; never edit or reorder history.
+2) Update docs/contracts/runbooks in the same PR as code changes.
 
 ## Repo Gates (run before push)
 

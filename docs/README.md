@@ -6,8 +6,9 @@ This folder is the source of truth for product requirements, architecture, runbo
 1. `AGENTS.md`
 2. `docs/proper-implementation.md`
 3. `docs/runbooks/proper-implementation-workflow.md`
-4. `docs/setup.md`
-5. `scripts/README.md`
+4. `docs/runbooks/senior-engineer-operating-prompt.md`
+5. `docs/setup.md`
+6. `scripts/README.md`
 
 Optional helper:
 - `node scripts/session_start.mjs`
