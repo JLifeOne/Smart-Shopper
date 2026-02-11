@@ -26,6 +26,7 @@ Optional helper:
 ## Runbooks (operational truth)
 Start here when working in a subsystem:
 - `docs/runbooks/expo-metro-windows.md` — Expo/Metro on Windows + PNPM.
+- `docs/runbooks/new-machine-bootstrap.md` — End-to-end machine migration/bootstrap + session prompt.
 - `docs/runbooks/typecheck-and-safe-fetch.md` — Typecheck pitfalls + fetch typing guardrails.
 - `docs/runbooks/list-items-category-backfill.md` — Backfill classifier metadata on list items.
 - `docs/runbooks/menu-feature-workflow.md` — Menu/Recipes production-tier workflow.
