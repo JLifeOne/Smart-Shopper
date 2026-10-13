@@ -19,7 +19,13 @@ Optional helper:
 - `docs/planning/implementation-roadmap.md` — UX upgrade slices / feature flags.
 
 ## Promos Marketplace
-- `docs/features/promos-marketplace/README.md` — Product + engineering North Star for shopper promos, advertiser campaigns, payments, moderation, personalization, analytics, admin operations, privacy, rollout, and acceptance criteria.
+Start with these for any substantive Promos work:
+- `docs/features/promos-marketplace/NORTH-STARS.md` — Map of the three interconnected Promos component North Stars and their shared contracts.
+- `docs/features/promos-marketplace/SHOPPER-EXPERIENCE-NORTH-STAR.md` — Shopper-facing Home Spotlight, Promos feed/detail, interests, relevance, Like/Save/Share, views, privacy, saved promos, and UI/UX rules.
+- `docs/features/promos-marketplace/ADVERTISER-NORTH-STAR.md` — Advertiser campaign creation, Creative Studio, payment/submission, entitlements, reuse, analytics, optimization, and lifecycle experience.
+- `docs/features/promos-marketplace/COMMAND-CENTER-NORTH-STAR.md` — Desktop internal control plane for advertiser operations, inventory/pricing, analytics, Experience Manager, support, payments, moderation, roles, system controls, and audit.
+- `docs/features/promos-marketplace/README.md` — Umbrella Product + Engineering North Star containing earlier full-system detail not yet migrated into component documents.
+- `docs/features/promos-marketplace/DESIGN-SPEC.md` — Promos design specification and interaction direction.
 - `docs/features/promos-marketplace/DECISIONS.md` — Append-only product and engineering decision history. Read the latest entries before changing the feature.
 - `docs/features/promos-marketplace/FAILURE-LOG.md` — Append-only chronological failure/fix history. Never delete resolved incidents.
 
