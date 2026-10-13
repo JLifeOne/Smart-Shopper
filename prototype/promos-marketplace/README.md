@@ -43,6 +43,8 @@ Deployment source: `feature/promos-marketplace` only, rooted at `prototype/promo
 
 The Pages project is intentionally separate from any production Smart Shopper deployment so prototype changes cannot alter `main` or production application behavior.
 
+Cloudflare path filtering is evaluated relative to the configured prototype root. The project therefore watches all changes under this root while remaining isolated to the dedicated feature branch and prototype directory.
+
 ## Local serving
 
 The prototype is static and can be served from this directory with any static web server.
