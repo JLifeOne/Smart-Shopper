@@ -35,6 +35,14 @@ Validate the product and UX before wiring production data, payments, moderation,
 - State is local to the browser and can be reset.
 - This prototype must not be merged into `main` as production code without a separate integration review.
 
+## Branch preview
+
+Cloudflare Pages project: `smart-shopper-promos-preview`
+
+Deployment source: `feature/promos-marketplace` only, rooted at `prototype/promos-marketplace`.
+
+The Pages project is intentionally separate from any production Smart Shopper deployment so prototype changes cannot alter `main` or production application behavior.
+
 ## Local serving
 
 The prototype is static and can be served from this directory with any static web server.
