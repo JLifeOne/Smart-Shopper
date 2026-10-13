@@ -97,3 +97,43 @@ Decision: Start with deterministic explainable ranking. Introduce learned rankin
 
 ### D-030 - Privacy-first first-party architecture
 Decision: Prefer first-party recommendation and measurement inside Smart Shopper. Do not expose private user profiles to advertisers and do not introduce third-party cross-app tracking by default.
+
+## 2026-10-13 - North Star split and expanded operating model
+
+### D-031 - Three interconnected North Stars
+Decision: Split Promos Marketplace documentation into three living North Stars: Shopper Experience, Advertiser Experience, and Command Center. Maintain a shared North Star map describing cross-system contracts.
+
+Reason: Each component is large enough to be designed and implemented independently while still sharing campaign, commercial, creative, inventory, analytics, taxonomy, and privacy truth.
+
+### D-032 - Command Center is a separate desktop-first product
+Decision: The internal operating console is not an admin page inside the consumer app. It is a separate desktop-first web product intended for a dedicated domain such as `admin.smartshopper.com`, with separate internal authentication, roles, audit history, and deployment boundary.
+
+### D-033 - Command Center controls approved app configuration, not arbitrary code
+Decision: Experience Manager may configure engineering-approved consumer-app modules, properties, ordering, schedules, targeting, style variants, fallback behavior, feature flags, and publish/rollback state. It may not inject arbitrary executable code or bypass application business logic.
+
+### D-034 - Commercial Agreement and Delivery Plan remain distinct
+Decision: Preserve what an advertiser actually purchased separately from how Smart Shopper ultimately delivers the campaign. Complimentary days, upgrades, goodwill credits, refunds, and other internal changes must be recorded as auditable adjustments rather than rewriting purchased truth.
+
+### D-035 - Admin may add controlled bonuses and incentives
+Decision: Authorized internal roles may grant additional Promo Days, inventory, credits, upgrades, extensions, or similar incentives without requiring the advertiser to configure them. These actions must be reasoned, permission-controlled, value-limited where appropriate, and auditable.
+
+### D-036 - Analytics has three internal perspectives
+Decision: Command Center Analytics must distinguish: (1) individual Advertiser Analytics, (2) cross-advertiser Marketplace Analytics, and (3) Smart Shopper Platform Analytics. These views answer different business questions and must not be conflated.
+
+### D-037 - Analytics is visual-first
+Decision: Advertiser and Command Center analytics should always include meaningful graphics such as trends, funnels, comparisons, heatmaps, occupancy views, and cohorts where appropriate. Metric cards support the visuals but do not replace them.
+
+### D-038 - View measurement is a first-class event model
+Decision: Track raw impressions, viewable impressions, Promo Detail opens, unique reach, repeat exposure/frequency, and engagement events separately. Advertisers receive aggregate view/reach analytics rather than individual viewer identities.
+
+### D-039 - Creative Studio is a controlled production system
+Decision: Build Creative Studio around Smart Shopper-owned structured templates, Brand Profiles, deterministic rendering of logos/prices/dates/CTA text, AI-assisted asset generation/editing, creative versioning, preview-in-context, quality checks, approval workflow, and later performance feedback/A-B testing. Do not rely on unconstrained AI image generation as the final commercial renderer.
+
+### D-040 - Current Command Center visual direction is light and restrained
+Decision: The current preferred Command Center direction is a light desktop interface with generous whitespace. Neon/gem colors such as light yellow, blue, dark blue, purple, pink, red, and gray are used selectively for charts, icons, statuses, highlights, and decorative accents rather than dominating surfaces.
+
+### D-041 - Generated mockups are references, not requirements
+Decision: A control shown in an AI-generated UI image is not automatically a product requirement. A control must have a real operational use case, permission boundary, state/data impact, and source of truth before implementation.
+
+### D-042 - Documentation should capture current truth before finality
+Decision: Do not wait for every area to be finalized before documenting it. Lock accepted current direction into the appropriate living North Star and revise it as needed. Use the append-only decision and failure logs to preserve historical reasoning and implementation lessons.
