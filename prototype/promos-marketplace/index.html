@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0C1D37" />
+  <meta name="description" content="Smart Shopper Promos Marketplace branch preview" />
+  <title>Smart Shopper · Promos Preview</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="prototype-ribbon" role="status">
+    <strong>Branch Preview</strong>
+    <span>Mock data only · no real payments or targeting</span>
+  </div>
+
+  <header class="shell-header">
+    <a class="brand" href="#" data-action="go-shopper" aria-label="Smart Shopper preview home">
+      <span class="brand-mark">SS</span>
+      <span>
+        <strong>Smart Shopper</strong>
+        <small>Promos Marketplace</small>
+      </span>
+    </a>
+
+    <div class="persona-switch" aria-label="Preview mode">
+      <button class="persona-button is-active" data-mode="shopper">Shopper</button>
+      <button class="persona-button" data-mode="advertiser">Advertiser</button>
+      <button class="persona-button" data-mode="admin">Admin</button>
+    </div>
+  </header>
+
+  <main id="app" class="app-shell" aria-live="polite"></main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="modal-root"></div>
+
+  <template id="icon-heart">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78Z"/></svg>
+  </template>
+  <template id="icon-bookmark">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1Z"/></svg>
+  </template>
+  <template id="icon-share">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98M15.41 6.51 8.59 10.49"/></svg>
+  </template>
+
+  <script src="./app.js" defer></script>
+</body>
+</html>
