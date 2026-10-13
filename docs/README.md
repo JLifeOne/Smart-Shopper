@@ -18,6 +18,11 @@ Optional helper:
 - `docs/roadmap.md` — High-level phase roadmap.
 - `docs/planning/implementation-roadmap.md` — UX upgrade slices / feature flags.
 
+## Promos Marketplace
+- `docs/features/promos-marketplace/README.md` — Product + engineering North Star for shopper promos, advertiser campaigns, payments, moderation, personalization, analytics, admin operations, privacy, rollout, and acceptance criteria.
+- `docs/features/promos-marketplace/DECISIONS.md` — Append-only product and engineering decision history. Read the latest entries before changing the feature.
+- `docs/features/promos-marketplace/FAILURE-LOG.md` — Append-only chronological failure/fix history. Never delete resolved incidents.
+
 ## Architecture & Offline
 - `docs/architecture.md` — System overview.
 - `docs/offline-storage.md` — Offline-first plan (WatermelonDB + sync strategy).
