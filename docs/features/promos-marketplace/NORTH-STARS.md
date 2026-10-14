@@ -5,9 +5,20 @@
 - Feature: Promos Marketplace
 - Repository: `JLifeOne/Smart-Shopper`
 - Development branch: `feature/promos-marketplace`
+- Parent whole-product charter: `docs/PRODUCT-NORTH-STAR.md`
+- Current implementation snapshot: `docs/SMART-SHOPPER-CURRENT-STATE.md`
+- Shared offer/redemption contract: `OFFER-REDEMPTION-CONTRACT.md`
 - Production merge policy: no implementation from this feature is merged to `main` until branch preview, testing, design review, and explicit merge approval are complete.
 - Document type: living source-of-truth map.
 - History policy: this file and the three North Stars may be revised as the product develops. Historical product/engineering decisions belong in `DECISIONS.md`; failures and fixes belong in `FAILURE-LOG.md` and are append-only.
+
+## Product-level boundary
+
+Promos Marketplace inherits from the greater Smart Shopper Product North Star.
+
+Smart Shopper remains first a shopping-execution and shopping-intelligence product. Promos is the commercial marketplace layer built around that utility.
+
+Promos must strengthen shopper usefulness, relevance, and measurable commercial opportunity without turning Smart Shopper into a generic advertising app or corrupting organic price intelligence.
 
 ## Why there are three North Stars
 
@@ -33,7 +44,7 @@ Owns:
 - Promo detail;
 - categories and explicit interests;
 - Like, Save, Share, Hide, Not Interested, Report;
-- claim/redeem concepts;
+- claim/redeem shopper interactions;
 - `Why am I seeing this?`;
 - privacy-preserving relevance and personalization;
 - recommendation/ranking behavior visible to shoppers;
@@ -41,6 +52,8 @@ Owns:
 - saved promos and reminders;
 - shopper UI/UX, accessibility, motion, responsive/mobile behavior;
 - shopper-side analytics event definitions needed by the other two systems.
+
+Offer allocation, coupon strategies, one-time redemption, QR passes, and verified conversion semantics are governed by `OFFER-REDEMPTION-CONTRACT.md`.
 
 Primary question:
 
@@ -64,12 +77,14 @@ Owns:
 - paid/under-review lifecycle;
 - advertiser dashboard;
 - campaign analytics;
-- views, viewable impressions, unique reach, opens, likes, saves, shares, CTA actions, claims and redemptions;
+- views, viewable impressions, unique reach, opens, likes, saves, shares, CTA actions, claims, redemptions, and verified conversions where evidence exists;
 - optimization recommendations;
 - A/B creative testing;
 - campaign renewal/extension;
 - advertiser-facing support and account state;
 - privacy boundaries around analytics.
+
+The shared offer/coupon/pass/conversion model is governed by `OFFER-REDEMPTION-CONTRACT.md`.
 
 Primary question:
 
@@ -86,11 +101,12 @@ Owns:
 - advertiser 360/account operations;
 - campaign operations and moderation;
 - creative operations and AI-assisted Creative Studio controls;
-- inventory and pricing;
+- Ad Inventory & Commercial Pricing;
 - paid entitlement integrity and internal bonus/adjustment controls;
 - marketplace analytics;
 - individual advertiser analytics access;
 - Smart Shopper internal/platform analytics;
+- redemption/conversion operations and support where applicable;
 - Experience Manager for supported consumer-app surfaces;
 - engagement/communications;
 - payments, credits and refunds;
@@ -144,9 +160,23 @@ AI-generated or edited creative must never silently replace the approved version
 
 Advertisers request and purchase eligible inventory.
 
-The Command Center manages capacity, reservations, pricing, internal bonuses, blackout periods, overrides, and risk.
+The Command Center manages capacity, reservations, commercial pricing, internal bonuses, blackout periods, overrides, and risk.
 
 Shopper surfaces consume only campaigns that are eligible for that surface and time.
+
+### Offer, claim, redemption, and conversion truth
+
+Save, Claim, Redeem, and Verified Purchase are separate concepts.
+
+A Save is shopper intent.
+
+A Claim allocates or requests a benefit where applicable.
+
+A Redemption records benefit consumption/presentation according to the campaign rules.
+
+A Verified Purchase/Conversion requires stronger evidence and must carry a verification source.
+
+The detailed shared contract is `OFFER-REDEMPTION-CONTRACT.md`.
 
 ### Analytics
 
@@ -156,6 +186,8 @@ The same event definitions must feed:
 - Smart Shopper internal analytics.
 
 The aggregation and visibility rules differ, but the underlying event semantics must not.
+
+A click must not be reported as a verified purchase. Mock/prototype metrics must not be presented as production measurement.
 
 ### Privacy
 
@@ -183,24 +215,26 @@ A representative end-to-end campaign should work as follows:
 
 1. Advertiser creates a campaign.
 2. Advertiser selects category, targeting eligibility, placement, schedule and inventory.
-3. Advertiser uploads creative or uses Creative Studio.
-4. Advertiser previews exact shopper-facing renderings.
-5. Membership entitlements are applied where eligible.
-6. Remaining monetary amount is calculated server-side.
-7. Advertiser pays and submits in one streamlined transaction.
-8. Selected inventory is reserved.
-9. Campaign becomes `Paid · Under Review`.
-10. Command Center moderation reviews the same campaign object.
-11. Admin may approve, request reasonable changes, or reject under policy.
-12. Reasonable changes retain payment and reservation for the correction window.
-13. Genuine policy rejection follows the defined refund/credit-restoration workflow.
-14. Approved campaign is scheduled.
-15. Eligible shopper surfaces serve it.
-16. Shopper events are collected using the defined analytics contract.
-17. Advertiser sees aggregated campaign analytics.
-18. Command Center sees advertiser-specific, marketplace, and platform analytics.
-19. Optimization opportunities are generated.
-20. Advertiser or authorized Admin can reuse, extend, improve, or create a follow-up campaign.
+3. Advertiser defines any offer/redemption behavior where applicable.
+4. Advertiser uploads creative or uses Creative Studio.
+5. Advertiser previews exact shopper-facing renderings.
+6. Membership entitlements are applied where eligible.
+7. Remaining monetary amount is calculated server-side.
+8. Advertiser pays and submits in one streamlined transaction.
+9. Selected inventory is reserved.
+10. Campaign becomes `Paid · Under Review`.
+11. Command Center moderation reviews the same campaign object.
+12. Admin may approve, request reasonable changes, or reject under policy.
+13. Reasonable changes retain payment and reservation for the correction window.
+14. Genuine policy rejection follows the defined refund/credit-restoration workflow.
+15. Approved campaign is scheduled.
+16. Eligible shopper surfaces serve it.
+17. Shopper events are collected using the defined analytics contract.
+18. If the shopper saves/claims/redeems an offer, the shared offer/redemption contract governs those state transitions.
+19. Advertiser sees aggregated campaign analytics and conversion evidence by verification source.
+20. Command Center sees advertiser-specific, marketplace, and platform analytics.
+21. Optimization opportunities are generated.
+22. Advertiser or authorized Admin can reuse, extend, improve, or create a follow-up campaign.
 
 ## Shared non-negotiable engineering rules
 
@@ -276,11 +310,15 @@ The three products may use related Smart Shopper brand language, but they should
 
 When documents conflict, use this order while the feature remains on the development branch:
 
-1. explicit latest user-approved decision documented in `DECISIONS.md`;
-2. relevant component North Star;
-3. shared rules in this map;
-4. umbrella `README.md`;
-5. older prototypes/mockups.
+1. `docs/PRODUCT-NORTH-STAR.md` for whole-product purpose and product-level boundaries;
+2. explicit latest user-approved decision documented in `DECISIONS.md`;
+3. relevant component North Star;
+4. shared contracts such as `OFFER-REDEMPTION-CONTRACT.md` for their owned semantics;
+5. shared rules in this map;
+6. umbrella `README.md`;
+7. older prototypes/mockups.
+
+If a new decision truly changes the whole-product direction, update the Product North Star deliberately rather than leaving a permanent contradiction.
 
 Mockups are design references, not automatic product requirements. Controls shown in a generated image must not be implemented merely because they appear visually; every control must have a defined use case, permission boundary, state impact, and data source.
 
@@ -288,25 +326,30 @@ Mockups are design references, not automatic product requirements. Controls show
 
 Read these before substantive Promos work:
 
-1. `NORTH-STARS.md`
-2. the relevant component North Star:
+1. `docs/PRODUCT-NORTH-STAR.md`
+2. `docs/SMART-SHOPPER-CURRENT-STATE.md` when implementation reality matters
+3. `NORTH-STARS.md`
+4. the relevant component North Star:
    - `SHOPPER-EXPERIENCE-NORTH-STAR.md`
    - `ADVERTISER-NORTH-STAR.md`
    - `COMMAND-CENTER-NORTH-STAR.md`
-3. `DECISIONS.md`
-4. `FAILURE-LOG.md`
-5. `DESIGN-SPEC.md`
-6. umbrella `README.md` for earlier full-system detail not yet migrated into the component North Stars.
+5. `OFFER-REDEMPTION-CONTRACT.md` when offers, coupons, claims, redemption, ticket links, or conversions are involved
+6. `DECISIONS.md`
+7. `FAILURE-LOG.md`
+8. `DESIGN-SPEC.md`
+9. umbrella `README.md` for earlier full-system detail not yet migrated into the component North Stars.
 
 ## Documentation workflow going forward
 
 When a new idea is accepted:
 
-1. identify which North Star owns it;
-2. update that North Star rather than scattering the requirement across unrelated files;
-3. update another North Star only when that system's contract changes;
-4. append a decision entry when the change materially affects architecture, business rules, money, permissions, privacy, or state behavior;
-5. append failures separately if an implementation issue occurs;
-6. keep cross-links explicit.
+1. check that it still aligns with the whole-product North Star;
+2. identify which North Star or shared contract owns it;
+3. update that owning document rather than scattering the requirement across unrelated files;
+4. update another North Star only when that system's contract changes;
+5. append a decision entry when the change materially affects architecture, business rules, money, permissions, privacy, measurement, or state behavior;
+6. append failures separately if an implementation issue occurs;
+7. keep cross-links explicit;
+8. refresh the Current-State Reality Map after substantial implementation changes land on `main`.
 
 The goal is not to wait for finality. The goal is to preserve current product truth clearly enough that a new session or engineer can continue without guessing.
