@@ -13,6 +13,10 @@ This folder is the source of truth for product requirements, architecture, runbo
 Optional helper:
 - `node scripts/session_start.mjs`
 
+## Whole-product North Star & current reality
+- `docs/PRODUCT-NORTH-STAR.md` — Highest-level Smart Shopper product charter. Protects the product's direction: shopping execution → shopping intelligence → recommendation intelligence → commercial marketplace → operational platform. Promos must strengthen shopper utility rather than replace it.
+- `docs/SMART-SHOPPER-CURRENT-STATE.md` — Dated implementation reality map showing what the current codebase implements, partially implements, anticipates, or is still missing. Refresh this after substantial changes land on `main`.
+
 ## Product & Requirements
 - `docs/prd.md` — Unified PRD (requirements + acceptance criteria).
 - `docs/roadmap.md` — High-level phase roadmap.
@@ -23,7 +27,8 @@ Start with these for any substantive Promos work:
 - `docs/features/promos-marketplace/NORTH-STARS.md` — Map of the three interconnected Promos component North Stars and their shared contracts.
 - `docs/features/promos-marketplace/SHOPPER-EXPERIENCE-NORTH-STAR.md` — Shopper-facing Home Spotlight, Promos feed/detail, interests, relevance, Like/Save/Share, views, privacy, saved promos, and UI/UX rules.
 - `docs/features/promos-marketplace/ADVERTISER-NORTH-STAR.md` — Advertiser campaign creation, Creative Studio, payment/submission, entitlements, reuse, analytics, optimization, and lifecycle experience.
-- `docs/features/promos-marketplace/COMMAND-CENTER-NORTH-STAR.md` — Desktop internal control plane for advertiser operations, inventory/pricing, analytics, Experience Manager, support, payments, moderation, roles, system controls, and audit.
+- `docs/features/promos-marketplace/COMMAND-CENTER-NORTH-STAR.md` — Desktop internal control plane for advertiser operations, ad inventory/commercial pricing, analytics, Experience Manager, support, payments, moderation, roles, system controls, and audit.
+- `docs/features/promos-marketplace/OFFER-REDEMPTION-CONTRACT.md` — Shared Save → Claim → Redeem → Verified Purchase contract, coupon strategies, QR Promo Pass, physical redemption, external click/ticket attribution, conversion verification, fraud/privacy rules, and V1 scope.
 - `docs/features/promos-marketplace/README.md` — Umbrella Product + Engineering North Star containing earlier full-system detail not yet migrated into component documents.
 - `docs/features/promos-marketplace/DESIGN-SPEC.md` — Promos design specification and interaction direction.
 - `docs/features/promos-marketplace/DECISIONS.md` — Append-only product and engineering decision history. Read the latest entries before changing the feature.
