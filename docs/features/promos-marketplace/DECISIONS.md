@@ -137,3 +137,50 @@ Decision: A control shown in an AI-generated UI image is not automatically a pro
 
 ### D-042 - Documentation should capture current truth before finality
 Decision: Do not wait for every area to be finalized before documenting it. Lock accepted current direction into the appropriate living North Star and revise it as needed. Use the append-only decision and failure logs to preserve historical reasoning and implementation lessons.
+
+## 2026-10-13 - Whole-product direction, offers, redemption, and measurement integrity
+
+### D-043 - Smart Shopper has a product-level North Star above Promos
+Decision: `docs/PRODUCT-NORTH-STAR.md` is the highest-level product charter. The three Promos North Stars inherit from it and must not silently redefine Smart Shopper's purpose.
+
+Reason: Promos is strategically large and monetizable, but Smart Shopper remains first a shopping-execution and shopping-intelligence product. A feature should not become the product's identity merely because it is the current development focus.
+
+### D-044 - Promos must strengthen shopping utility rather than replace it
+Decision: Build Promos around Smart Shopper's existing shopping context. Do not rebuild Smart Shopper around advertising. Home and organic shopping intelligence must remain useful independent of paid campaigns.
+
+### D-045 - Save, Claim, Redeem, and Verified Purchase are separate states/events
+Decision: A saved promotion is intent, a claimed offer is allocated benefit, redemption is consumption/presentation of the benefit, and verified purchase/conversion requires stronger evidence. Do not report one stage as another.
+
+Reason: Honest funnel semantics are necessary for advertiser trust and meaningful conversion analytics.
+
+### D-046 - Physical one-time offers are server-authoritative
+Decision: Smart Shopper-issued Promo Passes/coupons use unique server-backed identifiers. The backend, not the displayed QR/code or client state, determines whether an offer is valid, expired, already redeemed, or has uses remaining. Redemption must be atomic and replay-safe.
+
+### D-047 - Support universal codes, merchant unique-code pools, and Smart Shopper Promo Passes
+Decision: The offer system should support at least three strategies: (1) universal merchant codes, (2) merchant-supplied unique code pools allocated by Smart Shopper, and (3) Smart Shopper-issued QR/token Promo Passes for physical or low-integration merchants.
+
+Reason: This accommodates sophisticated online merchants and small local businesses without requiring every advertiser to integrate a POS or commerce API.
+
+### D-048 - Smart Shopper will not initially become the merchant of record for tickets or advertiser purchases
+Decision: Event tickets, ecommerce purchases, service bookings, and similar transactions normally complete on the advertiser's existing site/provider. Smart Shopper tracks outbound actions and receives conversion evidence where available rather than taking on ticket issuance, settlement, chargebacks, fulfillment, or merchant liability.
+
+### D-049 - Conversion evidence must carry a verification source
+Decision: Advertiser analytics should distinguish evidence such as `Smart Shopper Verified`, `Partner Verified`, `Advertiser Reported`, and `Click Attribution Only`. Do not blend weak and strong attribution into an unexplained conversions number.
+
+### D-050 - Tracked outbound redirects are part of external attribution
+Decision: Where feasible, external website/ticket CTAs should pass through a Smart Shopper tracking/redirect layer so campaign, creative, placement, and click attribution can be measured without exposing private shopper context. A tracked click is not itself a verified sale.
+
+### D-051 - Real analytics infrastructure is a foundational requirement
+Decision: Current in-memory mobile analytics plumbing is not sufficient for advertiser reporting. Before production Promos analytics, build a durable, versioned, privacy-classified event ingestion and aggregation pipeline. Mock/prototype charts must not be represented as production measurement.
+
+### D-052 - Promo entitlements require a general commercial ledger, not menu-specific premium flags
+Decision: Do not attach Promo Days or advertising privileges directly to menu-specific premium state such as `is_menu_premium`. Build a general entitlement/ledger model with server authority, reservations, consumption, restoration, expiration, and audited adjustments while reusing proven server-side enforcement patterns where appropriate.
+
+### D-053 - Advertising pricing must be named separately from consumer product pricing
+Decision: Prefer `Ad Inventory & Commercial Pricing` (or equivalently explicit terminology) for the Command Center advertising-rate module. Smart Shopper already uses product/store price intelligence and price tiers, so generic `Pricing` risks semantic confusion.
+
+### D-054 - Current implementation reality is documented separately from durable product direction
+Decision: Maintain `docs/SMART-SHOPPER-CURRENT-STATE.md` as a dated reality map of implemented, partial, placeholder, and missing systems. Do not turn temporary implementation gaps into permanent North Star rules.
+
+### D-055 - Offer and redemption behavior has one shared cross-system contract
+Decision: `OFFER-REDEMPTION-CONTRACT.md` owns the shared Save → Claim → Redeem → Verified Purchase semantics, code strategies, physical redemption, ticket/external attribution, verification labels, fraud/privacy rules, and V1 scope. Shopper, Advertiser, and Command Center surfaces should implement that shared truth rather than inventing separate redemption meanings.
