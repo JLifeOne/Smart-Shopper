@@ -1,5 +1,8 @@
 # Agent Guardrails (Read First)
 
+> **MANDATORY per-feature documentation and code-comment rule (2026-11-09):** Read `docs/FEATURE_ARCHITECTURE.md` before touching a feature. Document its purpose, independent owner/boundaries, exact inbound and outbound dependencies, UI/API/database/state integrations, security contracts, tests, known limitations and safe handoff. Comment public/non-obvious code interfaces (why, contract, units, side effects and errors). Update impacted feature entries and downstream dependents **in the same PR**; missing/stale feature docs block merge. Never claim code is takeover-ready without a source audit. This supplements `docs/DEVELOPMENT_WORKFLOW.md`.
+
+
 > **MANDATORY owner-wide workflow (2026-11-09):** Before making any implementation, read [docs/DEVELOPMENT_WORKFLOW.md](docs/DEVELOPMENT_WORKFLOW.md). Every PR must stay integrated with the latest known-good app and be independently deployed/tested against **isolated staging services**, never a writable production database. Keep original UX, auth, role boundaries, data flows and existing features. Use main → PR synchronization, exact-commit preview, multi-account and responsive regression verification, append-only SU logs, and explicit owner approval before merge. A preview pointing to production is **blocked for writes** until separated. Existing stronger repository-specific requirements still apply.
 
 
