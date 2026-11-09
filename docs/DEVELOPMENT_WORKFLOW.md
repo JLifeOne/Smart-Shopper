@@ -31,3 +31,9 @@ This document is authoritative for this repository, alongside `AGENTS.md` and an
 Retain every existing AGENTS.md security and implementation runbook requirement. No test bypass for authorization, service-role credentials or RLS. Audit repo-specific workflows before any staging configuration.
 
 **Mandatory stop condition:** If staging isolation or a critical integration contract cannot be verified, preserve production and leave the feature PR open. No production merge is implied by this policy update.
+
+## Mandatory per-feature architecture and source documentation — owner directive 2026-11-09
+
+Every feature must have a maintained entry in `docs/FEATURE_ARCHITECTURE.md`, not merely a page label or summary. Document purpose/users/acceptance, independent responsibility and authoritative owner, required upstream services/APIs/RPCs/tables/auth, downstream callers/subscribers/events/navigation, data contracts/units/state/side effects, permission and failure boundaries, dependency graph and coupling, regression blast radius, test evidence/known defects, migration/rollback and safe next-developer handoff. All claims must name actual source paths and distinguish verified vs SOURCE-AUDIT-PENDING.
+
+Code must carry clear module-purpose/ownership comments and language-appropriate interface docstrings on exported/nontrivial functions, components, APIs, RPCs, state machines and migrations, explaining non-obvious WHY, inputs/outputs, units, side effects and security. Avoid redundant line-by-line comments, stale explanations and leaked secrets. In the **same PR**, update affected feature cards, downstream contracts, source comments, integration tests and append-only handoff/issue log. Unmapped ownership, hidden coupling, inaccurate comments or absent takeover documentation blocks merge even with green CI. This rule supplements isolated-staging and owner-approval gates.
