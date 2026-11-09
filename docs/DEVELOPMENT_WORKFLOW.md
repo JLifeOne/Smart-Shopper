@@ -25,7 +25,9 @@ This document is authoritative for this repository, alongside `AGENTS.md` and an
 - [ ] Unit/contracts/build plus deployed responsive and authenticated end-to-end testing performed
 - [ ] Screenshots or recordings compared to approved phone and desktop baseline
 - [ ] SU log, project handoff and verification/limitations updated append-only
-- [ ] Owner approves merge; production deployment and rollback plan valida## Repository-specific implementation note
-Retain every existing AGENTS.md security and implementation runbook requirement. No test bypass for authorization, service-role credentials or RLS. Audit repo-specific workflows before any staging configuration.l UX.
+- [ ] Owner approves merge; production deployment and rollback plan validated
+
+## Repository-specific implementation note
+Retain every existing AGENTS.md security and implementation runbook requirement. No test bypass for authorization, service-role credentials or RLS. Audit repo-specific workflows before any staging configuration.
 
 **Mandatory stop condition:** If staging isolation or a critical integration contract cannot be verified, preserve production and leave the feature PR open. No production merge is implied by this policy update.
