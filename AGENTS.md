@@ -1,5 +1,8 @@
 # Agent Guardrails (Read First)
 
+> **MANDATORY owner-wide workflow (2026-11-09):** Before making any implementation, read [docs/DEVELOPMENT_WORKFLOW.md](docs/DEVELOPMENT_WORKFLOW.md). Every PR must stay integrated with the latest known-good app and be independently deployed/tested against **isolated staging services**, never a writable production database. Keep original UX, auth, role boundaries, data flows and existing features. Use main → PR synchronization, exact-commit preview, multi-account and responsive regression verification, append-only SU logs, and explicit owner approval before merge. A preview pointing to production is **blocked for writes** until separated. Existing stronger repository-specific requirements still apply.
+
+
 This repo prioritizes correctness, resiliency, and production-readiness over speed. Avoid shortcuts that create instability under concurrent multi-user load.
 
 ## Security (non‑negotiable, no backdoors)
